@@ -195,10 +195,7 @@ function AuthPage() {
                 )}
               </TabsContent>
             ) : null}
-          </Tabs>
-
-        </div>
-      </div>
-    </div>
+      </Tabs>
+    </AuthShell>
   );
 }
