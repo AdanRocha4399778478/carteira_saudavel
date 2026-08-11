@@ -59,10 +59,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .maybeSingle()
       .then(({ data }) => {
         if (!ativo) return;
+        const p = data as { full_name: string | null; email: string | null; role: string | null } | null;
         setPerfil({
-          fullName: data?.full_name ?? null,
-          email: data?.email ?? session?.user.email ?? null,
-          role: data?.role ?? null,
+          fullName: p?.full_name ?? null,
+          email: p?.email ?? session?.user.email ?? null,
+          role: p?.role ?? null,
         });
       });
 

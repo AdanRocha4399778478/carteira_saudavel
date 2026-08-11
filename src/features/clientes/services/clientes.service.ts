@@ -43,5 +43,6 @@ export async function listarClientes(): Promise<Cliente[]> {
 export async function listarConsultores(): Promise<Record<string, string>> {
   const { data, error } = await supabase.from("profiles").select("id, full_name");
   if (error) throw error;
-  return Object.fromEntries((data ?? []).map((p) => [p.id, p.full_name ?? "—"]));
+  const perfis = (data ?? []) as { id: string; full_name: string | null }[];
+  return Object.fromEntries(perfis.map((p) => [p.id, p.full_name ?? "—"]));
 }
