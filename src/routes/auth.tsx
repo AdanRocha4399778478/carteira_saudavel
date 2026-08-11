@@ -20,6 +20,8 @@ export const Route = createFileRoute("/auth")({
       },
       { property: "og:title", content: "Acesso | Painel de Saúde da Carteira" },
       { property: "og:description", content: "Acesso restrito a consultores e líderes." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: AuthPage,
