@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as EsqueciSenhaRouteImport } from './routes/esqueci-senha'
+import { Route as RedefinirSenhaRouteImport } from './routes/redefinir-senha'
 import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authenticated/configuracoes'
 import { Route as AuthenticatedReuniaoInteligenteRouteImport } from './routes/_authenticated/reuniao-inteligente'
 import { Route as AuthenticatedVisaoGeralRouteImport } from './routes/_authenticated/visao-geral'
@@ -34,6 +36,16 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EsqueciSenhaRoute = EsqueciSenhaRouteImport.update({
+  id: '/esqueci-senha',
+  path: '/esqueci-senha',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RedefinirSenhaRoute = RedefinirSenhaRouteImport.update({
+  id: '/redefinir-senha',
+  path: '/redefinir-senha',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedConfiguracoesRoute =
@@ -92,6 +104,8 @@ const AuthenticatedReunioesIndexRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/esqueci-senha': typeof EsqueciSenhaRoute
+  '/redefinir-senha': typeof RedefinirSenhaRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/reuniao-inteligente': typeof AuthenticatedReuniaoInteligenteRoute
   '/visao-geral': typeof AuthenticatedVisaoGeralRoute
@@ -105,6 +119,8 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/esqueci-senha': typeof EsqueciSenhaRoute
+  '/redefinir-senha': typeof RedefinirSenhaRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/reuniao-inteligente': typeof AuthenticatedReuniaoInteligenteRoute
   '/visao-geral': typeof AuthenticatedVisaoGeralRoute
@@ -120,6 +136,8 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/esqueci-senha': typeof EsqueciSenhaRoute
+  '/redefinir-senha': typeof RedefinirSenhaRoute
   '/_authenticated/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/_authenticated/reuniao-inteligente': typeof AuthenticatedReuniaoInteligenteRoute
   '/_authenticated/visao-geral': typeof AuthenticatedVisaoGeralRoute
@@ -135,6 +153,8 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth'
+    | '/esqueci-senha'
+    | '/redefinir-senha'
     | '/configuracoes'
     | '/reuniao-inteligente'
     | '/visao-geral'
@@ -148,6 +168,8 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/auth'
+    | '/esqueci-senha'
+    | '/redefinir-senha'
     | '/configuracoes'
     | '/reuniao-inteligente'
     | '/visao-geral'
@@ -162,6 +184,8 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/auth'
+    | '/esqueci-senha'
+    | '/redefinir-senha'
     | '/_authenticated/configuracoes'
     | '/_authenticated/reuniao-inteligente'
     | '/_authenticated/visao-geral'
@@ -177,6 +201,8 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  EsqueciSenhaRoute: typeof EsqueciSenhaRoute
+  RedefinirSenhaRoute: typeof RedefinirSenhaRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -200,6 +226,20 @@ declare module '@tanstack/react-router' {
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/esqueci-senha': {
+      id: '/esqueci-senha'
+      path: '/esqueci-senha'
+      fullPath: '/esqueci-senha'
+      preLoaderRoute: typeof EsqueciSenhaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/redefinir-senha': {
+      id: '/redefinir-senha'
+      path: '/redefinir-senha'
+      fullPath: '/redefinir-senha'
+      preLoaderRoute: typeof RedefinirSenhaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/configuracoes': {
@@ -299,6 +339,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  EsqueciSenhaRoute: EsqueciSenhaRoute,
+  RedefinirSenhaRoute: RedefinirSenhaRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

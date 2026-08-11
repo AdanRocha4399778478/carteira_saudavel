@@ -2,7 +2,9 @@
  * Tradução de erros do Supabase Auth para mensagens claras, sem revelar se um
  * e-mail existe (evita enumeração de usuários).
  */
-export function authErrorMessage(error: { message?: string; status?: number } | null): string {
+export function authErrorMessage(
+  error: { message?: string | undefined; status?: number | undefined } | null,
+): string {
   if (!error) return "Não foi possível concluir a operação.";
   const raw = (error.message ?? "").toLowerCase();
   const status = error.status ?? 0;
