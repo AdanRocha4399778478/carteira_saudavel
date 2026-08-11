@@ -89,41 +89,10 @@ function AuthPage() {
     toast.success("Conta criada com sucesso.");
     await router.navigate({ to: "/visao-geral" });
   }
-
-
   return (
-    <div className="grid min-h-dvh lg:grid-cols-2">
-      <div className="hidden flex-col justify-between bg-sidebar p-12 text-sidebar-foreground lg:flex">
-        <div className="flex items-center gap-3">
-          <span className="grid size-10 place-items-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
-            <ShieldCheck className="size-5" aria-hidden />
-          </span>
-          <div>
-            <p className="font-display font-bold">Resultados S/A</p>
-            <p className="text-xs text-sidebar-foreground/60">Uso interno</p>
-          </div>
-        </div>
-        <div className="max-w-md">
-          <h2 className="font-display text-3xl leading-tight font-bold">
-            Painel de Saúde da Carteira
-          </h2>
-          <p className="mt-3 text-sm text-sidebar-foreground/70">
-            Satisfação do empresário, valor gerado e risco de cancelamento em uma única visão
-            executiva — para decidir onde atuar primeiro.
-          </p>
-        </div>
-        <p className="text-xs text-sidebar-foreground/50">
-          Acesso restrito a consultores e líderes da Resultados S/A.
-        </p>
-      </div>
+    <AuthShell title="Acessar o painel" description="Use seu e-mail corporativo e senha.">
+      <Tabs defaultValue="entrar">
 
-      <div className="flex items-center justify-center p-6">
-        <div className="card-surface w-full max-w-md p-6">
-          <h1 className="font-display text-xl font-bold">Acessar o painel</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Use seu e-mail corporativo e senha.
-          </p>
-          <Tabs defaultValue="entrar" className="mt-6">
             {PUBLIC_SIGNUP_ENABLED ? (
               <TabsList className="w-full">
                 <TabsTrigger value="entrar" className="flex-1">
