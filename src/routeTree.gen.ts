@@ -10,143 +10,173 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as PainelRouteImport } from './routes/_painel'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as PainelAcoesRouteImport } from './routes/_painel.acoes'
-import { Route as PainelClientesRouteImport } from './routes/_painel.clientes'
-import { Route as PainelConfiguracoesRouteImport } from './routes/_painel.configuracoes'
-import { Route as PainelProjetosRouteImport } from './routes/_painel.projetos'
-import { Route as PainelReuniaoInteligenteRouteImport } from './routes/_painel.reuniao-inteligente'
-import { Route as PainelReunioesRouteImport } from './routes/_painel.reunioes'
-import { Route as PainelVisaoGeralRouteImport } from './routes/_painel.visao-geral'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authenticated/configuracoes'
+import { Route as AuthenticatedReuniaoInteligenteRouteImport } from './routes/_authenticated/reuniao-inteligente'
+import { Route as AuthenticatedVisaoGeralRouteImport } from './routes/_authenticated/visao-geral'
+import { Route as AuthenticatedAcoesIndexRouteImport } from './routes/_authenticated/acoes/index'
+import { Route as AuthenticatedClientesIndexRouteImport } from './routes/_authenticated/clientes/index'
+import { Route as AuthenticatedClientesClientIdRouteImport } from './routes/_authenticated/clientes/$clientId'
+import { Route as AuthenticatedProjetosIndexRouteImport } from './routes/_authenticated/projetos/index'
+import { Route as AuthenticatedProjetosProjectIdRouteImport } from './routes/_authenticated/projetos/$projectId'
+import { Route as AuthenticatedReunioesIndexRouteImport } from './routes/_authenticated/reunioes/index'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PainelRoute = PainelRouteImport.update({
-  id: '/_painel',
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PainelAcoesRoute = PainelAcoesRouteImport.update({
-  id: '/acoes',
-  path: '/acoes',
-  getParentRoute: () => PainelRoute,
-} as any)
-const PainelClientesRoute = PainelClientesRouteImport.update({
-  id: '/clientes',
-  path: '/clientes',
-  getParentRoute: () => PainelRoute,
-} as any)
-const PainelConfiguracoesRoute = PainelConfiguracoesRouteImport.update({
-  id: '/configuracoes',
-  path: '/configuracoes',
-  getParentRoute: () => PainelRoute,
-} as any)
-const PainelProjetosRoute = PainelProjetosRouteImport.update({
-  id: '/projetos',
-  path: '/projetos',
-  getParentRoute: () => PainelRoute,
-} as any)
-const PainelReuniaoInteligenteRoute =
-  PainelReuniaoInteligenteRouteImport.update({
+const AuthenticatedConfiguracoesRoute =
+  AuthenticatedConfiguracoesRouteImport.update({
+    id: '/configuracoes',
+    path: '/configuracoes',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedReuniaoInteligenteRoute =
+  AuthenticatedReuniaoInteligenteRouteImport.update({
     id: '/reuniao-inteligente',
     path: '/reuniao-inteligente',
-    getParentRoute: () => PainelRoute,
+    getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const PainelReunioesRoute = PainelReunioesRouteImport.update({
-  id: '/reunioes',
-  path: '/reunioes',
-  getParentRoute: () => PainelRoute,
-} as any)
-const PainelVisaoGeralRoute = PainelVisaoGeralRouteImport.update({
+const AuthenticatedVisaoGeralRoute = AuthenticatedVisaoGeralRouteImport.update({
   id: '/visao-geral',
   path: '/visao-geral',
-  getParentRoute: () => PainelRoute,
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAcoesIndexRoute = AuthenticatedAcoesIndexRouteImport.update({
+  id: '/acoes/',
+  path: '/acoes/',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedClientesIndexRoute =
+  AuthenticatedClientesIndexRouteImport.update({
+    id: '/clientes/',
+    path: '/clientes/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedClientesClientIdRoute =
+  AuthenticatedClientesClientIdRouteImport.update({
+    id: '/clientes/$clientId',
+    path: '/clientes/$clientId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedProjetosIndexRoute =
+  AuthenticatedProjetosIndexRouteImport.update({
+    id: '/projetos/',
+    path: '/projetos/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedProjetosProjectIdRoute =
+  AuthenticatedProjetosProjectIdRouteImport.update({
+    id: '/projetos/$projectId',
+    path: '/projetos/$projectId',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedReunioesIndexRoute =
+  AuthenticatedReunioesIndexRouteImport.update({
+    id: '/reunioes/',
+    path: '/reunioes/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/login': typeof LoginRoute
-  '/acoes': typeof PainelAcoesRoute
-  '/clientes': typeof PainelClientesRoute
-  '/configuracoes': typeof PainelConfiguracoesRoute
-  '/projetos': typeof PainelProjetosRoute
-  '/reuniao-inteligente': typeof PainelReuniaoInteligenteRoute
-  '/reunioes': typeof PainelReunioesRoute
-  '/visao-geral': typeof PainelVisaoGeralRoute
+  '/auth': typeof AuthRoute
+  '/configuracoes': typeof AuthenticatedConfiguracoesRoute
+  '/reuniao-inteligente': typeof AuthenticatedReuniaoInteligenteRoute
+  '/visao-geral': typeof AuthenticatedVisaoGeralRoute
+  '/clientes/$clientId': typeof AuthenticatedClientesClientIdRoute
+  '/projetos/$projectId': typeof AuthenticatedProjetosProjectIdRoute
+  '/acoes/': typeof AuthenticatedAcoesIndexRoute
+  '/clientes/': typeof AuthenticatedClientesIndexRoute
+  '/projetos/': typeof AuthenticatedProjetosIndexRoute
+  '/reunioes/': typeof AuthenticatedReunioesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/login': typeof LoginRoute
-  '/acoes': typeof PainelAcoesRoute
-  '/clientes': typeof PainelClientesRoute
-  '/configuracoes': typeof PainelConfiguracoesRoute
-  '/projetos': typeof PainelProjetosRoute
-  '/reuniao-inteligente': typeof PainelReuniaoInteligenteRoute
-  '/reunioes': typeof PainelReunioesRoute
-  '/visao-geral': typeof PainelVisaoGeralRoute
+  '/auth': typeof AuthRoute
+  '/configuracoes': typeof AuthenticatedConfiguracoesRoute
+  '/reuniao-inteligente': typeof AuthenticatedReuniaoInteligenteRoute
+  '/visao-geral': typeof AuthenticatedVisaoGeralRoute
+  '/clientes/$clientId': typeof AuthenticatedClientesClientIdRoute
+  '/projetos/$projectId': typeof AuthenticatedProjetosProjectIdRoute
+  '/acoes': typeof AuthenticatedAcoesIndexRoute
+  '/clientes': typeof AuthenticatedClientesIndexRoute
+  '/projetos': typeof AuthenticatedProjetosIndexRoute
+  '/reunioes': typeof AuthenticatedReunioesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/_painel': typeof PainelRouteWithChildren
-  '/login': typeof LoginRoute
-  '/_painel/acoes': typeof PainelAcoesRoute
-  '/_painel/clientes': typeof PainelClientesRoute
-  '/_painel/configuracoes': typeof PainelConfiguracoesRoute
-  '/_painel/projetos': typeof PainelProjetosRoute
-  '/_painel/reuniao-inteligente': typeof PainelReuniaoInteligenteRoute
-  '/_painel/reunioes': typeof PainelReunioesRoute
-  '/_painel/visao-geral': typeof PainelVisaoGeralRoute
+  '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/auth': typeof AuthRoute
+  '/_authenticated/configuracoes': typeof AuthenticatedConfiguracoesRoute
+  '/_authenticated/reuniao-inteligente': typeof AuthenticatedReuniaoInteligenteRoute
+  '/_authenticated/visao-geral': typeof AuthenticatedVisaoGeralRoute
+  '/_authenticated/clientes/$clientId': typeof AuthenticatedClientesClientIdRoute
+  '/_authenticated/projetos/$projectId': typeof AuthenticatedProjetosProjectIdRoute
+  '/_authenticated/acoes/': typeof AuthenticatedAcoesIndexRoute
+  '/_authenticated/clientes/': typeof AuthenticatedClientesIndexRoute
+  '/_authenticated/projetos/': typeof AuthenticatedProjetosIndexRoute
+  '/_authenticated/reunioes/': typeof AuthenticatedReunioesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
-    | '/login'
-    | '/acoes'
-    | '/clientes'
+    | '/auth'
     | '/configuracoes'
-    | '/projetos'
     | '/reuniao-inteligente'
-    | '/reunioes'
     | '/visao-geral'
+    | '/clientes/$clientId'
+    | '/projetos/$projectId'
+    | '/acoes/'
+    | '/clientes/'
+    | '/projetos/'
+    | '/reunioes/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/login'
+    | '/auth'
+    | '/configuracoes'
+    | '/reuniao-inteligente'
+    | '/visao-geral'
+    | '/clientes/$clientId'
+    | '/projetos/$projectId'
     | '/acoes'
     | '/clientes'
-    | '/configuracoes'
     | '/projetos'
-    | '/reuniao-inteligente'
     | '/reunioes'
-    | '/visao-geral'
   id:
     | '__root__'
     | '/'
-    | '/_painel'
-    | '/login'
-    | '/_painel/acoes'
-    | '/_painel/clientes'
-    | '/_painel/configuracoes'
-    | '/_painel/projetos'
-    | '/_painel/reuniao-inteligente'
-    | '/_painel/reunioes'
-    | '/_painel/visao-geral'
+    | '/_authenticated'
+    | '/auth'
+    | '/_authenticated/configuracoes'
+    | '/_authenticated/reuniao-inteligente'
+    | '/_authenticated/visao-geral'
+    | '/_authenticated/clientes/$clientId'
+    | '/_authenticated/projetos/$projectId'
+    | '/_authenticated/acoes/'
+    | '/_authenticated/clientes/'
+    | '/_authenticated/projetos/'
+    | '/_authenticated/reunioes/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  PainelRoute: typeof PainelRouteWithChildren
-  LoginRoute: typeof LoginRoute
+  AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  AuthRoute: typeof AuthRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -158,100 +188,128 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_painel': {
-      id: '/_painel'
+    '/_authenticated': {
+      id: '/_authenticated'
       path: ''
       fullPath: '/'
-      preLoaderRoute: typeof PainelRouteImport
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_painel/acoes': {
-      id: '/_painel/acoes'
-      path: '/acoes'
-      fullPath: '/acoes'
-      preLoaderRoute: typeof PainelAcoesRouteImport
-      parentRoute: typeof PainelRoute
-    }
-    '/_painel/clientes': {
-      id: '/_painel/clientes'
-      path: '/clientes'
-      fullPath: '/clientes'
-      preLoaderRoute: typeof PainelClientesRouteImport
-      parentRoute: typeof PainelRoute
-    }
-    '/_painel/configuracoes': {
-      id: '/_painel/configuracoes'
+    '/_authenticated/configuracoes': {
+      id: '/_authenticated/configuracoes'
       path: '/configuracoes'
       fullPath: '/configuracoes'
-      preLoaderRoute: typeof PainelConfiguracoesRouteImport
-      parentRoute: typeof PainelRoute
+      preLoaderRoute: typeof AuthenticatedConfiguracoesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_painel/projetos': {
-      id: '/_painel/projetos'
-      path: '/projetos'
-      fullPath: '/projetos'
-      preLoaderRoute: typeof PainelProjetosRouteImport
-      parentRoute: typeof PainelRoute
-    }
-    '/_painel/reuniao-inteligente': {
-      id: '/_painel/reuniao-inteligente'
+    '/_authenticated/reuniao-inteligente': {
+      id: '/_authenticated/reuniao-inteligente'
       path: '/reuniao-inteligente'
       fullPath: '/reuniao-inteligente'
-      preLoaderRoute: typeof PainelReuniaoInteligenteRouteImport
-      parentRoute: typeof PainelRoute
+      preLoaderRoute: typeof AuthenticatedReuniaoInteligenteRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_painel/reunioes': {
-      id: '/_painel/reunioes'
-      path: '/reunioes'
-      fullPath: '/reunioes'
-      preLoaderRoute: typeof PainelReunioesRouteImport
-      parentRoute: typeof PainelRoute
-    }
-    '/_painel/visao-geral': {
-      id: '/_painel/visao-geral'
+    '/_authenticated/visao-geral': {
+      id: '/_authenticated/visao-geral'
       path: '/visao-geral'
       fullPath: '/visao-geral'
-      preLoaderRoute: typeof PainelVisaoGeralRouteImport
-      parentRoute: typeof PainelRoute
+      preLoaderRoute: typeof AuthenticatedVisaoGeralRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/acoes/': {
+      id: '/_authenticated/acoes/'
+      path: '/acoes'
+      fullPath: '/acoes/'
+      preLoaderRoute: typeof AuthenticatedAcoesIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/clientes/': {
+      id: '/_authenticated/clientes/'
+      path: '/clientes'
+      fullPath: '/clientes/'
+      preLoaderRoute: typeof AuthenticatedClientesIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/clientes/$clientId': {
+      id: '/_authenticated/clientes/$clientId'
+      path: '/clientes/$clientId'
+      fullPath: '/clientes/$clientId'
+      preLoaderRoute: typeof AuthenticatedClientesClientIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/projetos/': {
+      id: '/_authenticated/projetos/'
+      path: '/projetos'
+      fullPath: '/projetos/'
+      preLoaderRoute: typeof AuthenticatedProjetosIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/projetos/$projectId': {
+      id: '/_authenticated/projetos/$projectId'
+      path: '/projetos/$projectId'
+      fullPath: '/projetos/$projectId'
+      preLoaderRoute: typeof AuthenticatedProjetosProjectIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/reunioes/': {
+      id: '/_authenticated/reunioes/'
+      path: '/reunioes'
+      fullPath: '/reunioes/'
+      preLoaderRoute: typeof AuthenticatedReunioesIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
   }
 }
 
-interface PainelRouteChildren {
-  PainelAcoesRoute: typeof PainelAcoesRoute
-  PainelClientesRoute: typeof PainelClientesRoute
-  PainelConfiguracoesRoute: typeof PainelConfiguracoesRoute
-  PainelProjetosRoute: typeof PainelProjetosRoute
-  PainelReuniaoInteligenteRoute: typeof PainelReuniaoInteligenteRoute
-  PainelReunioesRoute: typeof PainelReunioesRoute
-  PainelVisaoGeralRoute: typeof PainelVisaoGeralRoute
+interface AuthenticatedRouteRouteChildren {
+  AuthenticatedConfiguracoesRoute: typeof AuthenticatedConfiguracoesRoute
+  AuthenticatedReuniaoInteligenteRoute: typeof AuthenticatedReuniaoInteligenteRoute
+  AuthenticatedVisaoGeralRoute: typeof AuthenticatedVisaoGeralRoute
+  AuthenticatedClientesClientIdRoute: typeof AuthenticatedClientesClientIdRoute
+  AuthenticatedProjetosProjectIdRoute: typeof AuthenticatedProjetosProjectIdRoute
+  AuthenticatedAcoesIndexRoute: typeof AuthenticatedAcoesIndexRoute
+  AuthenticatedClientesIndexRoute: typeof AuthenticatedClientesIndexRoute
+  AuthenticatedProjetosIndexRoute: typeof AuthenticatedProjetosIndexRoute
+  AuthenticatedReunioesIndexRoute: typeof AuthenticatedReunioesIndexRoute
 }
 
-const PainelRouteChildren: PainelRouteChildren = {
-  PainelAcoesRoute: PainelAcoesRoute,
-  PainelClientesRoute: PainelClientesRoute,
-  PainelConfiguracoesRoute: PainelConfiguracoesRoute,
-  PainelProjetosRoute: PainelProjetosRoute,
-  PainelReuniaoInteligenteRoute: PainelReuniaoInteligenteRoute,
-  PainelReunioesRoute: PainelReunioesRoute,
-  PainelVisaoGeralRoute: PainelVisaoGeralRoute,
+const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedConfiguracoesRoute: AuthenticatedConfiguracoesRoute,
+  AuthenticatedReuniaoInteligenteRoute: AuthenticatedReuniaoInteligenteRoute,
+  AuthenticatedVisaoGeralRoute: AuthenticatedVisaoGeralRoute,
+  AuthenticatedClientesClientIdRoute: AuthenticatedClientesClientIdRoute,
+  AuthenticatedProjetosProjectIdRoute: AuthenticatedProjetosProjectIdRoute,
+  AuthenticatedAcoesIndexRoute: AuthenticatedAcoesIndexRoute,
+  AuthenticatedClientesIndexRoute: AuthenticatedClientesIndexRoute,
+  AuthenticatedProjetosIndexRoute: AuthenticatedProjetosIndexRoute,
+  AuthenticatedReunioesIndexRoute: AuthenticatedReunioesIndexRoute,
 }
 
-const PainelRouteWithChildren =
-  PainelRoute._addFileChildren(PainelRouteChildren)
+const AuthenticatedRouteRouteWithChildren =
+  AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  PainelRoute: PainelRouteWithChildren,
-  LoginRoute: LoginRoute,
+  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  AuthRoute: AuthRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
