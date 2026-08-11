@@ -35,6 +35,7 @@ export const Route = createFileRoute("/_authenticated/configuracoes")({
 
 function SettingsPage() {
   const { riskRules, profiles, isLoading, isSlow, error, refetchAll } = useSettingsData();
+  const { access, isAdmin } = useAccess();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<Record<string, { points: number; active: boolean }>>({});
 
