@@ -1,9 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 
-import type { Database } from "./database.types";
+import type { Database } from "./types";
 
-const url = import.meta.env['VITE_SUPABASE_URL'] as string | undefined;
-const anonKey = import.meta.env['VITE_SUPABASE_ANON_KEY'] as string | undefined;
+const env = import.meta.env as Record<string, string | undefined>;
+
+const url = env["VITE_SUPABASE_URL"];
+const anonKey = env["VITE_SUPABASE_ANON_KEY"] ?? env["VITE_SUPABASE_PUBLISHABLE_KEY"];
 
 export const BACKEND_CONFIG_ERROR = "Configuração do backend não encontrada.";
 

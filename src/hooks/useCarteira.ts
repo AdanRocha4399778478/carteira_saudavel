@@ -1,0 +1,203 @@
+import { useQueries } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { MAX_QUERY_RETRIES } from "@/lib/query-errors";
+import {
+  actionsQuery,
+  clientsQuery,
+  meetingsQuery,
+  opportunitiesQuery,
+  profilesQuery,
+  riskRulesQuery,
+  risksQuery,
+} from "@/lib/api";
+import {
+  isOverdue,
+  type ActionItem,
+  type Client,
+  type Meeting,
+  type OpportunityItem,
+  type Profile,
+  type RiskItem,
+  type RiskRule,
+} from "@/lib/domain";
+
+type TableKey =
+  | "clients"
+  | "meetings"
+  | "actions"
+  | "profiles"
+  | "risks"
+  | "opportunities"
+  | "risk_rules";
+
+const QUERY_BY_TABLE = {
+  clients: clientsQuery,
+  meetings: meetingsQuery,
+  actions: actionsQuery,
+  profiles: profilesQuery,
+  risks: risksQuery,
+  opportunities: opportunitiesQuery,
+  risk_rules: riskRulesQuery,
+} as const;
+
+const SLOW_QUERY_MS = 10_000;
+
+const EMPTY: never[] = [];
+
+
+/**
+ * Base compartilhada: cada página declara apenas as tabelas que consome,
+ * de modo que uma falha em uma tabela não usada não bloqueie a tela.
+ */
+function useCarteiraData(tables: readonly TableKey[]) {
+  const results = useQueries({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    queries: tables.map((t) => QUERY_BY_TABLE[t]() as any),
+  });
+
+  const byTable = new Map<TableKey, (typeof results)[number]>();
+  tables.forEach((t, i) => byTable.set(t, results[i]!));
+
+  // EMPTY é uma referência estável: um `[]` novo a cada render quebraria
+  // dependências de useEffect/useMemo nas páginas.
+  const get = <T>(t: TableKey): T[] => (byTable.get(t)?.data as T[] | undefined) ?? (EMPTY as T[]);
+
+
+  const clients = get<Client>("clients");
+  const meetings = get<Meeting>("meetings");
+  const actions = get<ActionItem>("actions");
+  const profiles = get<Profile>("profiles");
+  const risks = get<RiskItem>("risks");
+  const opportunities = get<OpportunityItem>("opportunities");
+  const riskRules = get<RiskRule>("risk_rules");
+
+  // Loading só quando ainda não há dado algum em cache (evita tela vazia
+  // durante refetch em segundo plano).
+  const isLoading = results.some((r) => r.isLoading && r.data === undefined);
+  const isRefreshing = results.some((r) => r.isFetching) && !isLoading;
+  // Uma falha em refetch com cache disponível não derruba a tela: só
+  // consideramos erro quando não há dados para exibir. `failureReason` cobre o
+  // caso em que a consulta ainda está entre tentativas: sem isso a tela ficaria
+  // presa em "carregando" enquanto o banco estiver indisponível.
+  const failed = results.find(
+    (r) =>
+      r.data === undefined &&
+      (r.error || (r.failureCount >= MAX_QUERY_RETRIES && r.failureReason)),
+  );
+  const liveError = (failed?.error ?? failed?.failureReason ?? null) as Error | null;
+
+  // Trava a última falha conhecida: tentativas seguintes recolocam a consulta em
+  // "pending" e, sem essa trava, a tela voltaria ao skeleton indefinidamente.
+  const [latchedError, setLatchedError] = useState<Error | null>(null);
+  const hasData = results.some((r) => r.data !== undefined);
+  useEffect(() => {
+    if (liveError) setLatchedError(liveError);
+    else if (hasData) setLatchedError(null);
+  }, [liveError, hasData]);
+
+  const error = liveError ?? latchedError;
+  const refetchAll = () => {
+    setLatchedError(null);
+    results.forEach((r) => void r.refetch());
+  };
+
+
+  // Aviso visual de conexão lenta (> 10s) sem esconder o botão de retentativa.
+  const [isSlow, setIsSlow] = useState(false);
+  useEffect(() => {
+    if (!isLoading) {
+      setIsSlow(false);
+      return;
+    }
+    const timer = setTimeout(() => setIsSlow(true), SLOW_QUERY_MS);
+    return () => clearTimeout(timer);
+  }, [isLoading]);
+
+  const consultantName = useMemo(() => {
+    const map = new Map(profiles.map((p) => [p.id, p.full_name]));
+    return (id: string | null) => (id ? (map.get(id) ?? "Não atribuído") : "Não atribuído");
+  }, [profiles]);
+
+  const clientName = useMemo(() => {
+    const map = new Map(clients.map((c) => [c.id, c.company_name]));
+    return (id: string | null) => (id ? (map.get(id) ?? "—") : "—");
+  }, [clients]);
+
+  const openActionsByClient = useMemo(() => {
+    const map = new Map<string, ActionItem[]>();
+    for (const a of actions) {
+      if (a.status === "concluída") continue;
+      const list = map.get(a.client_id) ?? [];
+      list.push(a);
+      map.set(a.client_id, list);
+    }
+    return map;
+  }, [actions]);
+
+  const overdueByClient = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const a of actions) {
+      if (!isOverdue(a)) continue;
+      map.set(a.client_id, (map.get(a.client_id) ?? 0) + 1);
+    }
+    return map;
+  }, [actions]);
+
+  const nextActionByClient = useMemo(() => {
+    const map = new Map<string, ActionItem>();
+    for (const a of [...actions].sort((x, y) =>
+      (x.deadline ?? "9999").localeCompare(y.deadline ?? "9999"),
+    )) {
+      if (a.status === "concluída") continue;
+      if (!map.has(a.client_id)) map.set(a.client_id, a);
+    }
+    return map;
+  }, [actions]);
+
+  return {
+    clients,
+    meetings,
+    actions,
+    profiles,
+    risks,
+    opportunities,
+    riskRules,
+    isLoading,
+    isRefreshing,
+
+    isSlow,
+    error,
+    refetchAll,
+    consultantName,
+    clientName,
+    openActionsByClient,
+    overdueByClient,
+    nextActionByClient,
+  };
+}
+
+const DASHBOARD_TABLES = ["clients", "meetings", "actions", "profiles"] as const;
+const CLIENTS_TABLES = ["clients", "actions", "profiles"] as const;
+const CLIENT_DETAIL_TABLES = [
+  "clients",
+  "meetings",
+  "actions",
+  "risks",
+  "opportunities",
+  "risk_rules",
+  "profiles",
+] as const;
+const MEETINGS_TABLES = ["clients", "meetings", "actions", "risk_rules"] as const;
+/** A listagem de reuniões é paginada no banco — aqui só os apoios da tela. */
+const MEETINGS_LIST_TABLES = ["clients", "actions", "risk_rules"] as const;
+const ACTIONS_TABLES = ["clients", "actions", "risk_rules"] as const;
+const SETTINGS_TABLES = ["risk_rules", "profiles"] as const;
+
+export const useDashboardData = () => useCarteiraData(DASHBOARD_TABLES);
+export const useClientsData = () => useCarteiraData(CLIENTS_TABLES);
+export const useClientDetailData = () => useCarteiraData(CLIENT_DETAIL_TABLES);
+export const useMeetingsData = () => useCarteiraData(MEETINGS_TABLES);
+export const useMeetingsListData = () => useCarteiraData(MEETINGS_LIST_TABLES);
+export const useActionsData = () => useCarteiraData(ACTIONS_TABLES);
+export const useSettingsData = () => useCarteiraData(SETTINGS_TABLES);
+
