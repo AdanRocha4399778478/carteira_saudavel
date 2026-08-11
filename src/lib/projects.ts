@@ -1,5 +1,5 @@
 import { queryOptions } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/lib/supabase/client";
 import { logDbError } from "./api";
 import { normalizeMeeting, type Meeting } from "./domain";
 import { DEDUPE_THRESHOLDS, matchProject } from "./deduplication";

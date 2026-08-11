@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import type { Session } from "@supabase/supabase-js";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/lib/supabase/client";
 import { AppSidebar } from "@/components/painel/AppSidebar";
 import { ErrorState, HeaderSkeleton, LoadingState } from "@/components/painel/states";
 import { classifyError, errorMessageOf, logQueryError } from "@/lib/query-errors";

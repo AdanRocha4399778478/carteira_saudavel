@@ -11,7 +11,7 @@ import {
   Sparkles,
   ShieldCheck,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/lib/supabase/client";
 import { meQuery } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { initialsOf } from "@/lib/domain";

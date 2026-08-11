@@ -31,7 +31,7 @@ import {
   profilesQuery,
   risksQuery,
 } from "@/lib/api";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/lib/supabase/client";
 import {
   CONTEXT_LISTS,
   CONTEXT_LIST_LABEL,

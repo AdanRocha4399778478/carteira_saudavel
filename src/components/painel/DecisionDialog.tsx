@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/lib/supabase/client";
 import { formatDate, type Meeting } from "@/lib/domain";
 import { DECISION_STATUSES, DECISION_STATUS_LABEL, type Decision } from "@/lib/projects";
 import {

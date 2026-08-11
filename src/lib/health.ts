@@ -1,5 +1,5 @@
 import { queryOptions } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/lib/supabase/client";
 import { logDbError } from "./api";
 import { daysSince, isOverdue, startOfToday, type ActionItem, type Meeting, type RiskItem } from "./domain";
 import type { ContextItem, Decision } from "./projects";

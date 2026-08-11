@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { queryOptions } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/lib/supabase/client";
 import { logDbError, actionsQuery, meetingsQuery, risksQuery } from "@/lib/api";
 import { normalizeContext, decisionsQuery, projectsQuery, type ProjectContext } from "@/lib/projects";
 import { computeProjectHealth, type ProjectHealth } from "@/lib/health";

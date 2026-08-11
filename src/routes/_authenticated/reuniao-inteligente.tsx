@@ -9,7 +9,7 @@ import { ErrorState } from "@/components/painel/states";
 import { ClientCombobox } from "@/components/painel/ClientCombobox";
 import { MeetingAnalysisDialog } from "@/components/painel/MeetingAnalysisDialog";
 import { routeErrorComponent } from "@/components/painel/RouteError";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/lib/supabase/client";
 import {
   actionsQuery,
   clientsQuery,

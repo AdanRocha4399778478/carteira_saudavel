@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSupabaseAuth } from "@/lib/supabase/auth-middleware";
 import { analyzeInput, runMeetingAnalysis } from "@/lib/intelligent-meeting.server";
 
 /* Camada fina de RPC: toda a lógica vive em intelligent-meeting.server.ts */
