@@ -91,21 +91,54 @@ function SettingsPage() {
     <>
       <PageHeader
         title="Configurações"
-        description="Pesos do cálculo de risco e equipe de consultoria"
+        description="Sua conta, pesos do cálculo de risco e equipe de consultoria"
       >
-        <Button onClick={() => save.mutate()} disabled={save.isPending}>
-          <SlidersHorizontal className="size-4" aria-hidden />
-          {save.isPending ? "Salvando…" : "Salvar critérios"}
-        </Button>
+        {isAdmin ? (
+          <Button onClick={() => save.mutate()} disabled={save.isPending}>
+            <SlidersHorizontal className="size-4" aria-hidden />
+            {save.isPending ? "Salvando…" : "Salvar critérios"}
+          </Button>
+        ) : null}
       </PageHeader>
 
       <div className="flex flex-col gap-6 p-4 md:p-8">
+        <section className="card-surface p-4 md:p-5">
+          <h2 className="text-base font-semibold">Minha conta</h2>
+          <p className="text-xs text-muted-foreground">
+            Dados da sessão atual e permissões concedidas.
+          </p>
+          <dl className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div>
+              <dt className="text-xs text-muted-foreground">Nome</dt>
+              <dd className="text-sm font-medium">{access?.profile?.full_name ?? "—"}</dd>
+            </div>
+            <div className="min-w-0">
+              <dt className="text-xs text-muted-foreground">E-mail</dt>
+              <dd className="truncate text-sm font-medium">{access?.email ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Papel</dt>
+              <dd className="text-sm font-medium">{isAdmin ? "Administrador" : "Consultor"}</dd>
+            </div>
+          </dl>
+          <p className="mt-3 text-xs text-muted-foreground">
+            {isAdmin
+              ? "Como administrador você enxerga e edita toda a carteira."
+              : "Como consultor você enxerga apenas os clientes da sua carteira."}
+          </p>
+        </section>
+
         <section className="card-surface p-4 md:p-5">
           <h2 className="text-base font-semibold">Critérios de risco de cancelamento</h2>
           <p className="text-xs text-muted-foreground">
             A soma dos pontos define o nível: até 2 baixo, até 5 médio, até 8 alto, acima disso
             crítico.
           </p>
+          {isAdmin ? null : (
+            <p className="mt-2 text-xs font-medium text-muted-foreground">
+              Somente administradores podem alterar estes parâmetros.
+            </p>
+          )}
           <div className="mt-4 grid gap-3">
             {riskRules.map((rule) => (
               <div
