@@ -78,7 +78,7 @@ function AuthPage() {
     });
     setLoading(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(authErrorMessage(error));
       return;
     }
     if (!data.session) {
@@ -86,9 +86,11 @@ function AuthPage() {
       toast.info("Confirme seu e-mail para ativar o acesso.");
       return;
     }
+    queryClient.removeQueries({ queryKey: ["access"] });
     toast.success("Conta criada com sucesso.");
     await router.navigate({ to: "/visao-geral" });
   }
+
   return (
     <AuthShell title="Acessar o painel" description="Use seu e-mail corporativo e senha.">
       <Tabs defaultValue="entrar">
