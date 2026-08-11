@@ -25,7 +25,6 @@ export default defineConfig(async ({ command, mode }) => {
             define: { "process.env.NODE_ENV": JSON.stringify("development") },
           },
         },
-        esbuild: { keepNames: true },
       }
     : {};
 
