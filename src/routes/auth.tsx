@@ -49,9 +49,12 @@ function AuthPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(authErrorMessage(error));
       return;
     }
+    // Zera o cache de autorização para recarregar papéis do novo usuário.
+    queryClient.removeQueries({ queryKey: ["access"] });
+    await queryClient.invalidateQueries();
     toast.success("Bem-vindo de volta!");
     await router.navigate({ to: "/visao-geral" });
   }
