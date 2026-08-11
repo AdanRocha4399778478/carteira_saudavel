@@ -1,12 +1,14 @@
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
-import { ShieldCheck } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AuthShell } from "@/components/auth/AuthShell";
+import { authErrorMessage } from "@/lib/auth/messages";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
@@ -19,6 +21,8 @@ export const Route = createFileRoute("/auth")({
       },
       { property: "og:title", content: "Acesso | Painel de Saúde da Carteira" },
       { property: "og:description", content: "Acesso restrito a consultores e líderes." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: AuthPage,
@@ -30,6 +34,7 @@ const PUBLIC_SIGNUP_ENABLED = import.meta.env['VITE_ENABLE_PUBLIC_SIGNUP'] === "
 
 function AuthPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -46,9 +51,12 @@ function AuthPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(authErrorMessage(error));
       return;
     }
+    // Zera o cache de autorização para recarregar papéis do novo usuário.
+    queryClient.removeQueries({ queryKey: ["access"] });
+    await queryClient.invalidateQueries();
     toast.success("Bem-vindo de volta!");
     await router.navigate({ to: "/visao-geral" });
   }
@@ -70,7 +78,7 @@ function AuthPage() {
     });
     setLoading(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(authErrorMessage(error));
       return;
     }
     if (!data.session) {
@@ -78,44 +86,15 @@ function AuthPage() {
       toast.info("Confirme seu e-mail para ativar o acesso.");
       return;
     }
+    queryClient.removeQueries({ queryKey: ["access"] });
     toast.success("Conta criada com sucesso.");
     await router.navigate({ to: "/visao-geral" });
   }
 
-
   return (
-    <div className="grid min-h-dvh lg:grid-cols-2">
-      <div className="hidden flex-col justify-between bg-sidebar p-12 text-sidebar-foreground lg:flex">
-        <div className="flex items-center gap-3">
-          <span className="grid size-10 place-items-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
-            <ShieldCheck className="size-5" aria-hidden />
-          </span>
-          <div>
-            <p className="font-display font-bold">Resultados S/A</p>
-            <p className="text-xs text-sidebar-foreground/60">Uso interno</p>
-          </div>
-        </div>
-        <div className="max-w-md">
-          <h2 className="font-display text-3xl leading-tight font-bold">
-            Painel de Saúde da Carteira
-          </h2>
-          <p className="mt-3 text-sm text-sidebar-foreground/70">
-            Satisfação do empresário, valor gerado e risco de cancelamento em uma única visão
-            executiva — para decidir onde atuar primeiro.
-          </p>
-        </div>
-        <p className="text-xs text-sidebar-foreground/50">
-          Acesso restrito a consultores e líderes da Resultados S/A.
-        </p>
-      </div>
+    <AuthShell title="Acessar o painel" description="Use seu e-mail corporativo e senha.">
+      <Tabs defaultValue="entrar">
 
-      <div className="flex items-center justify-center p-6">
-        <div className="card-surface w-full max-w-md p-6">
-          <h1 className="font-display text-xl font-bold">Acessar o painel</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Use seu e-mail corporativo e senha.
-          </p>
-          <Tabs defaultValue="entrar" className="mt-6">
             {PUBLIC_SIGNUP_ENABLED ? (
               <TabsList className="w-full">
                 <TabsTrigger value="entrar" className="flex-1">
@@ -154,6 +133,12 @@ function AuthPage() {
                 <Button type="submit" disabled={loading}>
                   {loading ? "Entrando…" : "Entrar"}
                 </Button>
+                <Link
+                  to="/esqueci-senha"
+                  className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+                >
+                  Esqueci minha senha
+                </Link>
                 {PUBLIC_SIGNUP_ENABLED ? null : (
                   <p className="text-xs text-muted-foreground">
                     Novos acessos são criados por um administrador do painel.
@@ -212,10 +197,7 @@ function AuthPage() {
                 )}
               </TabsContent>
             ) : null}
-          </Tabs>
-
-        </div>
-      </div>
-    </div>
+      </Tabs>
+    </AuthShell>
   );
 }

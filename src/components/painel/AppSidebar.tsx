@@ -1,5 +1,5 @@
 import { Link, useRouter } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   Building2,
@@ -12,10 +12,11 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
-import { meQuery } from "@/lib/api";
+import { useAccess } from "@/lib/auth/access";
 import { Button } from "@/components/ui/button";
 import { initialsOf } from "@/lib/domain";
 
+// `adminOnly` apenas oculta o item; a autoridade continua sendo a RLS.
 const NAV = [
   { to: "/visao-geral", label: "Visão Geral", icon: Activity },
   { to: "/clientes", label: "Clientes", icon: Building2 },
@@ -28,14 +29,18 @@ const NAV = [
 
 export function AppSidebar() {
   const router = useRouter();
-  const { data: me } = useQuery(meQuery());
+  const queryClient = useQueryClient();
+  const { access, isAdmin } = useAccess();
 
-  const name = me?.profile?.full_name || me?.email || "Usuário";
-  const role = me?.profile?.role === "admin" ? "Administrador" : "Consultor";
+  const name = access?.profile?.full_name || access?.email || "Usuário";
+  const role = isAdmin ? "Administrador" : "Consultor";
 
   async function signOut() {
+    // Ordem importa: cancelar → limpar cache → encerrar sessão → navegar.
+    await queryClient.cancelQueries();
+    queryClient.clear();
     await supabase.auth.signOut();
-    await router.navigate({ to: "/auth" });
+    await router.navigate({ to: "/auth", replace: true });
   }
 
   return (
