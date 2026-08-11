@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/painel/PageHeader";
 import { routeErrorComponent } from "@/components/painel/RouteError";
 import { ErrorState, LoadingState } from "@/components/painel/states";
 import { useSettingsData } from "@/hooks/useCarteira";
+import { useAccess } from "@/lib/auth/access";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
