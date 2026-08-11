@@ -33,6 +33,7 @@ const PUBLIC_SIGNUP_ENABLED = import.meta.env['VITE_ENABLE_PUBLIC_SIGNUP'] === "
 
 function AuthPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
