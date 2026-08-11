@@ -131,6 +131,12 @@ function AuthPage() {
                 <Button type="submit" disabled={loading}>
                   {loading ? "Entrando…" : "Entrar"}
                 </Button>
+                <Link
+                  to="/esqueci-senha"
+                  className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+                >
+                  Esqueci minha senha
+                </Link>
                 {PUBLIC_SIGNUP_ENABLED ? null : (
                   <p className="text-xs text-muted-foreground">
                     Novos acessos são criados por um administrador do painel.
