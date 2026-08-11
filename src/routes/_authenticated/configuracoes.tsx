@@ -170,6 +170,7 @@ function SettingsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Switch
+                    disabled={!isAdmin}
                     checked={draft[rule.id]?.active ?? rule.active}
                     onCheckedChange={(v) =>
                       setDraft((d) => ({
