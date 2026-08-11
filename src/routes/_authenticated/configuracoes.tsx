@@ -155,6 +155,7 @@ function SettingsPage() {
                     type="number"
                     min={0}
                     max={10}
+                    disabled={!isAdmin}
                     value={draft[rule.id]?.points ?? rule.points}
                     onChange={(e) =>
                       setDraft((d) => ({
