@@ -10,33 +10,143 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PainelRouteImport } from './routes/_painel'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as PainelAcoesRouteImport } from './routes/_painel.acoes'
+import { Route as PainelClientesRouteImport } from './routes/_painel.clientes'
+import { Route as PainelConfiguracoesRouteImport } from './routes/_painel.configuracoes'
+import { Route as PainelProjetosRouteImport } from './routes/_painel.projetos'
+import { Route as PainelReuniaoInteligenteRouteImport } from './routes/_painel.reuniao-inteligente'
+import { Route as PainelReunioesRouteImport } from './routes/_painel.reunioes'
+import { Route as PainelVisaoGeralRouteImport } from './routes/_painel.visao-geral'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PainelRoute = PainelRouteImport.update({
+  id: '/_painel',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PainelAcoesRoute = PainelAcoesRouteImport.update({
+  id: '/acoes',
+  path: '/acoes',
+  getParentRoute: () => PainelRoute,
+} as any)
+const PainelClientesRoute = PainelClientesRouteImport.update({
+  id: '/clientes',
+  path: '/clientes',
+  getParentRoute: () => PainelRoute,
+} as any)
+const PainelConfiguracoesRoute = PainelConfiguracoesRouteImport.update({
+  id: '/configuracoes',
+  path: '/configuracoes',
+  getParentRoute: () => PainelRoute,
+} as any)
+const PainelProjetosRoute = PainelProjetosRouteImport.update({
+  id: '/projetos',
+  path: '/projetos',
+  getParentRoute: () => PainelRoute,
+} as any)
+const PainelReuniaoInteligenteRoute =
+  PainelReuniaoInteligenteRouteImport.update({
+    id: '/reuniao-inteligente',
+    path: '/reuniao-inteligente',
+    getParentRoute: () => PainelRoute,
+  } as any)
+const PainelReunioesRoute = PainelReunioesRouteImport.update({
+  id: '/reunioes',
+  path: '/reunioes',
+  getParentRoute: () => PainelRoute,
+} as any)
+const PainelVisaoGeralRoute = PainelVisaoGeralRouteImport.update({
+  id: '/visao-geral',
+  path: '/visao-geral',
+  getParentRoute: () => PainelRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/acoes': typeof PainelAcoesRoute
+  '/clientes': typeof PainelClientesRoute
+  '/configuracoes': typeof PainelConfiguracoesRoute
+  '/projetos': typeof PainelProjetosRoute
+  '/reuniao-inteligente': typeof PainelReuniaoInteligenteRoute
+  '/reunioes': typeof PainelReunioesRoute
+  '/visao-geral': typeof PainelVisaoGeralRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/acoes': typeof PainelAcoesRoute
+  '/clientes': typeof PainelClientesRoute
+  '/configuracoes': typeof PainelConfiguracoesRoute
+  '/projetos': typeof PainelProjetosRoute
+  '/reuniao-inteligente': typeof PainelReuniaoInteligenteRoute
+  '/reunioes': typeof PainelReunioesRoute
+  '/visao-geral': typeof PainelVisaoGeralRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_painel': typeof PainelRouteWithChildren
+  '/login': typeof LoginRoute
+  '/_painel/acoes': typeof PainelAcoesRoute
+  '/_painel/clientes': typeof PainelClientesRoute
+  '/_painel/configuracoes': typeof PainelConfiguracoesRoute
+  '/_painel/projetos': typeof PainelProjetosRoute
+  '/_painel/reuniao-inteligente': typeof PainelReuniaoInteligenteRoute
+  '/_painel/reunioes': typeof PainelReunioesRoute
+  '/_painel/visao-geral': typeof PainelVisaoGeralRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/acoes'
+    | '/clientes'
+    | '/configuracoes'
+    | '/projetos'
+    | '/reuniao-inteligente'
+    | '/reunioes'
+    | '/visao-geral'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/login'
+    | '/acoes'
+    | '/clientes'
+    | '/configuracoes'
+    | '/projetos'
+    | '/reuniao-inteligente'
+    | '/reunioes'
+    | '/visao-geral'
+  id:
+    | '__root__'
+    | '/'
+    | '/_painel'
+    | '/login'
+    | '/_painel/acoes'
+    | '/_painel/clientes'
+    | '/_painel/configuracoes'
+    | '/_painel/projetos'
+    | '/_painel/reuniao-inteligente'
+    | '/_painel/reunioes'
+    | '/_painel/visao-geral'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  PainelRoute: typeof PainelRouteWithChildren
+  LoginRoute: typeof LoginRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,22 +158,100 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_painel': {
+      id: '/_painel'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof PainelRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_painel/acoes': {
+      id: '/_painel/acoes'
+      path: '/acoes'
+      fullPath: '/acoes'
+      preLoaderRoute: typeof PainelAcoesRouteImport
+      parentRoute: typeof PainelRoute
+    }
+    '/_painel/clientes': {
+      id: '/_painel/clientes'
+      path: '/clientes'
+      fullPath: '/clientes'
+      preLoaderRoute: typeof PainelClientesRouteImport
+      parentRoute: typeof PainelRoute
+    }
+    '/_painel/configuracoes': {
+      id: '/_painel/configuracoes'
+      path: '/configuracoes'
+      fullPath: '/configuracoes'
+      preLoaderRoute: typeof PainelConfiguracoesRouteImport
+      parentRoute: typeof PainelRoute
+    }
+    '/_painel/projetos': {
+      id: '/_painel/projetos'
+      path: '/projetos'
+      fullPath: '/projetos'
+      preLoaderRoute: typeof PainelProjetosRouteImport
+      parentRoute: typeof PainelRoute
+    }
+    '/_painel/reuniao-inteligente': {
+      id: '/_painel/reuniao-inteligente'
+      path: '/reuniao-inteligente'
+      fullPath: '/reuniao-inteligente'
+      preLoaderRoute: typeof PainelReuniaoInteligenteRouteImport
+      parentRoute: typeof PainelRoute
+    }
+    '/_painel/reunioes': {
+      id: '/_painel/reunioes'
+      path: '/reunioes'
+      fullPath: '/reunioes'
+      preLoaderRoute: typeof PainelReunioesRouteImport
+      parentRoute: typeof PainelRoute
+    }
+    '/_painel/visao-geral': {
+      id: '/_painel/visao-geral'
+      path: '/visao-geral'
+      fullPath: '/visao-geral'
+      preLoaderRoute: typeof PainelVisaoGeralRouteImport
+      parentRoute: typeof PainelRoute
+    }
   }
 }
 
+interface PainelRouteChildren {
+  PainelAcoesRoute: typeof PainelAcoesRoute
+  PainelClientesRoute: typeof PainelClientesRoute
+  PainelConfiguracoesRoute: typeof PainelConfiguracoesRoute
+  PainelProjetosRoute: typeof PainelProjetosRoute
+  PainelReuniaoInteligenteRoute: typeof PainelReuniaoInteligenteRoute
+  PainelReunioesRoute: typeof PainelReunioesRoute
+  PainelVisaoGeralRoute: typeof PainelVisaoGeralRoute
+}
+
+const PainelRouteChildren: PainelRouteChildren = {
+  PainelAcoesRoute: PainelAcoesRoute,
+  PainelClientesRoute: PainelClientesRoute,
+  PainelConfiguracoesRoute: PainelConfiguracoesRoute,
+  PainelProjetosRoute: PainelProjetosRoute,
+  PainelReuniaoInteligenteRoute: PainelReuniaoInteligenteRoute,
+  PainelReunioesRoute: PainelReunioesRoute,
+  PainelVisaoGeralRoute: PainelVisaoGeralRoute,
+}
+
+const PainelRouteWithChildren =
+  PainelRoute._addFileChildren(PainelRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  PainelRoute: PainelRouteWithChildren,
+  LoginRoute: LoginRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
