@@ -194,6 +194,47 @@ function SmartMeetingPage() {
 
   const decisions = useQuery({ ...decisionsQuery(project?.id), enabled: !!project?.id });
 
+  /**
+   * Impressão digital da transcrição: permite avisar sobre reenvio do mesmo
+   * conteúdo ANTES de gravar, sem bloquear reprocessamentos legítimos.
+   */
+  const [hash, setHash] = useState("");
+  useEffect(() => {
+    if (step !== "identificacao" || transcript.trim().length === 0) {
+      setHash("");
+      return;
+    }
+    let alive = true;
+    void transcriptHash(transcript).then((h) => {
+      if (alive) setHash(h);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [step, transcript]);
+
+  const alreadyProcessed = useQuery({
+    queryKey: ["meetings", "hash", hash, clientId, projectId],
+    enabled: !!hash && !!clientId,
+    queryFn: async () => {
+      let q = supabase
+        .from("meetings")
+        .select("*")
+        .eq("client_id", clientId)
+        .eq("transcript_hash", hash)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (projectId) q = q.eq("project_id", projectId);
+      const res = await q;
+      if (res.error) {
+        logDbError("meetings", "select-transcript-hash", res.error);
+        return null;
+      }
+      const row = (res.data ?? [])[0];
+      return row ? normalizeMeeting(row as Record<string, unknown>) : null;
+    },
+  });
+
   const clientProjects = useMemo(
     () => (projects.data ?? []).filter((p) => p.client_id === clientId),
     [projects.data, clientId],
