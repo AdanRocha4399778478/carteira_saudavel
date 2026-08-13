@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AlertTriangle, Copy, Loader2, Sparkles, Wand2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Copy, Loader2, Sparkles, Wand2 } from "lucide-react";
 import {
   formatDate,
   isOverdue,
@@ -60,6 +60,30 @@ import {
   type EvolutionItem,
 } from "@/lib/evolution";
 import { Pill } from "@/components/painel/badges";
+
+/**
+ * Tudo que a aprovação pode ter mudado — invalidado em bloco para que a tela
+ * reflita o novo estado sem exigir F5.
+ */
+const REFRESH_KEYS: readonly (readonly string[])[] = [
+  ["projects"],
+  ["project"],
+  ["project_context"],
+  ["project_health"],
+  ["meetings"],
+  ["meeting_analyses"],
+  ["meeting_evolution"],
+  ["actions"],
+  ["decisions"],
+  ["risks"],
+  ["opportunities"],
+  ["clients"],
+  ["dashboard"],
+];
+
+/** Tempo em tela da confirmação antes do fechamento automático. */
+const CLOSE_DELAY_MS = 800;
+
 import {
   Select,
   SelectContent,
@@ -183,13 +207,28 @@ export function MeetingAnalysisDialog({
   const [summarySel, setSummarySel] = useState(true);
   // Classificação de evolução ajustada manualmente pelo consultor.
   const [evoSel, setEvoSel] = useState<Record<string, EvolutionClassification>>({});
+  /** Falha na aprovação: mantém o diálogo aberto, com transcrição e escolhas intactas. */
+  const [approveError, setApproveError] = useState<string | null>(null);
+  /** Confirmação visual antes do fechamento automático. */
+  const [approved, setApproved] = useState(false);
+  // Trava síncrona contra clique duplo: `isPending` só reflete no próximo render.
+  const submitting = useRef(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+  }, []);
 
   const saved = useQuery({ ...meetingAnalysisQuery(meeting?.id ?? ""), enabled: open && !!meeting });
+
 
   useEffect(() => {
     if (!open) return;
     setStep("entrada");
     setErrors([]);
+    setApproveError(null);
+    setApproved(false);
+    submitting.current = false;
     setAnalysis(null);
     setAgenda(null);
     setTranscript(initialTranscript ?? saved.data?.transcript ?? "");
@@ -506,6 +545,7 @@ export function MeetingAnalysisDialog({
     mutationFn: async () => {
       if (!meeting || !analysis || !agenda) throw new Error("Nada para aprovar.");
       if (!project) throw new Error("Vincule a reunião a um projeto antes de aplicar a análise.");
+      setApproveError(null);
 
       const contextItems = contextRows.flatMap((group) =>
         group.rows.map((r) => ({
@@ -570,17 +610,35 @@ export function MeetingAnalysisDialog({
       return applied;
     },
     onSuccess: (r) => {
+      submitting.current = false;
+      setApproveError(null);
+      setApproved(true);
       toast.success(
-        `Projeto atualizado: ${r.context} itens de contexto, ${r.decisions} decisões, ${r.actions} ações, ${r.risks} riscos, ${r.opportunities} oportunidades.`,
+        r.alreadyApplied
+          ? "Esta análise já havia sido aplicada — nada foi duplicado."
+          : `Projeto atualizado: ${r.context} itens de contexto, ${r.decisions} decisões, ${r.actions} ações, ${r.risks} riscos, ${r.opportunities} oportunidades.`,
       );
-      void qc.invalidateQueries();
+      // A tela precisa refletir tudo sem F5: contexto, entidades e indicadores.
+      for (const key of REFRESH_KEYS) void qc.invalidateQueries({ queryKey: key });
       setStep("pauta");
       onApplied?.();
-      // Sucesso encerra o fluxo: manter a janela aberta sugere que algo falhou.
-      if (closeOnApproved) onOpenChange(false);
+      // Sucesso encerra o fluxo, com um instante de confirmação visual.
+      if (closeOnApproved)
+        closeTimer.current = setTimeout(() => onOpenChange(false), CLOSE_DELAY_MS);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => {
+      submitting.current = false;
+      setApproveError(e.message);
+      toast.error(e.message);
+    },
   });
+
+  /** Uma submissão por vez: o backend já é idempotente, aqui evitamos o retrabalho. */
+  const submitApproval = () => {
+    if (submitting.current || approve.isPending || approved) return;
+    submitting.current = true;
+    approve.mutate();
+  };
 
   const total =
     contextRows.reduce((n, g) => n + g.rows.length, 0) +
@@ -617,6 +675,28 @@ export function MeetingAnalysisDialog({
                 </ul>
               </div>
             )}
+
+            {approveError && (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
+                <p className="flex items-center gap-2 font-semibold text-destructive">
+                  <AlertTriangle className="size-4" aria-hidden /> Não foi possível concluir a
+                  atualização
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  Sua transcrição e sua revisão foram preservadas. {approveError}
+                </p>
+              </div>
+            )}
+
+            {approved && (
+              <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm">
+                <p className="flex items-center gap-2 font-semibold">
+                  <CheckCircle2 className="size-4 text-emerald-600" aria-hidden /> Reunião
+                  processada e projeto atualizado
+                </p>
+              </div>
+            )}
+
 
             {step === "entrada" && (
               <Tabs defaultValue="transcricao">
@@ -888,17 +968,26 @@ export function MeetingAnalysisDialog({
           )}
           {step === "revisao" && (
             <>
-              <Button type="button" variant="ghost" onClick={() => setStep("entrada")}>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={approve.isPending}
+                onClick={() => setStep("entrada")}
+              >
                 Voltar
               </Button>
               <Button
                 type="button"
-                disabled={approve.isPending}
+                disabled={approve.isPending || approved}
                 className="gap-2"
-                onClick={() => approve.mutate()}
+                onClick={submitApproval}
               >
                 {approve.isPending && <Loader2 className="size-4 animate-spin" aria-hidden />}
-                {approve.isPending ? "Gravando atualizações…" : "Aprovar e atualizar projeto"}
+                {approve.isPending
+                  ? "Salvando…"
+                  : approveError
+                    ? "Tentar novamente"
+                    : "Aprovar e atualizar projeto"}
               </Button>
             </>
           )}

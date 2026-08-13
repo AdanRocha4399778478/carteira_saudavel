@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -194,10 +194,62 @@ function SmartMeetingPage() {
 
   const decisions = useQuery({ ...decisionsQuery(project?.id), enabled: !!project?.id });
 
+  /**
+   * Impressão digital da transcrição: permite avisar sobre reenvio do mesmo
+   * conteúdo ANTES de gravar, sem bloquear reprocessamentos legítimos.
+   */
+  const [hash, setHash] = useState("");
+  useEffect(() => {
+    if (step !== "identificacao" || transcript.trim().length === 0) {
+      setHash("");
+      return;
+    }
+    let alive = true;
+    void transcriptHash(transcript).then((h) => {
+      if (alive) setHash(h);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [step, transcript]);
+
+  const alreadyProcessed = useQuery({
+    queryKey: ["meetings", "hash", hash, clientId, projectId],
+    enabled: !!hash && !!clientId,
+    queryFn: async () => {
+      let q = supabase
+        .from("meetings")
+        .select("*")
+        .eq("client_id", clientId)
+        .eq("transcript_hash", hash)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (projectId) q = q.eq("project_id", projectId);
+      const res = await q;
+      if (res.error) {
+        logDbError("meetings", "select-transcript-hash", res.error);
+        return null;
+      }
+      const row = (res.data ?? [])[0];
+      return row ? normalizeMeeting(row as Record<string, unknown>) : null;
+    },
+  });
+
   const clientProjects = useMemo(
     () => (projects.data ?? []).filter((p) => p.client_id === clientId),
     [projects.data, clientId],
   );
+
+  /**
+   * Etapa iniciada de dentro de um cliente/projeto: o sistema já sabe a origem
+   * e não pede a informação de novo (o consultor ainda pode alterar).
+   */
+  const [overrideContext, setOverrideContext] = useState(false);
+  const presetProject = useMemo(
+    () => (projects.data ?? []).find((p) => p.id === projectId) ?? null,
+    [projects.data, projectId],
+  );
+  const contextKnown = !!preset.clientId && clientId === preset.clientId;
 
   /** Aviso antiduplicidade antes de propor um novo projeto. */
   const projectMatch = useMemo(
@@ -587,46 +639,76 @@ function SmartMeetingPage() {
               </p>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="grid gap-1.5">
-                <Label>Cliente</Label>
-                <ClientCombobox
-                  clients={clients.data ?? []}
-                  value={clientId}
-                  onChange={(id) => {
-                    setClientId(id);
-                    setProjectId("");
-                  }}
-                />
-                {ident.client_name ? (
-                  <p className="text-xs text-muted-foreground">Citado na reunião: {ident.client_name}</p>
-                ) : null}
+            {contextKnown && !overrideContext ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                <div className="grid gap-1">
+                  <p>
+                    <span className="text-muted-foreground">Cliente: </span>
+                    <strong>
+                      {(clients.data ?? []).find((c) => c.id === clientId)?.company_name ?? "—"}
+                    </strong>
+                  </p>
+                  {presetProject ? (
+                    <p>
+                      <span className="text-muted-foreground">Projeto: </span>
+                      <strong>{presetProject.name}</strong>
+                    </p>
+                  ) : null}
+                  <p className="text-xs text-muted-foreground">
+                    Origem já conhecida — não é preciso selecionar novamente.
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setOverrideContext(true)}>
+                  Alterar
+                </Button>
               </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <Label>Cliente</Label>
+                  <ClientCombobox
+                    clients={clients.data ?? []}
+                    value={clientId}
+                    onChange={(id) => {
+                      setClientId(id);
+                      setProjectId("");
+                    }}
+                  />
+                  {ident.client_name ? (
+                    <p className="text-xs text-muted-foreground">
+                      Citado na reunião: {ident.client_name}
+                    </p>
+                  ) : null}
+                </div>
 
-              <div className="grid gap-1.5">
-                <Label>Projeto</Label>
-                <Select value={projectId || "novo"} onValueChange={(v) => setProjectId(v === "novo" ? "" : v)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="novo">Criar novo projeto</SelectItem>
-                    {clientProjects.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {projectId ? (
-                    <Badge variant="secondary">Reunião será vinculada ao projeto existente</Badge>
-                  ) : (
-                    <Badge variant="outline">Novo projeto proposto pela análise</Badge>
-                  )}
-                </p>
+                <div className="grid gap-1.5">
+                  <Label>Projeto</Label>
+                  <Select
+                    value={projectId || "novo"}
+                    onValueChange={(v) => setProjectId(v === "novo" ? "" : v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="novo">Criar novo projeto</SelectItem>
+                      {clientProjects.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {projectId ? (
+                      <Badge variant="secondary">Reunião será vinculada ao projeto existente</Badge>
+                    ) : (
+                      <Badge variant="outline">Novo projeto proposto pela análise</Badge>
+                    )}
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
 
             {!projectId ? (
               <div className="grid gap-4 md:grid-cols-2">
@@ -728,6 +810,37 @@ function SmartMeetingPage() {
               </div>
             ) : null}
 
+            {alreadyProcessed.data && !duplicate ? (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                <p className="font-medium">Esta transcrição parece já ter sido processada.</p>
+                <p className="text-muted-foreground">
+                  Existe uma reunião de {alreadyProcessed.data.meeting_date} com exatamente este
+                  conteúdo para este cliente. Você pode abrir a reunião existente ou processar mesmo
+                  assim, se for outra reunião.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      if (projectId) void navigate({ to: "/projetos/$projectId", params: { projectId } });
+                      else void navigate({ to: "/reunioes" });
+                    }}
+                  >
+                    Abrir reunião existente
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => createAndReview.mutate(true)}
+                  >
+                    Processar mesmo assim
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
             {duplicate && meeting && project ? (
               <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
                 <p className="font-medium">Transcrição já processada</p>
@@ -782,7 +895,10 @@ function SmartMeetingPage() {
         initialTranscript={`${sourceLabel(effectiveSource)}\n\n${transcript}`}
         closeOnApproved
         onApplied={() => {
-          if (project) void navigate({ to: "/projetos/$projectId", params: { projectId: project.id } });
+          // Sempre termina no projeto atualizado — seja ele reaproveitado,
+          // recém-criado ou o mesmo de onde o fluxo foi iniciado.
+          if (project)
+            void navigate({ to: "/projetos/$projectId", params: { projectId: project.id } });
         }}
       />
 
