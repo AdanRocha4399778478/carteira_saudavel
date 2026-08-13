@@ -240,6 +240,17 @@ function SmartMeetingPage() {
     [projects.data, clientId],
   );
 
+  /**
+   * Etapa iniciada de dentro de um cliente/projeto: o sistema já sabe a origem
+   * e não pede a informação de novo (o consultor ainda pode alterar).
+   */
+  const [overrideContext, setOverrideContext] = useState(false);
+  const presetProject = useMemo(
+    () => (projects.data ?? []).find((p) => p.id === projectId) ?? null,
+    [projects.data, projectId],
+  );
+  const contextKnown = !!preset.clientId && clientId === preset.clientId;
+
   /** Aviso antiduplicidade antes de propor um novo projeto. */
   const projectMatch = useMemo(
     () => classifyProjectMatch(newProjectName, clientProjects),
