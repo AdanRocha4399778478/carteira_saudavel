@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AlertTriangle, Copy, Loader2, Sparkles, Wand2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Copy, Loader2, Sparkles, Wand2 } from "lucide-react";
 import {
   formatDate,
   isOverdue,
