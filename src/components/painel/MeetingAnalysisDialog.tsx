@@ -60,6 +60,30 @@ import {
   type EvolutionItem,
 } from "@/lib/evolution";
 import { Pill } from "@/components/painel/badges";
+
+/**
+ * Tudo que a aprovação pode ter mudado — invalidado em bloco para que a tela
+ * reflita o novo estado sem exigir F5.
+ */
+const REFRESH_KEYS: readonly (readonly string[])[] = [
+  ["projects"],
+  ["project"],
+  ["project_context"],
+  ["project_health"],
+  ["meetings"],
+  ["meeting_analyses"],
+  ["meeting_evolution"],
+  ["actions"],
+  ["decisions"],
+  ["risks"],
+  ["opportunities"],
+  ["clients"],
+  ["dashboard"],
+];
+
+/** Tempo em tela da confirmação antes do fechamento automático. */
+const CLOSE_DELAY_MS = 800;
+
 import {
   Select,
   SelectContent,
