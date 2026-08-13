@@ -202,6 +202,9 @@ export function MeetingAnalysisDialog({
     if (!open) return;
     setStep("entrada");
     setErrors([]);
+    setApproveError(null);
+    setApproved(false);
+    submitting.current = false;
     setAnalysis(null);
     setAgenda(null);
     setTranscript(initialTranscript ?? saved.data?.transcript ?? "");
