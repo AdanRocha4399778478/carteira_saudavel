@@ -810,6 +810,38 @@ function SmartMeetingPage() {
               </div>
             ) : null}
 
+            {alreadyProcessed.data && !duplicate ? (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                <p className="font-medium">Esta transcrição parece já ter sido processada.</p>
+                <p className="text-muted-foreground">
+                  Existe uma reunião de {alreadyProcessed.data.meeting_date} com exatamente este
+                  conteúdo para este cliente. Você pode abrir a reunião existente ou processar mesmo
+                  assim, se for outra reunião.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const pid = alreadyProcessed.data?.project_id;
+                      if (pid) void navigate({ to: "/projetos/$projectId", params: { projectId: pid } });
+                      else void navigate({ to: "/reunioes" });
+                    }}
+                  >
+                    Abrir reunião existente
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => createAndReview.mutate(true)}
+                  >
+                    Processar mesmo assim
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
             {duplicate && meeting && project ? (
               <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
                 <p className="font-medium">Transcrição já processada</p>
