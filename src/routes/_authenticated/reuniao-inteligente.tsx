@@ -895,7 +895,10 @@ function SmartMeetingPage() {
         initialTranscript={`${sourceLabel(effectiveSource)}\n\n${transcript}`}
         closeOnApproved
         onApplied={() => {
-          if (project) void navigate({ to: "/projetos/$projectId", params: { projectId: project.id } });
+          // Sempre termina no projeto atualizado — seja ele reaproveitado,
+          // recém-criado ou o mesmo de onde o fluxo foi iniciado.
+          if (project)
+            void navigate({ to: "/projetos/$projectId", params: { projectId: project.id } });
         }}
       />
 
