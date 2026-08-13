@@ -586,17 +586,35 @@ export function MeetingAnalysisDialog({
       return applied;
     },
     onSuccess: (r) => {
+      submitting.current = false;
+      setApproveError(null);
+      setApproved(true);
       toast.success(
-        `Projeto atualizado: ${r.context} itens de contexto, ${r.decisions} decisões, ${r.actions} ações, ${r.risks} riscos, ${r.opportunities} oportunidades.`,
+        r.alreadyApplied
+          ? "Esta análise já havia sido aplicada — nada foi duplicado."
+          : `Projeto atualizado: ${r.context} itens de contexto, ${r.decisions} decisões, ${r.actions} ações, ${r.risks} riscos, ${r.opportunities} oportunidades.`,
       );
-      void qc.invalidateQueries();
+      // A tela precisa refletir tudo sem F5: contexto, entidades e indicadores.
+      for (const key of REFRESH_KEYS) void qc.invalidateQueries({ queryKey: key });
       setStep("pauta");
       onApplied?.();
-      // Sucesso encerra o fluxo: manter a janela aberta sugere que algo falhou.
-      if (closeOnApproved) onOpenChange(false);
+      // Sucesso encerra o fluxo, com um instante de confirmação visual.
+      if (closeOnApproved)
+        closeTimer.current = setTimeout(() => onOpenChange(false), CLOSE_DELAY_MS);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => {
+      submitting.current = false;
+      setApproveError(e.message);
+      toast.error(e.message);
+    },
   });
+
+  /** Uma submissão por vez: o backend já é idempotente, aqui evitamos o retrabalho. */
+  const submitApproval = () => {
+    if (submitting.current || approve.isPending || approved) return;
+    submitting.current = true;
+    approve.mutate();
+  };
 
   const total =
     contextRows.reduce((n, g) => n + g.rows.length, 0) +
