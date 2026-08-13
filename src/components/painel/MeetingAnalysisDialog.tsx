@@ -946,17 +946,26 @@ export function MeetingAnalysisDialog({
           )}
           {step === "revisao" && (
             <>
-              <Button type="button" variant="ghost" onClick={() => setStep("entrada")}>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={approve.isPending}
+                onClick={() => setStep("entrada")}
+              >
                 Voltar
               </Button>
               <Button
                 type="button"
-                disabled={approve.isPending}
+                disabled={approve.isPending || approved}
                 className="gap-2"
-                onClick={() => approve.mutate()}
+                onClick={submitApproval}
               >
                 {approve.isPending && <Loader2 className="size-4 animate-spin" aria-hidden />}
-                {approve.isPending ? "Gravando atualizações…" : "Aprovar e atualizar projeto"}
+                {approve.isPending
+                  ? "Salvando…"
+                  : approveError
+                    ? "Tentar novamente"
+                    : "Aprovar e atualizar projeto"}
               </Button>
             </>
           )}
