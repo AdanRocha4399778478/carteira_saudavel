@@ -60,6 +60,7 @@ import {
   type EvolutionRecord,
 } from "@/lib/evolution";
 import { ProjectHealthCard } from "@/components/painel/ProjectHealthCard";
+import { NextActionCard } from "@/components/painel/NextActionCard";
 import {
   computeProjectHealth,
   projectHealthSnapshotsQuery,
