@@ -521,6 +521,7 @@ export function MeetingAnalysisDialog({
     mutationFn: async () => {
       if (!meeting || !analysis || !agenda) throw new Error("Nada para aprovar.");
       if (!project) throw new Error("Vincule a reunião a um projeto antes de aplicar a análise.");
+      setApproveError(null);
 
       const contextItems = contextRows.flatMap((group) =>
         group.rows.map((r) => ({
