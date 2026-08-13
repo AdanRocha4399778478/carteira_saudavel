@@ -121,14 +121,14 @@ async function buildRecommendation(state: OrchestratorState): Promise<{
       recommendation: {
         ...base,
         project_stage: (ai.project_stage as ProjectStage | null) ?? base.project_stage,
-        recommended_agent: ai.recommended_agent ?? base.recommended_agent,
+        recommended_agent: (ai.recommended_agent as OrchestratorAgent | null) ?? base.recommended_agent,
         main_bottleneck: {
           ...base.main_bottleneck,
           description: ai.main_bottleneck_description ?? base.main_bottleneck.description,
         },
         reason: ai.reason ?? base.reason,
         expected_result: ai.expected_result ?? base.expected_result,
-        alternative_agent: ai.alternative_agent ?? base.alternative_agent,
+        alternative_agent: (ai.alternative_agent as OrchestratorAgent | null) ?? base.alternative_agent,
         alternative_reason: ai.alternative_reason ?? base.alternative_reason,
         erp_classification: ai.erp_classification,
         confidence: Math.min(0.8, base.confidence + 0.15),
