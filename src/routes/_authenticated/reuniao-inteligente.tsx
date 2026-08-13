@@ -628,46 +628,76 @@ function SmartMeetingPage() {
               </p>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="grid gap-1.5">
-                <Label>Cliente</Label>
-                <ClientCombobox
-                  clients={clients.data ?? []}
-                  value={clientId}
-                  onChange={(id) => {
-                    setClientId(id);
-                    setProjectId("");
-                  }}
-                />
-                {ident.client_name ? (
-                  <p className="text-xs text-muted-foreground">Citado na reunião: {ident.client_name}</p>
-                ) : null}
+            {contextKnown && !overrideContext ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 p-3 text-sm">
+                <div className="grid gap-1">
+                  <p>
+                    <span className="text-muted-foreground">Cliente: </span>
+                    <strong>
+                      {(clients.data ?? []).find((c) => c.id === clientId)?.company_name ?? "—"}
+                    </strong>
+                  </p>
+                  {presetProject ? (
+                    <p>
+                      <span className="text-muted-foreground">Projeto: </span>
+                      <strong>{presetProject.name}</strong>
+                    </p>
+                  ) : null}
+                  <p className="text-xs text-muted-foreground">
+                    Origem já conhecida — não é preciso selecionar novamente.
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setOverrideContext(true)}>
+                  Alterar
+                </Button>
               </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <Label>Cliente</Label>
+                  <ClientCombobox
+                    clients={clients.data ?? []}
+                    value={clientId}
+                    onChange={(id) => {
+                      setClientId(id);
+                      setProjectId("");
+                    }}
+                  />
+                  {ident.client_name ? (
+                    <p className="text-xs text-muted-foreground">
+                      Citado na reunião: {ident.client_name}
+                    </p>
+                  ) : null}
+                </div>
 
-              <div className="grid gap-1.5">
-                <Label>Projeto</Label>
-                <Select value={projectId || "novo"} onValueChange={(v) => setProjectId(v === "novo" ? "" : v)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="novo">Criar novo projeto</SelectItem>
-                    {clientProjects.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {projectId ? (
-                    <Badge variant="secondary">Reunião será vinculada ao projeto existente</Badge>
-                  ) : (
-                    <Badge variant="outline">Novo projeto proposto pela análise</Badge>
-                  )}
-                </p>
+                <div className="grid gap-1.5">
+                  <Label>Projeto</Label>
+                  <Select
+                    value={projectId || "novo"}
+                    onValueChange={(v) => setProjectId(v === "novo" ? "" : v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="novo">Criar novo projeto</SelectItem>
+                      {clientProjects.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {projectId ? (
+                      <Badge variant="secondary">Reunião será vinculada ao projeto existente</Badge>
+                    ) : (
+                      <Badge variant="outline">Novo projeto proposto pela análise</Badge>
+                    )}
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
 
             {!projectId ? (
               <div className="grid gap-4 md:grid-cols-2">
