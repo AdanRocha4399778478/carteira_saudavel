@@ -676,6 +676,28 @@ export function MeetingAnalysisDialog({
               </div>
             )}
 
+            {approveError && (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
+                <p className="flex items-center gap-2 font-semibold text-destructive">
+                  <AlertTriangle className="size-4" aria-hidden /> Não foi possível concluir a
+                  atualização
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  Sua transcrição e sua revisão foram preservadas. {approveError}
+                </p>
+              </div>
+            )}
+
+            {approved && (
+              <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm">
+                <p className="flex items-center gap-2 font-semibold">
+                  <CheckCircle2 className="size-4 text-emerald-600" aria-hidden /> Reunião
+                  processada e projeto atualizado
+                </p>
+              </div>
+            )}
+
+
             {step === "entrada" && (
               <Tabs defaultValue="transcricao">
                 <TabsList>
