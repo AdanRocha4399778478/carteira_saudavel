@@ -823,8 +823,7 @@ function SmartMeetingPage() {
                     size="sm"
                     variant="outline"
                     onClick={() => {
-                      const pid = alreadyProcessed.data?.project_id;
-                      if (pid) void navigate({ to: "/projetos/$projectId", params: { projectId: pid } });
+                      if (projectId) void navigate({ to: "/projetos/$projectId", params: { projectId } });
                       else void navigate({ to: "/reunioes" });
                     }}
                   >
