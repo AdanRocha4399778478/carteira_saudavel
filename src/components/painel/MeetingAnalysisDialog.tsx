@@ -183,8 +183,20 @@ export function MeetingAnalysisDialog({
   const [summarySel, setSummarySel] = useState(true);
   // Classificação de evolução ajustada manualmente pelo consultor.
   const [evoSel, setEvoSel] = useState<Record<string, EvolutionClassification>>({});
+  /** Falha na aprovação: mantém o diálogo aberto, com transcrição e escolhas intactas. */
+  const [approveError, setApproveError] = useState<string | null>(null);
+  /** Confirmação visual antes do fechamento automático. */
+  const [approved, setApproved] = useState(false);
+  // Trava síncrona contra clique duplo: `isPending` só reflete no próximo render.
+  const submitting = useRef(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+  }, []);
 
   const saved = useQuery({ ...meetingAnalysisQuery(meeting?.id ?? ""), enabled: open && !!meeting });
+
 
   useEffect(() => {
     if (!open) return;
