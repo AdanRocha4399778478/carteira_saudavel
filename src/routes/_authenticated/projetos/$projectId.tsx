@@ -60,6 +60,7 @@ import {
   type EvolutionRecord,
 } from "@/lib/evolution";
 import { ProjectHealthCard } from "@/components/painel/ProjectHealthCard";
+import { NextActionCard } from "@/components/painel/NextActionCard";
 import {
   computeProjectHealth,
   projectHealthSnapshotsQuery,
@@ -416,6 +417,17 @@ function ProjectDetailPage() {
           {/* -------- Visão Geral -------- */}
           <TabsContent value="visao-geral" className="mt-4 flex flex-col gap-4">
             <ProjectHealthCard health={health} />
+            <NextActionCard
+              projectId={projectId}
+              project={p}
+              context={context.data ?? null}
+              health={health}
+              actions={projectActions}
+              risks={projectRisks}
+              decisions={decisions.data ?? []}
+              meetings={meetings.data ?? []}
+              evolution={latestEvolution}
+            />
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
 
               <div className="card-surface p-4">
