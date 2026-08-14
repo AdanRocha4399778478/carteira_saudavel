@@ -55,7 +55,7 @@ Todas as tabelas: RLS ativa, políticas `TO authenticated` para SELECT/INSERT/UP
 
 ## Auth
 
-E-mail/senha apenas. Cadastro público **habilitado** no backend. Confirmação de e-mail obrigatória. Sem provedores sociais, sem passkeys, sem recuperação de senha implementada no app.
+E-mail/senha apenas. No retrato de backend confirmado em 2026-08-11, o cadastro público estava **habilitado** e a confirmação de e-mail era obrigatória. Sem provedores sociais ou passkeys. **ESTADO CONFIRMADO NO CÓDIGO:** recuperação e redefinição de senha estão implementadas; o fluxo ainda deve ser validado ponta a ponta em staging.
 
 ## Storage
 
@@ -90,3 +90,14 @@ Dedupe: >=0.95 existente | >=0.90 atualizar | >=0.70 revisar | senão novo
 ## Próximo módulo
 
 Autenticação & Papéis → Carteira de Clientes.
+
+## Checkpoint Prompt 03B — 2026-08-11
+
+- Staging: não identificado.
+- Policies reais: não inventariadas nesta etapa por ausência de acesso administrativo/direct DB.
+- `clients.consultant_id`: FK para `profiles.id` no schema tipado.
+- Migration RLS: preparada, revisada estaticamente e **não aplicada**.
+- Signup e recuperação de senha: não testados em staging.
+- Produção: não alterada.
+
+Ver `docs/rls-staging-validation.md` para consultas de inventário, matriz-alvo, testes negativos e rollback.
