@@ -396,6 +396,16 @@ create unique index meetings_client_transcript_key_uidx
   on public.meetings (client_id, transcript_key)
   where transcript_key is not null;
 
+-- Unique keys required by the idempotent application flows.
+create unique index entity_mentions_identity_uidx
+  on public.entity_mentions (entity_type, entity_id, meeting_id, mention_type);
+
+create unique index meeting_evolution_meeting_id_uidx
+  on public.meeting_evolution (meeting_id);
+
+create unique index project_health_snapshots_project_meeting_uidx
+  on public.project_health_snapshots (project_id, meeting_id);
+
 -- Funções cujo corpo está integralmente sustentado pela migration local.
 create or replace function public.has_role(_user_id uuid, _role public.app_role)
 returns boolean
@@ -444,6 +454,308 @@ grant execute on function public.is_admin() to authenticated, service_role;
 grant execute on function public.can_access_client(uuid) to authenticated, service_role;
 
 -- RPCs exigidas diretamente pelo código atual.
+-- Structural integrity for denormalized scope identifiers. Optional IDs refine
+-- the same client -> project -> meeting chain; they never authorize a row alone.
+create or replace function public.scope_is_consistent(
+  p_client_id uuid,
+  p_project_id uuid,
+  p_meeting_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case
+    when p_meeting_id is not null then exists (
+      select 1
+      from public.meetings m
+      where m.id = p_meeting_id
+        and (p_client_id is null or m.client_id = p_client_id)
+        and (p_project_id is null or m.project_id = p_project_id)
+    )
+    when p_project_id is not null then exists (
+      select 1
+      from public.projects p
+      where p.id = p_project_id
+        and (p_client_id is null or p.client_id = p_client_id)
+    )
+    else p_client_id is not null
+  end;
+$$;
+
+create or replace function public.analysis_scope_is_consistent(
+  p_analysis_id uuid,
+  p_client_id uuid,
+  p_project_id uuid,
+  p_meeting_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select p_analysis_id is not null and exists (
+    select 1
+    from public.meeting_analyses a
+    where a.id = p_analysis_id
+      and (p_client_id is null or a.client_id is null or a.client_id = p_client_id)
+      and (p_project_id is null or a.project_id is null or a.project_id = p_project_id)
+      and (p_meeting_id is null or a.meeting_id = p_meeting_id)
+      and public.scope_is_consistent(
+        coalesce(p_client_id, a.client_id),
+        coalesce(p_project_id, a.project_id),
+        a.meeting_id
+      )
+  );
+$$;
+
+create or replace function public.evolution_scope_is_consistent(
+  p_evolution_id uuid,
+  p_client_id uuid,
+  p_project_id uuid,
+  p_meeting_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select p_evolution_id is not null and exists (
+    select 1
+    from public.meeting_evolution e
+    where e.id = p_evolution_id
+      and (p_client_id is null or e.client_id is null or e.client_id = p_client_id)
+      and (p_project_id is null or e.project_id = p_project_id)
+      and (p_meeting_id is null or e.meeting_id = p_meeting_id)
+      and public.scope_is_consistent(
+        coalesce(p_client_id, e.client_id),
+        coalesce(p_project_id, e.project_id),
+        e.meeting_id
+      )
+  );
+$$;
+
+create or replace function public.can_access_scope(
+  p_client_id uuid,
+  p_project_id uuid,
+  p_meeting_id uuid
+)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_client_id uuid;
+begin
+  if not public.scope_is_consistent(p_client_id, p_project_id, p_meeting_id) then
+    return false;
+  end if;
+
+  if p_meeting_id is not null then
+    select m.client_id into v_client_id
+    from public.meetings m
+    where m.id = p_meeting_id;
+  elsif p_project_id is not null then
+    select p.client_id into v_client_id
+    from public.projects p
+    where p.id = p_project_id;
+  else
+    v_client_id := p_client_id;
+  end if;
+
+  return public.can_access_client(v_client_id);
+end;
+$$;
+
+create or replace function public.can_access_related_scope(
+  p_client_id uuid,
+  p_project_id uuid,
+  p_meeting_id uuid,
+  p_analysis_id uuid,
+  p_evolution_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.can_access_scope(p_client_id, p_project_id, p_meeting_id)
+    and (
+      p_analysis_id is null
+      or public.analysis_scope_is_consistent(
+        p_analysis_id, p_client_id, p_project_id, p_meeting_id
+      )
+    )
+    and (
+      p_evolution_id is null
+      or public.evolution_scope_is_consistent(
+        p_evolution_id, p_client_id, p_project_id, p_meeting_id
+      )
+    );
+$$;
+
+create or replace function public.enforce_scope_integrity()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_table_name = 'projects' then
+    if new.merged_into_project_id is not null and (
+      new.merged_into_project_id = new.id
+      or not public.scope_is_consistent(new.client_id, new.merged_into_project_id, null)
+    ) then
+      raise exception 'merged project scope mismatch' using errcode = '23514';
+    end if;
+
+  elsif tg_table_name = 'meetings' then
+    if new.project_id is not null
+       and not public.scope_is_consistent(new.client_id, new.project_id, null) then
+      raise exception 'meeting project/client scope mismatch' using errcode = '23514';
+    end if;
+
+  elsif tg_table_name in ('actions', 'risks', 'opportunities') then
+    if new.meeting_id is not null
+       and not public.scope_is_consistent(new.client_id, null, new.meeting_id) then
+      raise exception '% meeting/client scope mismatch', tg_table_name using errcode = '23514';
+    end if;
+
+  elsif tg_table_name = 'project_context' then
+    if new.last_meeting_id is not null
+       and not public.scope_is_consistent(null, new.project_id, new.last_meeting_id) then
+      raise exception 'project_context meeting/project scope mismatch' using errcode = '23514';
+    end if;
+
+  elsif tg_table_name = 'decisions' then
+    if not public.scope_is_consistent(new.client_id, new.project_id, new.meeting_id) then
+      raise exception 'decision scope mismatch' using errcode = '23514';
+    end if;
+    if new.supersedes_decision_id is not null and not exists (
+      select 1 from public.decisions d
+      where d.id = new.supersedes_decision_id
+        and d.project_id = new.project_id
+        and (new.client_id is null or d.client_id is null or d.client_id = new.client_id)
+    ) then
+      raise exception 'superseded decision scope mismatch' using errcode = '23514';
+    end if;
+
+  elsif tg_table_name = 'meeting_analyses' then
+    if not public.scope_is_consistent(new.client_id, new.project_id, new.meeting_id) then
+      raise exception 'meeting analysis scope mismatch' using errcode = '23514';
+    end if;
+
+  elsif tg_table_name = 'analysis_applications' then
+    if not public.scope_is_consistent(new.client_id, new.project_id, new.meeting_id) then
+      raise exception 'analysis application scope mismatch' using errcode = '23514';
+    end if;
+    if new.analysis_id is not null and not public.analysis_scope_is_consistent(
+      new.analysis_id, new.client_id, new.project_id, new.meeting_id
+    ) then
+      raise exception 'analysis application analysis scope mismatch' using errcode = '23514';
+    end if;
+
+  elsif tg_table_name = 'entity_mentions' then
+    if not public.scope_is_consistent(new.client_id, new.project_id, new.meeting_id) then
+      raise exception 'entity mention requires one coherent scope' using errcode = '23514';
+    end if;
+    if new.analysis_id is not null and not public.analysis_scope_is_consistent(
+      new.analysis_id, new.client_id, new.project_id, new.meeting_id
+    ) then
+      raise exception 'entity mention analysis scope mismatch' using errcode = '23514';
+    end if;
+
+  elsif tg_table_name = 'meeting_evolution' then
+    if not public.scope_is_consistent(new.client_id, new.project_id, new.meeting_id) then
+      raise exception 'meeting evolution scope mismatch' using errcode = '23514';
+    end if;
+    if new.analysis_id is not null and not public.analysis_scope_is_consistent(
+      new.analysis_id, new.client_id, new.project_id, new.meeting_id
+    ) then
+      raise exception 'meeting evolution analysis scope mismatch' using errcode = '23514';
+    end if;
+    if new.previous_meeting_id is not null and not public.scope_is_consistent(
+      new.client_id, new.project_id, new.previous_meeting_id
+    ) then
+      raise exception 'previous meeting scope mismatch' using errcode = '23514';
+    end if;
+
+  elsif tg_table_name = 'meeting_evolution_items' then
+    if not public.scope_is_consistent(new.client_id, new.project_id, new.meeting_id) then
+      raise exception 'meeting evolution item scope mismatch' using errcode = '23514';
+    end if;
+    if not public.evolution_scope_is_consistent(
+      new.evolution_id, new.client_id, new.project_id, new.meeting_id
+    ) then
+      raise exception 'meeting evolution item parent scope mismatch' using errcode = '23514';
+    end if;
+
+  elsif tg_table_name = 'project_health_snapshots' then
+    if not public.scope_is_consistent(new.client_id, new.project_id, new.meeting_id) then
+      raise exception 'project health snapshot scope mismatch' using errcode = '23514';
+    end if;
+    if new.analysis_id is not null and not public.analysis_scope_is_consistent(
+      new.analysis_id, new.client_id, new.project_id, new.meeting_id
+    ) then
+      raise exception 'project health snapshot analysis scope mismatch' using errcode = '23514';
+    end if;
+
+  elsif tg_table_name = 'project_dedupe_log' then
+    if new.client_id is null and coalesce(new.project_id, new.merged_from_project_id) is not null then
+      select p.client_id into new.client_id
+      from public.projects p
+      where p.id = coalesce(new.project_id, new.merged_from_project_id);
+    end if;
+    if new.client_id is null and new.project_id is null
+       and new.merged_from_project_id is null then
+      raise exception 'project dedupe log requires a direct scope' using errcode = '23514';
+    end if;
+    if new.project_id is not null
+       and not public.scope_is_consistent(new.client_id, new.project_id, null) then
+      raise exception 'project dedupe log project scope mismatch' using errcode = '23514';
+    end if;
+    if new.merged_from_project_id is not null
+       and not public.scope_is_consistent(new.client_id, new.merged_from_project_id, null) then
+      raise exception 'project dedupe log merged project scope mismatch' using errcode = '23514';
+    end if;
+    if new.project_id is not null and new.merged_from_project_id is not null and not exists (
+      select 1
+      from public.projects target
+      join public.projects source on source.id = new.merged_from_project_id
+      where target.id = new.project_id and target.client_id = source.client_id
+    ) then
+      raise exception 'project dedupe log projects belong to different clients' using errcode = '23514';
+    end if;
+    if new.analysis_id is not null and not public.analysis_scope_is_consistent(
+      new.analysis_id, new.client_id, new.project_id, null
+    ) then
+      raise exception 'project dedupe log analysis scope mismatch' using errcode = '23514';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.scope_is_consistent(uuid, uuid, uuid) from public, anon, authenticated;
+revoke all on function public.analysis_scope_is_consistent(uuid, uuid, uuid, uuid) from public, anon, authenticated;
+revoke all on function public.evolution_scope_is_consistent(uuid, uuid, uuid, uuid) from public, anon, authenticated;
+revoke all on function public.enforce_scope_integrity() from public, anon, authenticated;
+revoke all on function public.can_access_scope(uuid, uuid, uuid) from public, anon;
+revoke all on function public.can_access_related_scope(uuid, uuid, uuid, uuid, uuid) from public, anon;
+grant execute on function public.scope_is_consistent(uuid, uuid, uuid) to service_role;
+grant execute on function public.analysis_scope_is_consistent(uuid, uuid, uuid, uuid) to service_role;
+grant execute on function public.evolution_scope_is_consistent(uuid, uuid, uuid, uuid) to service_role;
+grant execute on function public.can_access_scope(uuid, uuid, uuid) to authenticated, service_role;
+grant execute on function public.can_access_related_scope(uuid, uuid, uuid, uuid, uuid) to authenticated, service_role;
+
 create or replace function public.normalize_project_name(p_name text)
 returns text
 language sql
@@ -814,6 +1126,49 @@ create trigger meeting_evolution_touch before update on public.meeting_evolution
 for each row execute function public.touch_updated_at();
 
 -- RLS é habilitada aqui; a matriz de acesso é criada na migration seguinte.
+create trigger projects_scope_integrity
+before insert or update on public.projects
+for each row execute function public.enforce_scope_integrity();
+create trigger meetings_scope_integrity
+before insert or update on public.meetings
+for each row execute function public.enforce_scope_integrity();
+create trigger actions_scope_integrity
+before insert or update on public.actions
+for each row execute function public.enforce_scope_integrity();
+create trigger risks_scope_integrity
+before insert or update on public.risks
+for each row execute function public.enforce_scope_integrity();
+create trigger opportunities_scope_integrity
+before insert or update on public.opportunities
+for each row execute function public.enforce_scope_integrity();
+create trigger project_context_scope_integrity
+before insert or update on public.project_context
+for each row execute function public.enforce_scope_integrity();
+create trigger decisions_scope_integrity
+before insert or update on public.decisions
+for each row execute function public.enforce_scope_integrity();
+create trigger meeting_analyses_scope_integrity
+before insert or update on public.meeting_analyses
+for each row execute function public.enforce_scope_integrity();
+create trigger analysis_applications_scope_integrity
+before insert or update on public.analysis_applications
+for each row execute function public.enforce_scope_integrity();
+create trigger entity_mentions_scope_integrity
+before insert or update on public.entity_mentions
+for each row execute function public.enforce_scope_integrity();
+create trigger meeting_evolution_scope_integrity
+before insert or update on public.meeting_evolution
+for each row execute function public.enforce_scope_integrity();
+create trigger meeting_evolution_items_scope_integrity
+before insert or update on public.meeting_evolution_items
+for each row execute function public.enforce_scope_integrity();
+create trigger project_health_snapshots_scope_integrity
+before insert or update on public.project_health_snapshots
+for each row execute function public.enforce_scope_integrity();
+create trigger project_dedupe_log_scope_integrity
+before insert or update on public.project_dedupe_log
+for each row execute function public.enforce_scope_integrity();
+
 alter table public.actions enable row level security;
 alter table public.analysis_applications enable row level security;
 alter table public.clients enable row level security;

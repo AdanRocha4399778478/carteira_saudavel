@@ -207,32 +207,14 @@ DROP POLICY IF EXISTS "meetings insert" ON public.meetings;
 DROP POLICY IF EXISTS "meetings update" ON public.meetings;
 DROP POLICY IF EXISTS "meetings delete" ON public.meetings;
 CREATE POLICY "meetings visible" ON public.meetings FOR SELECT TO authenticated
-USING (public.can_access_client(client_id));
+USING (public.can_access_scope(client_id, project_id, NULL));
 CREATE POLICY "meetings insert" ON public.meetings FOR INSERT TO authenticated
-WITH CHECK (
-  public.can_access_client(client_id)
-  AND (
-    meetings.project_id IS NULL
-    OR EXISTS (
-      SELECT 1 FROM public.projects p
-      WHERE p.id = meetings.project_id AND p.client_id = meetings.client_id
-    )
-  )
-);
+WITH CHECK (public.can_access_scope(client_id, project_id, NULL));
 CREATE POLICY "meetings update" ON public.meetings FOR UPDATE TO authenticated
-USING (public.can_access_client(client_id))
-WITH CHECK (
-  public.can_access_client(client_id)
-  AND (
-    meetings.project_id IS NULL
-    OR EXISTS (
-      SELECT 1 FROM public.projects p
-      WHERE p.id = meetings.project_id AND p.client_id = meetings.client_id
-    )
-  )
-);
+USING (public.can_access_scope(client_id, project_id, NULL))
+WITH CHECK (public.can_access_scope(client_id, project_id, NULL));
 CREATE POLICY "meetings delete" ON public.meetings FOR DELETE TO authenticated
-USING (public.can_access_client(client_id));
+USING (public.can_access_scope(client_id, project_id, NULL));
 
 ALTER TABLE public.actions ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.actions TO authenticated;
@@ -242,14 +224,14 @@ DROP POLICY IF EXISTS "actions insert" ON public.actions;
 DROP POLICY IF EXISTS "actions update" ON public.actions;
 DROP POLICY IF EXISTS "actions delete" ON public.actions;
 CREATE POLICY "actions visible" ON public.actions FOR SELECT TO authenticated
-USING (public.can_access_client(client_id));
+USING (public.can_access_scope(client_id, NULL, meeting_id));
 CREATE POLICY "actions insert" ON public.actions FOR INSERT TO authenticated
-WITH CHECK (public.can_access_client(client_id));
+WITH CHECK (public.can_access_scope(client_id, NULL, meeting_id));
 CREATE POLICY "actions update" ON public.actions FOR UPDATE TO authenticated
-USING (public.can_access_client(client_id))
-WITH CHECK (public.can_access_client(client_id));
+USING (public.can_access_scope(client_id, NULL, meeting_id))
+WITH CHECK (public.can_access_scope(client_id, NULL, meeting_id));
 CREATE POLICY "actions delete" ON public.actions FOR DELETE TO authenticated
-USING (public.can_access_client(client_id));
+USING (public.can_access_scope(client_id, NULL, meeting_id));
 
 ALTER TABLE public.risks ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.risks TO authenticated;
@@ -259,14 +241,14 @@ DROP POLICY IF EXISTS "risks insert" ON public.risks;
 DROP POLICY IF EXISTS "risks update" ON public.risks;
 DROP POLICY IF EXISTS "risks delete" ON public.risks;
 CREATE POLICY "risks visible" ON public.risks FOR SELECT TO authenticated
-USING (public.can_access_client(client_id));
+USING (public.can_access_scope(client_id, NULL, meeting_id));
 CREATE POLICY "risks insert" ON public.risks FOR INSERT TO authenticated
-WITH CHECK (public.can_access_client(client_id));
+WITH CHECK (public.can_access_scope(client_id, NULL, meeting_id));
 CREATE POLICY "risks update" ON public.risks FOR UPDATE TO authenticated
-USING (public.can_access_client(client_id))
-WITH CHECK (public.can_access_client(client_id));
+USING (public.can_access_scope(client_id, NULL, meeting_id))
+WITH CHECK (public.can_access_scope(client_id, NULL, meeting_id));
 CREATE POLICY "risks delete" ON public.risks FOR DELETE TO authenticated
-USING (public.can_access_client(client_id));
+USING (public.can_access_scope(client_id, NULL, meeting_id));
 
 ALTER TABLE public.opportunities ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.opportunities TO authenticated;
@@ -276,14 +258,14 @@ DROP POLICY IF EXISTS "opportunities insert" ON public.opportunities;
 DROP POLICY IF EXISTS "opportunities update" ON public.opportunities;
 DROP POLICY IF EXISTS "opportunities delete" ON public.opportunities;
 CREATE POLICY "opportunities visible" ON public.opportunities FOR SELECT TO authenticated
-USING (public.can_access_client(client_id));
+USING (public.can_access_scope(client_id, NULL, meeting_id));
 CREATE POLICY "opportunities insert" ON public.opportunities FOR INSERT TO authenticated
-WITH CHECK (public.can_access_client(client_id));
+WITH CHECK (public.can_access_scope(client_id, NULL, meeting_id));
 CREATE POLICY "opportunities update" ON public.opportunities FOR UPDATE TO authenticated
-USING (public.can_access_client(client_id))
-WITH CHECK (public.can_access_client(client_id));
+USING (public.can_access_scope(client_id, NULL, meeting_id))
+WITH CHECK (public.can_access_scope(client_id, NULL, meeting_id));
 CREATE POLICY "opportunities delete" ON public.opportunities FOR DELETE TO authenticated
-USING (public.can_access_client(client_id));
+USING (public.can_access_scope(client_id, NULL, meeting_id));
 
 -- -----------------------------------------------------------------------------
 -- 4. PROFILES — a leitura da equipe segue necessária para exibir responsáveis;
@@ -354,12 +336,12 @@ ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.projects TO authenticated;
 GRANT ALL ON public.projects TO service_role;
 CREATE POLICY "projects visible" ON public.projects FOR SELECT TO authenticated
-USING (public.can_access_client(client_id));
+USING (public.can_access_scope(client_id, merged_into_project_id, NULL));
 CREATE POLICY "projects insert" ON public.projects FOR INSERT TO authenticated
-WITH CHECK (public.can_access_client(client_id));
+WITH CHECK (public.can_access_scope(client_id, merged_into_project_id, NULL));
 CREATE POLICY "projects update" ON public.projects FOR UPDATE TO authenticated
-USING (public.can_access_client(client_id))
-WITH CHECK (public.can_access_client(client_id));
+USING (public.can_access_scope(client_id, merged_into_project_id, NULL))
+WITH CHECK (public.can_access_scope(client_id, merged_into_project_id, NULL));
 CREATE POLICY "projects delete" ON public.projects FOR DELETE TO authenticated
 USING (public.is_admin());
 
@@ -367,106 +349,118 @@ ALTER TABLE public.project_context ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.project_context TO authenticated;
 GRANT ALL ON public.project_context TO service_role;
 CREATE POLICY "project_context visible" ON public.project_context FOR SELECT TO authenticated
-USING (public.can_access_project(project_id));
+USING (public.can_access_scope(NULL, project_id, last_meeting_id));
 CREATE POLICY "project_context insert" ON public.project_context FOR INSERT TO authenticated
-WITH CHECK (public.can_access_project(project_id));
+WITH CHECK (public.can_access_scope(NULL, project_id, last_meeting_id));
 CREATE POLICY "project_context update" ON public.project_context FOR UPDATE TO authenticated
-USING (public.can_access_project(project_id))
-WITH CHECK (public.can_access_project(project_id));
+USING (public.can_access_scope(NULL, project_id, last_meeting_id))
+WITH CHECK (public.can_access_scope(NULL, project_id, last_meeting_id));
 CREATE POLICY "project_context delete" ON public.project_context FOR DELETE TO authenticated
-USING (public.can_access_project(project_id));
+USING (public.can_access_scope(NULL, project_id, last_meeting_id));
 
 ALTER TABLE public.decisions ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.decisions TO authenticated;
 GRANT ALL ON public.decisions TO service_role;
 CREATE POLICY "decisions visible" ON public.decisions FOR SELECT TO authenticated
-USING (public.can_access_project(project_id));
+USING (public.can_access_scope(client_id, project_id, meeting_id));
 CREATE POLICY "decisions insert" ON public.decisions FOR INSERT TO authenticated
-WITH CHECK (public.can_access_project(project_id));
+WITH CHECK (public.can_access_scope(client_id, project_id, meeting_id));
 CREATE POLICY "decisions update" ON public.decisions FOR UPDATE TO authenticated
-USING (public.can_access_project(project_id))
-WITH CHECK (public.can_access_project(project_id));
+USING (public.can_access_scope(client_id, project_id, meeting_id))
+WITH CHECK (public.can_access_scope(client_id, project_id, meeting_id));
 CREATE POLICY "decisions delete" ON public.decisions FOR DELETE TO authenticated
-USING (public.can_access_project(project_id));
+USING (public.can_access_scope(client_id, project_id, meeting_id));
 
 -- Analysis, evolution and health entities.
 ALTER TABLE public.meeting_analyses ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.meeting_analyses TO authenticated;
 GRANT ALL ON public.meeting_analyses TO service_role;
 CREATE POLICY "meeting_analyses visible" ON public.meeting_analyses FOR SELECT TO authenticated
-USING (public.can_access_meeting(meeting_id));
+USING (public.can_access_scope(client_id, project_id, meeting_id));
 CREATE POLICY "meeting_analyses insert" ON public.meeting_analyses FOR INSERT TO authenticated
-WITH CHECK (public.can_access_meeting(meeting_id));
+WITH CHECK (public.can_access_scope(client_id, project_id, meeting_id));
 CREATE POLICY "meeting_analyses update" ON public.meeting_analyses FOR UPDATE TO authenticated
-USING (public.can_access_meeting(meeting_id))
-WITH CHECK (public.can_access_meeting(meeting_id));
+USING (public.can_access_scope(client_id, project_id, meeting_id))
+WITH CHECK (public.can_access_scope(client_id, project_id, meeting_id));
 CREATE POLICY "meeting_analyses delete" ON public.meeting_analyses FOR DELETE TO authenticated
-USING (public.can_access_meeting(meeting_id));
+USING (public.can_access_scope(client_id, project_id, meeting_id));
 
 ALTER TABLE public.analysis_applications ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.analysis_applications TO authenticated;
 GRANT ALL ON public.analysis_applications TO service_role;
 CREATE POLICY "analysis_applications visible" ON public.analysis_applications FOR SELECT TO authenticated
-USING (public.can_access_meeting(meeting_id));
+USING (public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL));
 CREATE POLICY "analysis_applications insert" ON public.analysis_applications FOR INSERT TO authenticated
-WITH CHECK (public.can_access_meeting(meeting_id));
+WITH CHECK (public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL));
 CREATE POLICY "analysis_applications update" ON public.analysis_applications FOR UPDATE TO authenticated
-USING (public.can_access_meeting(meeting_id))
-WITH CHECK (public.can_access_meeting(meeting_id));
+USING (public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL))
+WITH CHECK (public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL));
 CREATE POLICY "analysis_applications delete" ON public.analysis_applications FOR DELETE TO authenticated
-USING (public.can_access_meeting(meeting_id));
+USING (public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL));
 
 ALTER TABLE public.entity_mentions ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.entity_mentions TO authenticated;
 GRANT ALL ON public.entity_mentions TO service_role;
 CREATE POLICY "entity_mentions visible" ON public.entity_mentions FOR SELECT TO authenticated
-USING (public.can_access_meeting(meeting_id) OR public.can_access_project(project_id) OR public.can_access_client(client_id));
+USING (public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL));
 CREATE POLICY "entity_mentions insert" ON public.entity_mentions FOR INSERT TO authenticated
-WITH CHECK (public.can_access_meeting(meeting_id) OR public.can_access_project(project_id) OR public.can_access_client(client_id));
+WITH CHECK (public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL));
 CREATE POLICY "entity_mentions update" ON public.entity_mentions FOR UPDATE TO authenticated
-USING (public.can_access_meeting(meeting_id) OR public.can_access_project(project_id) OR public.can_access_client(client_id))
-WITH CHECK (public.can_access_meeting(meeting_id) OR public.can_access_project(project_id) OR public.can_access_client(client_id));
+USING (public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL))
+WITH CHECK (public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL));
 CREATE POLICY "entity_mentions delete" ON public.entity_mentions FOR DELETE TO authenticated
-USING (public.can_access_meeting(meeting_id) OR public.can_access_project(project_id) OR public.can_access_client(client_id));
+USING (public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL));
 
 ALTER TABLE public.meeting_evolution ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.meeting_evolution TO authenticated;
 GRANT ALL ON public.meeting_evolution TO service_role;
 CREATE POLICY "meeting_evolution visible" ON public.meeting_evolution FOR SELECT TO authenticated
-USING (public.can_access_project(project_id));
+USING (
+  public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL)
+  AND (previous_meeting_id IS NULL OR public.can_access_scope(client_id, project_id, previous_meeting_id))
+);
 CREATE POLICY "meeting_evolution insert" ON public.meeting_evolution FOR INSERT TO authenticated
-WITH CHECK (public.can_access_project(project_id));
+WITH CHECK (
+  public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL)
+  AND (previous_meeting_id IS NULL OR public.can_access_scope(client_id, project_id, previous_meeting_id))
+);
 CREATE POLICY "meeting_evolution update" ON public.meeting_evolution FOR UPDATE TO authenticated
-USING (public.can_access_project(project_id))
-WITH CHECK (public.can_access_project(project_id));
+USING (
+  public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL)
+  AND (previous_meeting_id IS NULL OR public.can_access_scope(client_id, project_id, previous_meeting_id))
+)
+WITH CHECK (
+  public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL)
+  AND (previous_meeting_id IS NULL OR public.can_access_scope(client_id, project_id, previous_meeting_id))
+);
 CREATE POLICY "meeting_evolution delete" ON public.meeting_evolution FOR DELETE TO authenticated
-USING (public.can_access_project(project_id));
+USING (public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL));
 
 ALTER TABLE public.meeting_evolution_items ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.meeting_evolution_items TO authenticated;
 GRANT ALL ON public.meeting_evolution_items TO service_role;
 CREATE POLICY "meeting_evolution_items visible" ON public.meeting_evolution_items FOR SELECT TO authenticated
-USING (public.can_access_project(project_id));
+USING (public.can_access_related_scope(client_id, project_id, meeting_id, NULL, evolution_id));
 CREATE POLICY "meeting_evolution_items insert" ON public.meeting_evolution_items FOR INSERT TO authenticated
-WITH CHECK (public.can_access_project(project_id));
+WITH CHECK (public.can_access_related_scope(client_id, project_id, meeting_id, NULL, evolution_id));
 CREATE POLICY "meeting_evolution_items update" ON public.meeting_evolution_items FOR UPDATE TO authenticated
-USING (public.can_access_project(project_id))
-WITH CHECK (public.can_access_project(project_id));
+USING (public.can_access_related_scope(client_id, project_id, meeting_id, NULL, evolution_id))
+WITH CHECK (public.can_access_related_scope(client_id, project_id, meeting_id, NULL, evolution_id));
 CREATE POLICY "meeting_evolution_items delete" ON public.meeting_evolution_items FOR DELETE TO authenticated
-USING (public.can_access_project(project_id));
+USING (public.can_access_related_scope(client_id, project_id, meeting_id, NULL, evolution_id));
 
 ALTER TABLE public.project_health_snapshots ENABLE ROW LEVEL SECURITY;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.project_health_snapshots TO authenticated;
 GRANT ALL ON public.project_health_snapshots TO service_role;
 CREATE POLICY "project_health_snapshots visible" ON public.project_health_snapshots FOR SELECT TO authenticated
-USING (public.can_access_project(project_id));
+USING (public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL));
 CREATE POLICY "project_health_snapshots insert" ON public.project_health_snapshots FOR INSERT TO authenticated
-WITH CHECK (public.can_access_project(project_id));
+WITH CHECK (public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL));
 CREATE POLICY "project_health_snapshots update" ON public.project_health_snapshots FOR UPDATE TO authenticated
-USING (public.can_access_project(project_id))
-WITH CHECK (public.can_access_project(project_id));
+USING (public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL))
+WITH CHECK (public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL));
 CREATE POLICY "project_health_snapshots delete" ON public.project_health_snapshots FOR DELETE TO authenticated
-USING (public.can_access_project(project_id));
+USING (public.can_access_related_scope(client_id, project_id, meeting_id, analysis_id, NULL));
 
 -- -----------------------------------------------------------------------------
 -- 7. PROJECT_DEDUPE_LOG — trilha criada com USING (true); passa a respeitar
@@ -481,15 +475,15 @@ GRANT SELECT, INSERT ON public.project_dedupe_log TO authenticated;
 GRANT ALL ON public.project_dedupe_log TO service_role;
 CREATE POLICY "project_dedupe_log visible" ON public.project_dedupe_log FOR SELECT TO authenticated
 USING (
-  public.is_admin()
-  OR public.can_access_client(client_id)
-  OR public.can_access_project(project_id)
+  public.can_access_related_scope(
+    client_id, coalesce(project_id, merged_from_project_id), NULL, analysis_id, NULL
+  )
 );
 CREATE POLICY "project_dedupe_log insert" ON public.project_dedupe_log FOR INSERT TO authenticated
 WITH CHECK (
-  public.is_admin()
-  OR public.can_access_client(client_id)
-  OR public.can_access_project(project_id)
+  public.can_access_related_scope(
+    client_id, coalesce(project_id, merged_from_project_id), NULL, analysis_id, NULL
+  )
 );
 
 COMMIT;

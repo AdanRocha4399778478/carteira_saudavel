@@ -100,7 +100,7 @@ $$;
 drop trigger if exists orchestrator_recommendations_scope
   on public.orchestrator_recommendations;
 create trigger orchestrator_recommendations_scope
-before insert on public.orchestrator_recommendations
+before insert or update on public.orchestrator_recommendations
 for each row execute function public.set_orchestrator_recommendation_scope();
 
 revoke all on public.orchestrator_recommendations from anon, authenticated;
@@ -120,28 +120,20 @@ drop policy if exists orchestrator_recommendations_update
 
 create policy orchestrator_recommendations_select
   on public.orchestrator_recommendations for select to authenticated
-  using (public.can_access_project(project_id));
+  using (public.can_access_scope(client_id, project_id, NULL));
 
 create policy orchestrator_recommendations_insert
   on public.orchestrator_recommendations for insert to authenticated
   with check (
-    public.can_access_project(project_id)
-    and orchestrator_recommendations.client_id = (
-      select p.client_id from public.projects p
-      where p.id = orchestrator_recommendations.project_id
-    )
+    public.can_access_scope(client_id, project_id, NULL)
     and (created_by is null or created_by = auth.uid() or public.is_admin())
   );
 
 create policy orchestrator_recommendations_update
   on public.orchestrator_recommendations for update to authenticated
-  using (public.can_access_project(project_id))
+  using (public.can_access_scope(client_id, project_id, NULL))
   with check (
-    public.can_access_project(project_id)
-    and orchestrator_recommendations.client_id = (
-      select p.client_id from public.projects p
-      where p.id = orchestrator_recommendations.project_id
-    )
+    public.can_access_scope(client_id, project_id, NULL)
     and (
       (status = 'approved' and approved_by = auth.uid() and approved_at is not null)
       or status in ('rejected', 'executed', 'superseded')

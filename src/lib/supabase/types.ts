@@ -1279,6 +1279,42 @@ export type Database = {
         Args: { _project_id: string }
         Returns: boolean
       }
+      can_access_scope: {
+        Args: {
+          p_client_id: string | null
+          p_meeting_id: string | null
+          p_project_id: string | null
+        }
+        Returns: boolean
+      }
+      can_access_related_scope: {
+        Args: {
+          p_analysis_id: string | null
+          p_client_id: string | null
+          p_evolution_id: string | null
+          p_meeting_id: string | null
+          p_project_id: string | null
+        }
+        Returns: boolean
+      }
+      analysis_scope_is_consistent: {
+        Args: {
+          p_analysis_id: string
+          p_client_id: string | null
+          p_meeting_id: string | null
+          p_project_id: string | null
+        }
+        Returns: boolean
+      }
+      evolution_scope_is_consistent: {
+        Args: {
+          p_client_id: string | null
+          p_evolution_id: string
+          p_meeting_id: string | null
+          p_project_id: string | null
+        }
+        Returns: boolean
+      }
       get_or_create_project: {
         Args: {
           p_analysis_id?: string
@@ -1320,6 +1356,14 @@ export type Database = {
       is_admin: { Args: never; Returns: boolean }
       merge_context_list: { Args: { a: Json; b: Json }; Returns: Json }
       normalize_project_name: { Args: { p_name: string }; Returns: string }
+      scope_is_consistent: {
+        Args: {
+          p_client_id: string | null
+          p_meeting_id: string | null
+          p_project_id: string | null
+        }
+        Returns: boolean
+      }
     }
     Enums: {
       app_role: "admin" | "consultant"
