@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { SlidersHorizontal } from "lucide-react";
+import { SlidersHorizontal, UserPlus } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { PageHeader } from "@/components/painel/PageHeader";
 import { routeErrorComponent } from "@/components/painel/RouteError";
@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { InviteConsultantDialog } from "@/components/painel/InviteConsultantDialog";
+import { consultantDisplayName } from "@/lib/consultants";
 
 export const Route = createFileRoute("/_authenticated/configuracoes")({
   head: () => ({
@@ -38,6 +40,7 @@ function SettingsPage() {
   const { access, isAdmin } = useAccess();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<Record<string, { points: number; active: boolean }>>({});
+  const [inviteOpen, setInviteOpen] = useState(false);
 
   useEffect(() => {
     setDraft(
@@ -147,7 +150,9 @@ function SettingsPage() {
               >
                 <div className="min-w-0">
                   <p className="text-sm font-medium">{rule.rule_name}</p>
-                  <p className="text-xs text-muted-foreground">{rule.description ?? rule.rule_key}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {rule.description ?? rule.rule_key}
+                  </p>
                 </div>
                 <div className="grid gap-1.5">
                   <Label className="text-xs text-muted-foreground">Pontos</Label>
@@ -187,10 +192,20 @@ function SettingsPage() {
         </section>
 
         <section className="card-surface p-4 md:p-5">
-          <h2 className="text-base font-semibold">Equipe</h2>
-          <p className="text-xs text-muted-foreground">
-            Consultores e líderes com acesso ao painel.
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold">Equipe</h2>
+              <p className="text-xs text-muted-foreground">
+                Consultores e líderes com acesso ao painel.
+              </p>
+            </div>
+            {isAdmin ? (
+              <Button type="button" variant="outline" onClick={() => setInviteOpen(true)}>
+                <UserPlus className="size-4" aria-hidden />
+                Incluir consultor
+              </Button>
+            ) : null}
+          </div>
           <ul className="mt-4 grid gap-2">
             {profiles.map((p) => (
               <li
@@ -198,17 +213,18 @@ function SettingsPage() {
                 className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-border px-3 py-2"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{p.full_name}</p>
+                  <p className="truncate text-sm font-medium">{consultantDisplayName(p)}</p>
                   <p className="truncate text-xs text-muted-foreground">{p.email ?? "—"}</p>
                 </div>
                 <span className="text-xs font-semibold text-muted-foreground">
-                  {p.role === "admin" ? "Administrador" : "Consultor"}
+                  {!p.active ? "Inativo" : p.role === "admin" ? "Administrador" : "Consultor"}
                 </span>
               </li>
             ))}
           </ul>
         </section>
       </div>
+      <InviteConsultantDialog open={inviteOpen} onOpenChange={setInviteOpen} />
     </>
   );
 }

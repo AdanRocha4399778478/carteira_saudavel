@@ -23,7 +23,12 @@ import {
   QuadrantBadge,
   RiskBadge,
 } from "@/components/painel/badges";
-import { BandBars, EvolutionChart, RiskDonut, type EvolutionPoint } from "@/components/charts/charts";
+import {
+  BandBars,
+  EvolutionChart,
+  RiskDonut,
+  type EvolutionPoint,
+} from "@/components/charts/charts";
 import { SatisfactionValueMatrix } from "@/components/charts/SatisfactionValueMatrix";
 import { InterventionCockpit } from "@/components/painel/InterventionCockpit";
 import { useDashboardData } from "@/hooks/useCarteira";
@@ -37,6 +42,7 @@ import {
   isOverdue,
   scoreBand,
 } from "@/lib/domain";
+import { consultantDisplayName } from "@/lib/consultants";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -116,9 +122,7 @@ function Panel({
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
         <div className="min-w-0">
           <h2 className="text-base font-semibold">{title}</h2>
-          {description ? (
-            <p className="text-xs text-muted-foreground">{description}</p>
-          ) : null}
+          {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
         </div>
         {action}
       </div>
@@ -177,7 +181,6 @@ function DashboardPage() {
     return (id: string) => map.get(id) ?? "—";
   }, [clients]);
   const scopedMeetings = useMemo(
-
     () => meetings.filter((m) => filteredIds.has(m.client_id)),
     [meetings, filteredIds],
   );
@@ -203,9 +206,7 @@ function DashboardPage() {
   const avgSatisfaction = avg(activeClients.map((c) => c.current_satisfaction));
   const avgValue = avg(activeClients.map((c) => c.current_value_score));
   const attention = activeClients.filter((c) => c.account_status === "atenção");
-  const highRisk = activeClients.filter((c) =>
-    ["alto", "crítico"].includes(c.current_risk_level),
-  );
+  const highRisk = activeClients.filter((c) => ["alto", "crítico"].includes(c.current_risk_level));
   const overdueActions = actions.filter((a) => filteredIds.has(a.client_id) && isOverdue(a));
   const staleClients = activeClients.filter((c) => (daysSince(c.last_meeting_date) ?? 999) > 45);
   const expansion = opportunities.filter(
@@ -334,7 +335,7 @@ function DashboardPage() {
                 <SelectItem value="all">Todos os consultores</SelectItem>
                 {profiles.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
-                    {p.full_name}
+                    {consultantDisplayName(p)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -482,7 +483,10 @@ function DashboardPage() {
             </Panel>
 
             <div className="grid gap-6 xl:grid-cols-3">
-              <Panel title="Distribuição por risco" description="Clientes ativos por nível de risco">
+              <Panel
+                title="Distribuição por risco"
+                description="Clientes ativos por nível de risco"
+              >
                 <SectionErrorBoundary label="o gráfico de risco">
                   <RiskDonut data={riskDistribution} />
                 </SectionErrorBoundary>
@@ -518,7 +522,6 @@ function DashboardPage() {
             </Panel>
 
             <Panel
-
               title="Contas prioritárias"
               description="Ordenadas por maior risco de cancelamento"
             >

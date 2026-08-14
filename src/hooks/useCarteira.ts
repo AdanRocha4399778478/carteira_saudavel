@@ -20,15 +20,10 @@ import {
   type RiskItem,
   type RiskRule,
 } from "@/lib/domain";
+import { consultantDisplayName } from "@/lib/consultants";
 
 type TableKey =
-  | "clients"
-  | "meetings"
-  | "actions"
-  | "profiles"
-  | "risks"
-  | "opportunities"
-  | "risk_rules";
+  "clients" | "meetings" | "actions" | "profiles" | "risks" | "opportunities" | "risk_rules";
 
 const QUERY_BY_TABLE = {
   clients: clientsQuery,
@@ -43,7 +38,6 @@ const QUERY_BY_TABLE = {
 const SLOW_QUERY_MS = 10_000;
 
 const EMPTY: never[] = [];
-
 
 /**
  * Base compartilhada: cada página declara apenas as tabelas que consome,
@@ -61,7 +55,6 @@ function useCarteiraData(tables: readonly TableKey[]) {
   // EMPTY é uma referência estável: um `[]` novo a cada render quebraria
   // dependências de useEffect/useMemo nas páginas.
   const get = <T>(t: TableKey): T[] => (byTable.get(t)?.data as T[] | undefined) ?? (EMPTY as T[]);
-
 
   const clients = get<Client>("clients");
   const meetings = get<Meeting>("meetings");
@@ -81,8 +74,7 @@ function useCarteiraData(tables: readonly TableKey[]) {
   // presa em "carregando" enquanto o banco estiver indisponível.
   const failed = results.find(
     (r) =>
-      r.data === undefined &&
-      (r.error || (r.failureCount >= MAX_QUERY_RETRIES && r.failureReason)),
+      r.data === undefined && (r.error || (r.failureCount >= MAX_QUERY_RETRIES && r.failureReason)),
   );
   const liveError = (failed?.error ?? failed?.failureReason ?? null) as Error | null;
 
@@ -101,7 +93,6 @@ function useCarteiraData(tables: readonly TableKey[]) {
     results.forEach((r) => void r.refetch());
   };
 
-
   // Aviso visual de conexão lenta (> 10s) sem esconder o botão de retentativa.
   const [isSlow, setIsSlow] = useState(false);
   useEffect(() => {
@@ -114,7 +105,7 @@ function useCarteiraData(tables: readonly TableKey[]) {
   }, [isLoading]);
 
   const consultantName = useMemo(() => {
-    const map = new Map(profiles.map((p) => [p.id, p.full_name]));
+    const map = new Map(profiles.map((p) => [p.id, consultantDisplayName(p)]));
     return (id: string | null) => (id ? (map.get(id) ?? "Não atribuído") : "Não atribuído");
   }, [profiles]);
 
@@ -200,4 +191,3 @@ export const useMeetingsData = () => useCarteiraData(MEETINGS_TABLES);
 export const useMeetingsListData = () => useCarteiraData(MEETINGS_LIST_TABLES);
 export const useActionsData = () => useCarteiraData(ACTIONS_TABLES);
 export const useSettingsData = () => useCarteiraData(SETTINGS_TABLES);
-

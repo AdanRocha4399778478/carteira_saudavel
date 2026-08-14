@@ -8,6 +8,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/painel/states
 import { Pill } from "@/components/painel/badges";
 import { ProjectDialog } from "@/components/painel/ProjectDialog";
 import { clientsQuery, profilesQuery } from "@/lib/api";
+import { consultantDisplayName } from "@/lib/consultants";
 import { projectsQuery, PROJECT_STATUS_LABEL } from "@/lib/projects";
 import { formatDate } from "@/lib/domain";
 import { HEALTH_TONE, PRIORITY_TONE } from "@/lib/health";
@@ -53,7 +54,7 @@ function ProjectsPage() {
   }, [clients.data]);
 
   const consultantName = useMemo(() => {
-    const map = new Map((profiles.data ?? []).map((p) => [p.id, p.full_name]));
+    const map = new Map((profiles.data ?? []).map((p) => [p.id, consultantDisplayName(p)]));
     return (id: string | null) => (id ? (map.get(id) ?? "—") : "—");
   }, [profiles.data]);
 
