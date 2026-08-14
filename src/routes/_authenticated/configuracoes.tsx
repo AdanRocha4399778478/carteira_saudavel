@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { SlidersHorizontal, UserPlus } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
@@ -41,6 +41,27 @@ function SettingsPage() {
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<Record<string, { points: number; active: boolean }>>({});
   const [inviteOpen, setInviteOpen] = useState(false);
+
+  const rolesQuery = useQuery({
+    queryKey: ["user_roles", "team"],
+    queryFn: async () => {
+      const { data, error: rolesError } = await supabase.from("user_roles").select("user_id, role");
+      if (rolesError) throw new Error(rolesError.message);
+      return data ?? [];
+    },
+  });
+
+  const canonicalRoleByUser = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of rolesQuery.data ?? []) {
+      if (row.role === "admin") {
+        map.set(row.user_id, "admin");
+      } else if (!map.has(row.user_id)) {
+        map.set(row.user_id, row.role);
+      }
+    }
+    return map;
+  }, [rolesQuery.data]);
 
   useEffect(() => {
     setDraft(
@@ -207,20 +228,29 @@ function SettingsPage() {
             ) : null}
           </div>
           <ul className="mt-4 grid gap-2">
-            {profiles.map((p) => (
-              <li
-                key={p.id}
-                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-border px-3 py-2"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{consultantDisplayName(p)}</p>
-                  <p className="truncate text-xs text-muted-foreground">{p.email ?? "—"}</p>
-                </div>
-                <span className="text-xs font-semibold text-muted-foreground">
-                  {!p.active ? "Inativo" : p.role === "admin" ? "Administrador" : "Consultor"}
-                </span>
-              </li>
-            ))}
+            {profiles.map((p) => {
+              const canonicalRole = canonicalRoleByUser.get(p.id);
+              const displayedRole = canonicalRole ?? p.role;
+
+              return (
+                <li
+                  key={p.id}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-border px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{consultantDisplayName(p)}</p>
+                    <p className="truncate text-xs text-muted-foreground">{p.email ?? "—"}</p>
+                  </div>
+                  <span className="text-xs font-semibold text-muted-foreground">
+                    {!p.active
+                      ? "Inativo"
+                      : displayedRole === "admin"
+                        ? "Administrador"
+                        : "Consultor"}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </section>
       </div>
