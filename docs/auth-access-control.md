@@ -124,17 +124,11 @@ transferir um cliente para outro consultor (o `WITH CHECK` das policies de
 
 ---
 
-## 4. Alterações preparadas no código
-
-Os itens desta seção estão separados por estado para não confundir código local com configuração remota:
-
-- **ESTADO CONFIRMADO NO CÓDIGO:** telas, guardas e controles descritos abaixo existem no repositório.
-- **MIGRATION PREPARADA MAS NÃO APLICADA:** o SQL de RLS foi apenas revisado estaticamente.
-- **AÇÃO MANUAL NECESSÁRIA:** cadastro público e redirects de recuperação precisam ser validados no Supabase Dashboard.
+## 4. Alterações aplicadas
 
 ### Banco (SQL preparado, **não executado**)
 
-`supabase/migrations/20260811120000_rls_scope_carteira.sql` — idempotente,
+`db/migrations/20260811120000_rls_scope_carteira.sql` — idempotente,
 transacional, sem alterar dados ou estrutura de tabelas:
 
 - `has_role`, `is_admin` recriadas como `SECURITY DEFINER` + `search_path`
@@ -148,10 +142,10 @@ transacional, sem alterar dados ou estrutura de tabelas:
   (a RLS avalia esses predicados por linha).
 - Rollback documentado no cabeçalho do arquivo.
 
-> **MIGRATION PREPARADA MAS NÃO APLICADA.** Não aplique diretamente em produção.
-> Primeiro inventarie todas as policies reais em staging, pois policies
-> permissivas de nomes diferentes coexistem por OR e não seriam removidas pelos
-> `DROP POLICY` nominais deste arquivo. Consulte `docs/security-hardening.md`.
+> **Este projeto usa Supabase externo (BYO)**: as ferramentas de migration do
+> Lovable Cloud não estão habilitadas aqui, então o SQL não pôde ser aplicado
+> pelo agente. Aplique com `supabase db push`, `psql`, ou pelo SQL Editor do
+> dashboard. Até lá, as tabelas base seguem sem escopo por consultor.
 
 ### Frontend
 
@@ -201,24 +195,11 @@ Aplicação:
 
 ## 6. Pendências conhecidas
 
-- **Validar a migration em staging antes de qualquer aplicação** — enquanto
-  isso não ocorre, o isolamento por carteira depende das policies já existentes.
+- **Aplicar a migration** — enquanto isso não ocorre, o isolamento por
+  carteira existe apenas nas tabelas já escopadas.
 - **Cadastro público no backend** — o Supabase ainda aceita `signUp`. O
   frontend esconde a aba, mas o endpoint continua aberto: desative
   “Allow new users to sign up” no dashboard (Auth → Providers → Email).
 - **Proteção contra senha vazada (HIBP)** — ativar em Auth → Providers → Email.
 - **Convite de usuários por admin** — hoje depende do dashboard; uma tela de
   convite exigiria uma server function com service role.
-
----
-
-## 7. Checkpoint Prompt 03B — 2026-08-11
-
-- **STAGING:** não identificado no repositório ou nas variáveis locais.
-- **ESTADO REAL DAS POLICIES:** não inventariado; requer acesso administrativo/direct DB a staging.
-- **CONFIRMADO NO CÓDIGO:** `clients.consultant_id` referencia `profiles.id`; o modelo declara `profiles.id` 1:1 com `auth.users.id`.
-- **HAS_ROLE:** assinatura e proposta `SECURITY DEFINER` revisadas; owner/grants/definição reais ainda precisam ser consultados no catálogo.
-- **MIGRATION PREPARADA MAS NÃO APLICADA:** há riscos pendentes sobre policies de nomes desconhecidos, `project_dedupe_log`, colunas editáveis de `profiles` e rollback permissivo.
-- **PRODUÇÃO:** não alterada.
-
-O inventário SQL, a matriz-alvo e o roteiro de testes estão em `docs/rls-staging-validation.md`.

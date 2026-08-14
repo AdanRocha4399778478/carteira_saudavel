@@ -1,7 +1,7 @@
 # Auditoria do Backend Supabase — Carteira Saudável 2.0
 
 **Data:** 2026-08-11
-**Escopo:** auditoria EXCLUSIVAMENTE de leitura do backend existente. Os fatos do backend abaixo são um retrato confirmado em 2026-08-11 e não foram reconfirmados nem alterados durante o hardening local.
+**Escopo:** auditoria EXCLUSIVAMENTE de leitura do backend existente.
 **O banco foi alterado? NÃO.** Nenhum `CREATE`, `ALTER`, `INSERT`, `UPDATE`, `DELETE` ou migration foi executado. Todas as verificações usaram leituras HTTP (PostgREST `select ... limit 0`, `/auth/v1/settings`, `/storage/v1/bucket`) e leitura estática de arquivos.
 
 ## 1. Fontes utilizadas
@@ -81,7 +81,7 @@ Achados relevantes:
 - `disable_signup: false` → **cadastro público está aberto no backend**; o frontend antigo o esconde apenas por feature flag (`VITE_ENABLE_PUBLIC_SIGNUP`). Isso é uma divergência de segurança relevante.
 - `mailer_autoconfirm: false` → confirmação de e-mail obrigatória.
 - Papéis em tabela separada (`user_roles` + enum `app_role`), padrão correto.
-- **ESTADO CONFIRMADO NO CÓDIGO:** o frontend atual implementa recuperação e redefinição de senha em `esqueci-senha.tsx` e `redefinir-senha.tsx`, usando `resetPasswordForEmail` e `updateUser`.
+- **Não existe fluxo de recuperação de senha** em nenhum dos frontends (`resetPasswordForEmail`/`updateUser` ausentes).
 - Não há `onAuthStateChange`; a sessão é checada manualmente na guarda de rota (`getSession` + `getUser`) e o token é anexado às server functions por middleware.
 
 ## 7. Storage
@@ -125,7 +125,7 @@ Duas camadas: **frontend sugere, banco garante**.
 | 1 | `disable_signup: false` — qualquer pessoa pode criar conta e, autenticada, ler a carteira inteira | **Alta** | Fechar o cadastro público no backend ou introduzir aprovação/convite antes de conceder papel |
 | 2 | Políticas RLS são `TO authenticated` sem escopo por consultor/papel | **Alta** | Reescrever para `has_role(auth.uid(),'admin') OR consultant_id = auth.uid()` na reconstrução |
 | 3 | Tabelas base sem migration versionada no repositório | Média | Gerar migration de baseline (declarativa, sem recriar dados) na reconstrução |
-| 4 | Recuperação de senha implementada no código, mas ainda depende da configuração de redirect/e-mail do Auth | Média | Validar o fluxo ponta a ponta em staging |
+| 4 | Sem fluxo de recuperação de senha | Média | Incluir no módulo de autenticação |
 | 5 | Regras de risco/normalização duplicadas entre frontend e banco | Média | Definir uma autoridade única por regra (banco para dedupe/importação, frontend para health score) e documentar |
 | 6 | Queries "carregar tudo" (`meetings`, `actions`, `risks`, `opportunities`, `decisions`, `meeting_evolution` com join aninhado) alimentam o cockpit de carteira | **Alta (escala)** | Substituir por agregação no banco (view/RPC) ou paginação, como já feito em `meetingsPageQuery` |
 | 7 | Saída da IA sem validação de schema no servidor (só `JSON.parse`) | Média | Validar com Zod já no servidor, antes de devolver ao cliente |
@@ -136,7 +136,7 @@ Duas camadas: **frontend sugere, banco garante**.
 
 | Módulo | Tabelas | RPC/Functions | Regras de negócio | Estado |
 |---|---|---|---|---|
-| Autenticação & Papéis | `profiles`, `user_roles` | `has_role` | E-mail/senha, enum `admin`/`consultant` | Reset implementado no código; fechamento do signup continua obrigatório no dashboard |
+| Autenticação & Papéis | `profiles`, `user_roles` | `has_role` | E-mail/senha, enum `admin`/`consultant` | Funcional; faltam reset de senha e fechamento do signup |
 | Carteira de Clientes | `clients` | — | Matriz satisfação×valor (≥7), risco por pontos, status da conta | Funcional; RLS sem escopo |
 | Reuniões | `meetings`, `actions`, `risks`, `opportunities` | `import_meeting`, `get_or_create_smart_meeting` | Importação transacional, `import_hash` anti-duplicidade | Funcional |
 | Projetos & Contexto | `projects`, `project_context`, `decisions` | `get_or_create_project`, `normalize_project_name`, `merge_context_list` | Dedupe por nome normalizado, merge de contexto preservando histórico | Funcional |
@@ -153,9 +153,3 @@ Duas camadas: **frontend sugere, banco garante**.
 **Autenticação & Papéis**, seguido imediatamente de **Carteira de Clientes**.
 
 Motivos: é a base de que todos os demais módulos dependem; concentra os dois achados de severidade alta (cadastro público aberto + RLS sem escopo por consultor); e é o menor módulo em superfície, permitindo estabelecer o padrão de RLS, papéis e guardas de rota que os módulos seguintes vão herdar. Reconstruir IA ou Saúde antes disso significaria refazer o trabalho quando o escopo de acesso mudar.
-
-## 15. Checkpoint Prompt 03B — staging e RLS
-
-Em 2026-08-11, staging **não foi identificado** e não havia conexão administrativa/direct DB disponível. Portanto, o inventário real de `pg_policies`, owners e grants não foi reconfirmado; a migration RLS não foi aplicada nem testada; signup não foi alterado; e produção permaneceu intocada.
-
-Confirmação estática atual: `clients.consultant_id → profiles.id`. A identidade final com `auth.uid()` depende da relação 1:1 `profiles.id → auth.users.id`, que deve ser reconfirmada no catálogo de staging. O plano completo está em `docs/rls-staging-validation.md`.

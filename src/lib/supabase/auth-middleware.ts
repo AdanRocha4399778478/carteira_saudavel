@@ -14,8 +14,8 @@ function isOpaqueApiKey(value: string): boolean {
   return value.startsWith("sb_publishable_") || value.startsWith("sb_secret_");
 }
 
-function createSupabaseFetch(supabaseKey: string) {
-  return (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+function createSupabaseFetch(supabaseKey: string): typeof fetch {
+  return (input, init) => {
     const headers = new Headers(
       typeof Request !== "undefined" && input instanceof Request ? input.headers : undefined,
     );
@@ -59,9 +59,7 @@ export const requireSupabaseAuth = createMiddleware({ type: "function" }).server
 
     const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
       global: {
-        // @types/bun adds a static `preconnect` member to global fetch; Supabase
-        // only invokes the callable fetch contract represented by this wrapper.
-        fetch: createSupabaseFetch(supabaseKey) as typeof fetch,
+        fetch: createSupabaseFetch(supabaseKey),
         headers: { Authorization: `Bearer ${token}` },
       },
       auth: {
