@@ -22,6 +22,7 @@ Deno.serve(async (request) => {
   const authorization = request.headers.get("Authorization");
 
   if (!supabaseUrl || !anonKey || !serviceRoleKey) {
+    console.error("[invite-consultant] missing required environment variables");
     return json({ error: "Função não configurada." }, 500);
   }
   if (!authorization) return json({ error: "Sessão não informada." }, 401);
@@ -31,7 +32,14 @@ Deno.serve(async (request) => {
     auth: { persistSession: false },
   });
   const { data: auth, error: authError } = await userClient.auth.getUser();
-  if (authError || !auth.user) return json({ error: "Sessão inválida." }, 401);
+  if (authError || !auth.user) {
+    console.error("[invite-consultant] auth validation failed", {
+      message: authError?.message,
+      status: authError?.status,
+      code: authError?.code,
+    });
+    return json({ error: "Sessão inválida." }, 401);
+  }
 
   const { data: adminRole, error: roleError } = await userClient
     .from("user_roles")
@@ -39,7 +47,16 @@ Deno.serve(async (request) => {
     .eq("user_id", auth.user.id)
     .eq("role", "admin")
     .maybeSingle();
-  if (roleError) return json({ error: "Não foi possível validar sua permissão." }, 500);
+  if (roleError) {
+    console.error("[invite-consultant] admin role lookup failed", {
+      user_id: auth.user.id,
+      message: roleError.message,
+      code: roleError.code,
+      details: roleError.details,
+      hint: roleError.hint,
+    });
+    return json({ error: "Não foi possível validar sua permissão." }, 500);
+  }
   if (!adminRole) return json({ error: "Apenas administradores podem incluir consultores." }, 403);
 
   let input: { full_name?: unknown; email?: unknown };
@@ -63,6 +80,13 @@ Deno.serve(async (request) => {
   });
 
   if (error) {
+    console.error("[invite-consultant] inviteUserByEmail failed", {
+      email,
+      message: error.message,
+      status: error.status,
+      code: error.code,
+      name: error.name,
+    });
     const duplicate = /already|registered|exists/i.test(error.message);
     return json(
       {
@@ -80,12 +104,31 @@ Deno.serve(async (request) => {
   );
 
   if (consultantRoleError) {
-    await adminClient.auth.admin.deleteUser(data.user.id).catch(() => undefined);
+    console.error("[invite-consultant] consultant role upsert failed", {
+      user_id: data.user.id,
+      email,
+      message: consultantRoleError.message,
+      code: consultantRoleError.code,
+      details: consultantRoleError.details,
+      hint: consultantRoleError.hint,
+    });
+    await adminClient.auth.admin.deleteUser(data.user.id).catch((deleteError) => {
+      console.error("[invite-consultant] cleanup deleteUser failed", {
+        user_id: data.user.id,
+        message: deleteError instanceof Error ? deleteError.message : String(deleteError),
+      });
+    });
     return json(
       { error: "O convite não pôde ser concluído porque a permissão de consultor não foi criada." },
       500,
     );
   }
+
+  console.log("[invite-consultant] invite completed", {
+    user_id: data.user.id,
+    email,
+    role: "consultant",
+  });
 
   return json({ id: data.user.id, email: data.user.email, full_name: fullName }, 201);
 });
