@@ -778,6 +778,90 @@ export type Database = {
           },
         ]
       }
+      orchestrator_recommendations: {
+        Row: {
+          alternative_agent: Database["public"]["Enums"]["orchestrator_agent"] | null
+          alternative_reason: string | null
+          approved_at: string | null
+          approved_by: string | null
+          client_id: string
+          confidence: number
+          created_at: string
+          created_by: string | null
+          erp_classification: Json
+          evidence: Json
+          expected_result: string
+          id: string
+          main_bottleneck: Json
+          project_id: string
+          project_stage: Database["public"]["Enums"]["orchestrator_stage"]
+          reason: string
+          recommended_agent: Database["public"]["Enums"]["orchestrator_agent"]
+          source: string
+          state_hash: string
+          status: Database["public"]["Enums"]["orchestrator_status"]
+        }
+        Insert: {
+          alternative_agent?: Database["public"]["Enums"]["orchestrator_agent"] | null
+          alternative_reason?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          client_id?: string
+          confidence?: number
+          created_at?: string
+          created_by?: string | null
+          erp_classification?: Json
+          evidence?: Json
+          expected_result?: string
+          id?: string
+          main_bottleneck?: Json
+          project_id: string
+          project_stage: Database["public"]["Enums"]["orchestrator_stage"]
+          reason?: string
+          recommended_agent: Database["public"]["Enums"]["orchestrator_agent"]
+          source?: string
+          state_hash: string
+          status?: Database["public"]["Enums"]["orchestrator_status"]
+        }
+        Update: {
+          alternative_agent?: Database["public"]["Enums"]["orchestrator_agent"] | null
+          alternative_reason?: string | null
+          approved_at?: string | null
+          approved_by?: string | null
+          client_id?: string
+          confidence?: number
+          created_at?: string
+          created_by?: string | null
+          erp_classification?: Json
+          evidence?: Json
+          expected_result?: string
+          id?: string
+          main_bottleneck?: Json
+          project_id?: string
+          project_stage?: Database["public"]["Enums"]["orchestrator_stage"]
+          reason?: string
+          recommended_agent?: Database["public"]["Enums"]["orchestrator_agent"]
+          source?: string
+          state_hash?: string
+          status?: Database["public"]["Enums"]["orchestrator_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orchestrator_recommendations_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orchestrator_recommendations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           active: boolean
@@ -1183,6 +1267,54 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      can_access_client: {
+        Args: { _client_id: string }
+        Returns: boolean
+      }
+      can_access_meeting: {
+        Args: { _meeting_id: string }
+        Returns: boolean
+      }
+      can_access_project: {
+        Args: { _project_id: string }
+        Returns: boolean
+      }
+      can_access_scope: {
+        Args: {
+          p_client_id: string | null
+          p_meeting_id: string | null
+          p_project_id: string | null
+        }
+        Returns: boolean
+      }
+      can_access_related_scope: {
+        Args: {
+          p_analysis_id: string | null
+          p_client_id: string | null
+          p_evolution_id: string | null
+          p_meeting_id: string | null
+          p_project_id: string | null
+        }
+        Returns: boolean
+      }
+      analysis_scope_is_consistent: {
+        Args: {
+          p_analysis_id: string
+          p_client_id: string | null
+          p_meeting_id: string | null
+          p_project_id: string | null
+        }
+        Returns: boolean
+      }
+      evolution_scope_is_consistent: {
+        Args: {
+          p_client_id: string | null
+          p_evolution_id: string
+          p_meeting_id: string | null
+          p_project_id: string | null
+        }
+        Returns: boolean
+      }
       get_or_create_project: {
         Args: {
           p_analysis_id?: string
@@ -1224,9 +1356,35 @@ export type Database = {
       is_admin: { Args: never; Returns: boolean }
       merge_context_list: { Args: { a: Json; b: Json }; Returns: Json }
       normalize_project_name: { Args: { p_name: string }; Returns: string }
+      scope_is_consistent: {
+        Args: {
+          p_client_id: string | null
+          p_meeting_id: string | null
+          p_project_id: string | null
+        }
+        Returns: boolean
+      }
     }
     Enums: {
       app_role: "admin" | "consultant"
+      orchestrator_agent:
+        | "CRITERIOS_SUCESSO"
+        | "DIAGNOSTICO_EXECUTIVO"
+        | "PARETO_ORDEM_ATAQUE"
+        | "ENTREGA_CONSULTIVA"
+        | "IMPLANTACAO_CONSULTIVA"
+        | "CONTINUIDADE_GERENCIAL"
+        | "AUDITOR_QUALIDADE"
+      orchestrator_stage:
+        | "SEM_DIRECAO"
+        | "EM_DIAGNOSTICO"
+        | "AGUARDANDO_PRIORIZACAO"
+        | "SOLUCAO_DEFINIDA"
+        | "EM_IMPLANTACAO"
+        | "EM_ACOMPANHAMENTO"
+        | "TRAVADO"
+        | "EM_VALIDACAO"
+      orchestrator_status: "suggested" | "approved" | "rejected" | "executed" | "superseded"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1355,6 +1513,26 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "consultant"],
+      orchestrator_agent: [
+        "CRITERIOS_SUCESSO",
+        "DIAGNOSTICO_EXECUTIVO",
+        "PARETO_ORDEM_ATAQUE",
+        "ENTREGA_CONSULTIVA",
+        "IMPLANTACAO_CONSULTIVA",
+        "CONTINUIDADE_GERENCIAL",
+        "AUDITOR_QUALIDADE",
+      ],
+      orchestrator_stage: [
+        "SEM_DIRECAO",
+        "EM_DIAGNOSTICO",
+        "AGUARDANDO_PRIORIZACAO",
+        "SOLUCAO_DEFINIDA",
+        "EM_IMPLANTACAO",
+        "EM_ACOMPANHAMENTO",
+        "TRAVADO",
+        "EM_VALIDACAO",
+      ],
+      orchestrator_status: ["suggested", "approved", "rejected", "executed", "superseded"],
     },
   },
 } as const
