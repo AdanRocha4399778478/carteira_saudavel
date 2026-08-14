@@ -74,5 +74,18 @@ Deno.serve(async (request) => {
     );
   }
 
+  const { error: consultantRoleError } = await adminClient.from("user_roles").upsert(
+    { user_id: data.user.id, role: "consultant" },
+    { onConflict: "user_id,role", ignoreDuplicates: true },
+  );
+
+  if (consultantRoleError) {
+    await adminClient.auth.admin.deleteUser(data.user.id).catch(() => undefined);
+    return json(
+      { error: "O convite não pôde ser concluído porque a permissão de consultor não foi criada." },
+      500,
+    );
+  }
+
   return json({ id: data.user.id, email: data.user.email, full_name: fullName }, 201);
 });
