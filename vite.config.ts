@@ -9,12 +9,21 @@ import { nitro } from "nitro/vite";
 const srcDir = fileURLToPath(new URL("./src", import.meta.url));
 
 export default defineConfig(async ({ command, mode }) => {
-  // Expose VITE_* variables as static replacements (parity with the previous setup).
-  const env = loadEnv(mode, process.cwd(), "VITE_");
+  // Expõe variáveis VITE_* como substituições estáticas. Além dos arquivos
+  // .env (loadEnv), também consideramos process.env, pois plataformas de
+  // build injetam as variáveis apenas como env vars do processo.
+  const fileEnv = loadEnv(mode, process.cwd(), "VITE_");
+  const processEnv = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key, value]) => key.startsWith("VITE_") && typeof value === "string" && value !== "",
+    ),
+  ) as Record<string, string>;
+  const env = { ...fileEnv, ...processEnv };
   const define: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
     define[`import.meta.env.${key}`] = JSON.stringify(value);
   }
+
 
   const isDevBuild = command === "build" && mode === "development";
 
