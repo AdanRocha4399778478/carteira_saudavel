@@ -4,14 +4,11 @@ import { ArrowUpRight, Plus, Search } from "lucide-react";
 import { PageHeader } from "@/components/painel/PageHeader";
 import { routeErrorComponent } from "@/components/painel/RouteError";
 import { EmptyState, ErrorState, LoadingState } from "@/components/painel/states";
-import {
-  AccountStatusBadge,
-  QuadrantBadge,
-  RiskBadge,
-} from "@/components/painel/badges";
+import { AccountStatusBadge, QuadrantBadge, RiskBadge } from "@/components/painel/badges";
 import { ClientDialog } from "@/components/painel/ClientDialog";
 import { useClientsData } from "@/hooks/useCarteira";
 import { ACCOUNT_STATUSES, RISK_LEVELS, formatDate, formatScore } from "@/lib/domain";
+import { consultantDisplayName } from "@/lib/consultants";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -75,7 +72,8 @@ function ClientsPage() {
   const rows = useMemo(() => {
     const term = search.trim().toLowerCase();
     const filtered = clients.filter((c) => {
-      if (term && !`${c.company_name} ${c.segment ?? ""}`.toLowerCase().includes(term)) return false;
+      if (term && !`${c.company_name} ${c.segment ?? ""}`.toLowerCase().includes(term))
+        return false;
       if (consultant !== "all" && c.consultant_id !== consultant) return false;
       if (status !== "all" && c.account_status !== status) return false;
       if (risk !== "all" && c.current_risk_level !== risk) return false;
@@ -117,10 +115,7 @@ function ClientsPage() {
 
   return (
     <>
-      <PageHeader
-        title="Clientes"
-        description={`${clients.length} contas cadastradas na carteira`}
-      >
+      <PageHeader title="Clientes" description={`${clients.length} contas cadastradas na carteira`}>
         <div className="grid w-full gap-3 md:grid-cols-2 xl:grid-cols-6">
           <div className="grid gap-1.5 xl:col-span-2">
             <Label className="text-xs text-muted-foreground">Buscar</Label>
@@ -147,7 +142,7 @@ function ClientsPage() {
                 <SelectItem value="all">Todos</SelectItem>
                 {profiles.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
-                    {p.full_name}
+                    {consultantDisplayName(p)}
                   </SelectItem>
                 ))}
               </SelectContent>

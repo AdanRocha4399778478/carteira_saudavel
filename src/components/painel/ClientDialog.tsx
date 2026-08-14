@@ -3,6 +3,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase/client";
 import { ACCOUNT_STATUSES, quadrantOf, type Client, type Profile } from "@/lib/domain";
+import { consultantDisplayName, selectableConsultants } from "@/lib/consultants";
+import { useAccess } from "@/lib/auth/access";
 import {
   Dialog,
   DialogContent,
@@ -58,7 +60,15 @@ export function ClientDialog({
   consultants: Profile[];
 }) {
   const queryClient = useQueryClient();
+  const { access, isAdmin } = useAccess();
   const [form, setForm] = useState<FormState>(empty);
+
+  const availableConsultants = isAdmin
+    ? selectableConsultants(consultants, form.consultant_id)
+    : selectableConsultants(
+        consultants.filter((profile) => profile.id === access?.userId),
+        form.consultant_id,
+      );
 
   useEffect(() => {
     if (!open) return;
@@ -74,9 +84,9 @@ export function ClientDialog({
             notes: client.notes ?? "",
             active: client.active,
           }
-        : empty,
+        : { ...empty, consultant_id: isAdmin ? "" : (access?.userId ?? "") },
     );
-  }, [open, client]);
+  }, [open, client, isAdmin, access?.userId]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -157,18 +167,27 @@ export function ClientDialog({
           </div>
           <div className="grid gap-2">
             <Label>Consultor responsável *</Label>
-            <Select value={form.consultant_id} onValueChange={(v) => set("consultant_id", v)}>
+            <Select
+              value={form.consultant_id}
+              onValueChange={(v) => set("consultant_id", v)}
+              disabled={!isAdmin || availableConsultants.length === 0}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Selecione" />
               </SelectTrigger>
               <SelectContent>
-                {consultants.map((p) => (
+                {availableConsultants.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
-                    {p.full_name}
+                    {consultantDisplayName(p)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {isAdmin && availableConsultants.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Nenhum consultor ativo. Inclua um em Configurações → Equipe.
+              </p>
+            ) : null}
           </div>
           <div className="grid gap-2">
             <Label htmlFor="start">Início do projeto</Label>
@@ -208,11 +227,7 @@ export function ClientDialog({
               <Label htmlFor="active">Conta ativa</Label>
               <p className="text-xs text-muted-foreground">Desligue para encerrar o projeto</p>
             </div>
-            <Switch
-              id="active"
-              checked={form.active}
-              onCheckedChange={(v) => set("active", v)}
-            />
+            <Switch id="active" checked={form.active} onCheckedChange={(v) => set("active", v)} />
           </div>
           <div className="grid gap-2 sm:col-span-2">
             <Label htmlFor="notes">Observações</Label>

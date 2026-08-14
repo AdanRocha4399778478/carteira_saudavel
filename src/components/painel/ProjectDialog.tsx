@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase/client";
 import type { Client, Profile } from "@/lib/domain";
+import { consultantDisplayName, selectableConsultants } from "@/lib/consultants";
 import {
   ensureProjectContext,
   getOrCreateProject,
@@ -86,8 +87,7 @@ export function ProjectDialog({
         : {
             ...empty,
             client_id: defaultClientId ?? "",
-            consultant_id:
-              clients.find((c) => c.id === defaultClientId)?.consultant_id ?? "",
+            consultant_id: clients.find((c) => c.id === defaultClientId)?.consultant_id ?? "",
           },
     );
   }, [open, project, defaultClientId, clients]);
@@ -130,7 +130,6 @@ export function ProjectDialog({
       if (error) throw new Error(error.message);
       await ensureProjectContext(id);
       return id;
-
     },
     onSuccess: (id) => {
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
@@ -229,9 +228,9 @@ export function ProjectDialog({
                 <SelectValue placeholder="Selecione" />
               </SelectTrigger>
               <SelectContent>
-                {consultants.map((p) => (
+                {selectableConsultants(consultants, form.consultant_id).map((p) => (
                   <SelectItem key={p.id} value={p.id}>
-                    {p.full_name}
+                    {consultantDisplayName(p)}
                   </SelectItem>
                 ))}
               </SelectContent>
