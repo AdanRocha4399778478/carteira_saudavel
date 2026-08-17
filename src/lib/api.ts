@@ -59,6 +59,24 @@ export const clientsQuery = () =>
       unwrap<Client[]>("clients",await supabase.from("clients").select("*").order("company_name")),
   });
 
+export const clientQuery = (clientId: string) =>
+  queryOptions({
+    queryKey: ["clients", clientId],
+    enabled: !!clientId,
+    queryFn: async () => {
+      const res = await supabase
+        .from("clients")
+        .select("id, company_name, consultant_id")
+        .eq("id", clientId)
+        .maybeSingle();
+      if (res.error) {
+        logDbError("clients", "select-one", res.error);
+        throw new Error(res.error.message);
+      }
+      return (res.data as Pick<Client, "id" | "company_name" | "consultant_id"> | null) ?? null;
+    },
+  });
+
 const MEETING_COLUMNS = "*";
 
 export const meetingsQuery = () =>
@@ -171,6 +189,51 @@ export const opportunitiesQuery = () =>
       unwrap<OpportunityItem[]>(
         "opportunities",
         await supabase.from("opportunities").select("*").order("created_at", { ascending: false }),
+      ),
+  });
+
+export const clientActionsQuery = (clientId: string) =>
+  queryOptions({
+    queryKey: ["actions", "client", clientId],
+    enabled: !!clientId,
+    queryFn: async () =>
+      unwrap<ActionItem[]>(
+        "actions",
+        await supabase
+          .from("actions")
+          .select("id, client_id, meeting_id, description, owner_name, deadline, priority, status, erp_area, evidence, created_at, updated_at")
+          .eq("client_id", clientId)
+          .order("deadline", { ascending: true }),
+      ),
+  });
+
+export const clientRisksQuery = (clientId: string) =>
+  queryOptions({
+    queryKey: ["risks", "client", clientId],
+    enabled: !!clientId,
+    queryFn: async () =>
+      unwrap<RiskItem[]>(
+        "risks",
+        await supabase
+          .from("risks")
+          .select("id, client_id, meeting_id, description, level, active, created_at")
+          .eq("client_id", clientId)
+          .order("created_at", { ascending: false }),
+      ),
+  });
+
+export const clientOpportunitiesQuery = (clientId: string) =>
+  queryOptions({
+    queryKey: ["opportunities", "client", clientId],
+    enabled: !!clientId,
+    queryFn: async () =>
+      unwrap<OpportunityItem[]>(
+        "opportunities",
+        await supabase
+          .from("opportunities")
+          .select("id, client_id, meeting_id, description, expected_benefit, status, created_at")
+          .eq("client_id", clientId)
+          .order("created_at", { ascending: false }),
       ),
   });
 

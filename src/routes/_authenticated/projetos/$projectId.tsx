@@ -25,11 +25,12 @@ import { DecisionDialog } from "@/components/painel/DecisionDialog";
 import { ContextListEditor } from "@/components/painel/ContextListEditor";
 import { MeetingAnalysisDialog } from "@/components/painel/MeetingAnalysisDialog";
 import {
-  actionsQuery,
+  clientActionsQuery,
+  clientOpportunitiesQuery,
+  clientQuery,
+  clientRisksQuery,
   clientsQuery,
-  opportunitiesQuery,
   profilesQuery,
-  risksQuery,
 } from "@/lib/api";
 import { supabase } from "@/lib/supabase/client";
 import {
@@ -159,14 +160,15 @@ function ProjectDetailPage() {
   const queryClient = useQueryClient();
 
   const project = useQuery(projectQuery(projectId));
-  const clients = useQuery(clientsQuery());
+  const clientId = project.data?.client_id ?? "";
+  const client = useQuery(clientQuery(clientId));
   const profiles = useQuery(profilesQuery());
   const context = useQuery(projectContextQuery(projectId));
   const meetings = useQuery(projectMeetingsQuery(projectId));
   const decisions = useQuery(decisionsQuery(projectId));
-  const actions = useQuery(actionsQuery());
-  const risks = useQuery(risksQuery());
-  const opportunities = useQuery(opportunitiesQuery());
+  const actions = useQuery(clientActionsQuery(clientId));
+  const risks = useQuery(clientRisksQuery(clientId));
+  const opportunities = useQuery(clientOpportunitiesQuery(clientId));
   const evolution = useQuery(projectEvolutionQuery(projectId));
 
   const [editOpen, setEditOpen] = useState(false);
@@ -174,6 +176,7 @@ function ProjectDetailPage() {
   const [editingDecision, setEditingDecision] = useState<Decision | null>(null);
   const [linkMeetingId, setLinkMeetingId] = useState("");
   const [analysisMeeting, setAnalysisMeeting] = useState<Meeting | null>(null);
+  const clients = useQuery({ ...clientsQuery(), enabled: editOpen });
 
 
   const [form, setForm] = useState<ContextForm>({
@@ -197,15 +200,10 @@ function ProjectDetailPage() {
     });
   }, [context.data]);
 
-  const client = useMemo(
-    () => (clients.data ?? []).find((c) => c.id === project.data?.client_id) ?? null,
-    [clients.data, project.data],
-  );
-
   const consultantName = useMemo(() => {
-    const id = project.data?.consultant_id ?? client?.consultant_id ?? null;
+    const id = project.data?.consultant_id ?? client.data?.consultant_id ?? null;
     return (profiles.data ?? []).find((p) => p.id === id)?.full_name ?? "—";
-  }, [profiles.data, project.data, client]);
+  }, [profiles.data, project.data, client.data]);
 
   const meetingIds = useMemo(() => new Set((meetings.data ?? []).map((m) => m.id)), [meetings.data]);
 
@@ -213,17 +211,17 @@ function ProjectDetailPage() {
   const projectActions = useMemo(
     () =>
       (actions.data ?? []).filter(
-        (a) => (a.meeting_id && meetingIds.has(a.meeting_id)) || a.client_id === client?.id,
+        (a) => (a.meeting_id && meetingIds.has(a.meeting_id)) || a.client_id === client.data?.id,
       ),
-    [actions.data, meetingIds, client],
+    [actions.data, meetingIds, client.data],
   );
   const projectRisks = useMemo(
     () =>
       (risks.data ?? []).filter(
         (r) =>
-          r.active && ((r.meeting_id && meetingIds.has(r.meeting_id)) || r.client_id === client?.id),
+          r.active && ((r.meeting_id && meetingIds.has(r.meeting_id)) || r.client_id === client.data?.id),
       ),
-    [risks.data, meetingIds, client],
+    [risks.data, meetingIds, client.data],
   );
 
   const openActions = projectActions.filter((a) => a.status !== "concluída");
@@ -271,13 +269,13 @@ function ProjectDetailPage() {
 
 
   const unlinkedMeetings = useQuery({
-    queryKey: ["meetings", "unlinked", client?.id ?? ""],
-    enabled: !!client?.id,
+    queryKey: ["meetings", "unlinked", client.data?.id ?? ""],
+    enabled: !!client.data?.id,
     queryFn: async (): Promise<Meeting[]> => {
       const res = await supabase
         .from("meetings")
         .select("*")
-        .eq("client_id", client!.id)
+        .eq("client_id", client.data!.id)
         .is("project_id", null)
         .order("meeting_date", { ascending: false });
       if (res.error) throw new Error(res.error.message);
@@ -316,7 +314,7 @@ function ProjectDetailPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  if (project.isLoading || clients.isLoading) {
+  if (project.isLoading || client.isLoading) {
     return (
       <div className="px-4 py-6 md:px-8">
         <LoadingState variant="detail" />
@@ -358,15 +356,15 @@ function ProjectDetailPage() {
 
   return (
     <div className="min-w-0">
-      <PageHeader title={p.name} description={client?.company_name ?? "Cliente"}>
+      <PageHeader title={p.name} description={client.data?.company_name ?? "Cliente"}>
         <div className="flex flex-wrap items-center gap-2">
           <Link to="/projetos">
             <Button variant="outline" size="sm" className="gap-2">
               <ArrowLeft className="size-4" aria-hidden /> Projetos
             </Button>
           </Link>
-          {client ? (
-            <Link to="/clientes/$clientId" params={{ clientId: client.id }}>
+          {client.data ? (
+            <Link to="/clientes/$clientId" params={{ clientId: client.data.id }}>
               <Button variant="outline" size="sm">
                 Ver cliente
               </Button>
@@ -396,7 +394,7 @@ function ProjectDetailPage() {
               </Pill>
             }
           />
-          <Field label="Cliente" value={client?.company_name ?? "—"} />
+          <Field label="Cliente" value={client.data?.company_name ?? "—"} />
           <Field label="Consultor responsável" value={consultantName} />
           <Field label="Início" value={formatDate(p.start_date)} />
           <Field label="Previsão de término" value={formatDate(p.target_end_date)} />
@@ -855,7 +853,7 @@ function ProjectDetailPage() {
         actions={actions.data ?? []}
         risks={risks.data ?? []}
         decisions={decisions.data ?? []}
-        opportunities={(opportunities.data ?? []).filter((o) => o.client_id === p.client_id)}
+        opportunities={opportunities.data ?? []}
         projectMeetingIds={(meetings.data ?? []).map((m) => m.id)}
       />
     </div>
