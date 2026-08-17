@@ -37,7 +37,7 @@ export const Route = createFileRoute("/_authenticated/configuracoes")({
 
 function SettingsPage() {
   const { riskRules, profiles, isLoading, isSlow, error, refetchAll } = useSettingsData();
-  const { access, isAdmin } = useAccess();
+  const { access, isAdmin, isConsultant } = useAccess();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<Record<string, { points: number; active: boolean }>>({});
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -142,13 +142,17 @@ function SettingsPage() {
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">Papel</dt>
-              <dd className="text-sm font-medium">{isAdmin ? "Administrador" : "Consultor"}</dd>
+              <dd className="text-sm font-medium">
+                {isAdmin ? "Administrador" : isConsultant ? "Consultor" : "Sem papel"}
+              </dd>
             </div>
           </dl>
           <p className="mt-3 text-xs text-muted-foreground">
             {isAdmin
               ? "Como administrador você enxerga e edita toda a carteira."
-              : "Como consultor você enxerga apenas os clientes da sua carteira."}
+              : isConsultant
+                ? "Como consultor você enxerga apenas os clientes da sua carteira."
+                : "Sua conta ainda não possui um papel de acesso válido."}
           </p>
         </section>
 
@@ -229,8 +233,7 @@ function SettingsPage() {
           </div>
           <ul className="mt-4 grid gap-2">
             {profiles.map((p) => {
-              const canonicalRole = canonicalRoleByUser.get(p.id);
-              const displayedRole = canonicalRole ?? p.role;
+              const displayedRole = canonicalRoleByUser.get(p.id);
 
               return (
                 <li
@@ -239,14 +242,15 @@ function SettingsPage() {
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{consultantDisplayName(p)}</p>
-                    <p className="truncate text-xs text-muted-foreground">{p.email ?? "—"}</p>
                   </div>
                   <span className="text-xs font-semibold text-muted-foreground">
                     {!p.active
                       ? "Inativo"
                       : displayedRole === "admin"
                         ? "Administrador"
-                        : "Consultor"}
+                        : displayedRole === "consultant"
+                          ? "Consultor"
+                          : "Sem papel"}
                   </span>
                 </li>
               );
