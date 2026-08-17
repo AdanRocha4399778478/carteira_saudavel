@@ -184,7 +184,9 @@ export async function resolveRecommendation(
     try {
       await updateRecommendationStatusViaRpc(latest.id, "superseded");
     } catch (error) {
-      logDbError(TABLE, "supersede-rpc", error);
+      console.error("[orchestrator] supersede-rpc", {
+        message: error instanceof Error ? error.message : "unknown error",
+      });
     }
   }
 
