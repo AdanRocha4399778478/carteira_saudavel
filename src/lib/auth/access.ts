@@ -82,7 +82,7 @@ export const accessQuery = () =>
       const [profileRes, rolesRes] = await Promise.all([
         supabase
           .from("profiles")
-          .select("id, full_name, email, active")
+          .select("id, full_name, active")
           .eq("id", user.id)
           .maybeSingle(),
         supabase.from("user_roles").select("role").eq("user_id", user.id),
