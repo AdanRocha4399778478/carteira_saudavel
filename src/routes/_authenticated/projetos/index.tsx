@@ -7,9 +7,10 @@ import { routeErrorComponent } from "@/components/painel/RouteError";
 import { EmptyState, ErrorState, LoadingState } from "@/components/painel/states";
 import { Pill } from "@/components/painel/badges";
 import { ProjectDialog } from "@/components/painel/ProjectDialog";
-import { clientsQuery, profilesQuery } from "@/lib/api";
+import { profilesQuery } from "@/lib/api";
 import { consultantDisplayName } from "@/lib/consultants";
-import { projectsQuery, PROJECT_STATUS_LABEL } from "@/lib/projects";
+import { PROJECT_STATUS_LABEL } from "@/lib/projects";
+import { projectsClientsQuery, projectsListQuery } from "@/lib/projects-list";
 import { formatDate } from "@/lib/domain";
 import { HEALTH_TONE, PRIORITY_TONE } from "@/lib/health";
 import { useProjectsHealth } from "@/lib/health-portfolio";
@@ -36,8 +37,8 @@ export const Route = createFileRoute("/_authenticated/projetos/")({
 });
 
 function ProjectsPage() {
-  const projects = useQuery(projectsQuery());
-  const clients = useQuery(clientsQuery());
+  const projects = useQuery(projectsListQuery());
+  const clients = useQuery(projectsClientsQuery());
   const profiles = useQuery(profilesQuery());
   const [open, setOpen] = useState(false);
   const { rows: healthRows } = useProjectsHealth();
