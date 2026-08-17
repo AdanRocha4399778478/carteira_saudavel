@@ -21,8 +21,10 @@ import type {
  * ------------------------------------------------------------------ */
 
 const TABLE = "orchestrator_recommendations";
+const STATUS_RPC = "update_orchestrator_recommendation_status";
 
 type Row = Record<string, unknown>;
+type MutableRecommendationStatus = "approved" | "rejected" | "executed" | "superseded";
 
 function fromRow(row: Row): StoredRecommendation {
   const bottleneck = (row["main_bottleneck"] ?? {}) as Record<string, unknown>;
@@ -53,6 +55,20 @@ function fromRow(row: Row): StoredRecommendation {
     approved_at: (row["approved_at"] as string | null) ?? null,
     approved_by: (row["approved_by"] as string | null) ?? null,
   };
+}
+
+async function updateRecommendationStatusViaRpc(
+  id: string,
+  status: MutableRecommendationStatus,
+): Promise<void> {
+  const res = await supabase.rpc(
+    STATUS_RPC as never,
+    { p_recommendation_id: id, p_status: status } as never,
+  );
+  if (res.error) {
+    logDbError(TABLE, `rpc-${status}`, res.error);
+    throw new Error(res.error.message);
+  }
 }
 
 async function latestRecommendation(projectId: string): Promise<StoredRecommendation | null> {
@@ -165,11 +181,11 @@ export async function resolveRecommendation(
 
   // A recomendação anterior ainda sugerida deixa de valer.
   if (latest && latest.status === "suggested") {
-    const sup = await supabase
-      .from(TABLE as never)
-      .update({ status: "superseded" } as never)
-      .eq("id", latest.id);
-    if (sup.error) logDbError(TABLE, "supersede", sup.error);
+    try {
+      await updateRecommendationStatusViaRpc(latest.id, "superseded");
+    } catch (error) {
+      logDbError(TABLE, "supersede-rpc", error);
+    }
   }
 
   const { data: auth } = await supabase.auth.getUser();
@@ -218,17 +234,5 @@ export async function setRecommendationStatus(
   id: string,
   status: "approved" | "rejected",
 ): Promise<void> {
-  const { data: auth } = await supabase.auth.getUser();
-  const patch =
-    status === "approved"
-      ? { status, approved_at: new Date().toISOString(), approved_by: auth.user?.id ?? null }
-      : { status };
-  const res = await supabase
-    .from(TABLE as never)
-    .update(patch as never)
-    .eq("id", id);
-  if (res.error) {
-    logDbError(TABLE, "update-status", res.error);
-    throw new Error(res.error.message);
-  }
+  await updateRecommendationStatusViaRpc(id, status);
 }
