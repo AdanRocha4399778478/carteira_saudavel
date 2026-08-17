@@ -6,7 +6,7 @@ import { routeErrorComponent } from "@/components/painel/RouteError";
 import { EmptyState, ErrorState, LoadingState } from "@/components/painel/states";
 import { AccountStatusBadge, QuadrantBadge, RiskBadge } from "@/components/painel/badges";
 import { ClientDialog } from "@/components/painel/ClientDialog";
-import { useClientsData } from "@/hooks/useCarteira";
+import { useClientsListData } from "@/hooks/useClientsListData";
 import { ACCOUNT_STATUSES, RISK_LEVELS, formatDate, formatScore } from "@/lib/domain";
 import { consultantDisplayName } from "@/lib/consultants";
 import { Button } from "@/components/ui/button";
@@ -60,7 +60,7 @@ function ClientsPage() {
     consultantName,
     overdueByClient,
     openActionsByClient,
-  } = useClientsData();
+  } = useClientsListData();
 
   const [search, setSearch] = useState("");
   const [consultant, setConsultant] = useState("all");
