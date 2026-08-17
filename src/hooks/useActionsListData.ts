@@ -5,7 +5,7 @@ import { type ActionItem, type Client, type RiskRule } from "@/lib/domain";
 import { MAX_QUERY_RETRIES } from "@/lib/query-errors";
 import { supabase } from "@/lib/supabase/client";
 
-export type ActionClientLookup = Pick<Client, "id" | "company_name">;
+type ActionClientLookup = Pick<Client, "id" | "company_name">;
 
 const SLOW_QUERY_MS = 10_000;
 const EMPTY_CLIENTS: ActionClientLookup[] = [];
@@ -40,8 +40,11 @@ export function useActionsListData() {
   });
 
   const [clientsResult, actionsResult, riskRulesResult] = results;
-  const clients =
+  const clientLookups =
     (clientsResult?.data as ActionClientLookup[] | undefined) ?? EMPTY_CLIENTS;
+  // A tela e o ActionDialog consomem somente id/company_name deste array.
+  // Mantemos o contrato Client[] existente para não ampliar o escopo deste PR.
+  const clients = clientLookups as Client[];
   const actions = (actionsResult?.data as ActionItem[] | undefined) ?? EMPTY_ACTIONS;
   const riskRules = (riskRulesResult?.data as RiskRule[] | undefined) ?? EMPTY_RISK_RULES;
 
@@ -76,9 +79,9 @@ export function useActionsListData() {
   }, [isLoading]);
 
   const clientName = useMemo(() => {
-    const map = new Map(clients.map((client) => [client.id, client.company_name]));
+    const map = new Map(clientLookups.map((client) => [client.id, client.company_name]));
     return (id: string | null) => (id ? (map.get(id) ?? "—") : "—");
-  }, [clients]);
+  }, [clientLookups]);
 
   return {
     clients,
