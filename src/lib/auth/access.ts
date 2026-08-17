@@ -54,6 +54,7 @@ const MATRIX: Record<Resource, Record<Action, "all" | "own" | "none">> = {
 export function canFor(state: AccessState | null, resource: Resource, action: Action): boolean {
   if (!state) return false;
   if (state.isAdmin) return true;
+  if (!state.isConsultant) return false;
   return MATRIX[resource][action] !== "none";
 }
 
@@ -64,8 +65,8 @@ function isAppRole(value: unknown): value is AppRole {
 /**
  * Estado de autorização carregado uma única vez por sessão e compartilhado via
  * cache do TanStack Query (evita dezenas de consultas a profiles/user_roles).
- * A autoridade de papel é a tabela user_roles; profiles.role é apenas legado
- * e serve como fallback quando ainda não existe linha em user_roles.
+ * A autoridade de papel é exclusivamente a tabela user_roles.
+ * Ausência de papel falha de forma segura, sem promover o usuário a consultor.
  */
 export const accessQuery = () =>
   queryOptions({
@@ -79,7 +80,11 @@ export const accessQuery = () =>
       const user = auth.user;
 
       const [profileRes, rolesRes] = await Promise.all([
-        supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
+        supabase
+          .from("profiles")
+          .select("id, full_name, email, active")
+          .eq("id", user.id)
+          .maybeSingle(),
         supabase.from("user_roles").select("role").eq("user_id", user.id),
       ]);
 
@@ -89,9 +94,6 @@ export const accessQuery = () =>
       for (const row of rolesRes.data ?? []) {
         if (isAppRole(row.role)) roles.add(row.role);
       }
-      // Fallback legado: sem linha em user_roles, usa profiles.role.
-      if (roles.size === 0 && isAppRole(profile?.role)) roles.add(profile.role);
-      if (roles.size === 0) roles.add("consultant");
 
       const list = [...roles];
       return {
@@ -100,7 +102,7 @@ export const accessQuery = () =>
         profile,
         roles: list,
         isAdmin: list.includes("admin"),
-        isConsultant: list.includes("consultant") || !list.includes("admin"),
+        isConsultant: list.includes("consultant"),
       };
     },
   });
