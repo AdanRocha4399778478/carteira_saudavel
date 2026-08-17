@@ -11,13 +11,20 @@ alter table public.orchestrator_recommendations
 create index if not exists orchestrator_recommendations_owner_idx
   on public.orchestrator_recommendations (owner_id);
 
--- Backfill: recomendações existentes passam a pertencer ao consultor
--- atualmente responsável pelo cliente.
+-- Backfill administrativo: o trigger de escopo exige contexto de usuário da
+-- aplicação e bloquearia o db push. Ele é desativado somente durante este
+-- UPDATE dentro da mesma transação e reativado imediatamente em seguida.
+alter table public.orchestrator_recommendations
+  disable trigger orchestrator_recommendations_scope;
+
 update public.orchestrator_recommendations r
 set owner_id = c.consultant_id
 from public.clients c
 where c.id = r.client_id
   and r.owner_id is distinct from c.consultant_id;
+
+alter table public.orchestrator_recommendations
+  enable trigger orchestrator_recommendations_scope;
 
 -- O escopo da recomendação passa a definir também o proprietário.
 create or replace function public.set_orchestrator_recommendation_scope()
