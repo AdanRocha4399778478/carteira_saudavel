@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/painel/states";
 import { Pill } from "@/components/painel/badges";
 import { ProjectDialog } from "@/components/painel/ProjectDialog";
-import { projectsQuery, PROJECT_STATUS_LABEL } from "@/lib/projects";
+import { PROJECT_STATUS_LABEL, type Project } from "@/lib/projects";
+import { supabase } from "@/lib/supabase/client";
 import { formatDate, type Client } from "@/lib/domain";
 import type { PublicProfile } from "@/lib/api";
 
@@ -23,8 +24,23 @@ export function ClientProjectsSection({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const projects = useQuery(projectsQuery());
-  const list = (projects.data ?? []).filter((p) => p.client_id === clientId);
+  const projects = useQuery({
+    queryKey: ["projects", "client", clientId],
+    enabled: !!clientId,
+    queryFn: async (): Promise<Project[]> => {
+      const res = await supabase
+        .from("projects")
+        .select(
+          "id, client_id, name, description, status, start_date, target_end_date, consultant_id, created_by, created_at, updated_at, normalized_name, merged_into_project_id",
+        )
+        .eq("client_id", clientId)
+        .is("merged_into_project_id", null)
+        .order("created_at", { ascending: false });
+      if (res.error) throw new Error(res.error.message);
+      return (res.data ?? []) as Project[];
+    },
+  });
+  const list = projects.data ?? [];
 
   return (
     <section className="card-surface min-w-0 p-4 md:p-5">
