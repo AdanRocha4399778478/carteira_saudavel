@@ -71,6 +71,29 @@ async function updateRecommendationStatusViaRpc(
   }
 }
 
+async function updateRecommendationStatus(
+  id: string,
+  status: MutableRecommendationStatus,
+): Promise<void> {
+  const direct = await supabase
+    .from(TABLE as never)
+    .update({ status } as never)
+    .eq("id", id);
+
+  if (!direct.error) return;
+
+  // Compatibilidade de implantação: enquanto o banco ainda não conceder
+  // UPDATE(status) ao authenticated, usa a RPC existente. Depois da fase 2,
+  // o UPDATE direto passa e este fallback deixa de ser necessário.
+  if (direct.error.code === "42501") {
+    await updateRecommendationStatusViaRpc(id, status);
+    return;
+  }
+
+  logDbError(TABLE, `update-status-${status}`, direct.error);
+  throw new Error(direct.error.message);
+}
+
 async function latestRecommendation(projectId: string): Promise<StoredRecommendation | null> {
   const res = await supabase
     .from(TABLE as never)
@@ -182,9 +205,9 @@ export async function resolveRecommendation(
   // A recomendação anterior ainda sugerida deixa de valer.
   if (latest && latest.status === "suggested") {
     try {
-      await updateRecommendationStatusViaRpc(latest.id, "superseded");
+      await updateRecommendationStatus(latest.id, "superseded");
     } catch (error) {
-      console.error("[orchestrator] supersede-rpc", {
+      console.error("[orchestrator] supersede-status", {
         message: error instanceof Error ? error.message : "unknown error",
       });
     }
@@ -236,5 +259,5 @@ export async function setRecommendationStatus(
   id: string,
   status: "approved" | "rejected",
 ): Promise<void> {
-  await updateRecommendationStatusViaRpc(id, status);
+  await updateRecommendationStatus(id, status);
 }
