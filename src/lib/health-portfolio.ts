@@ -1,26 +1,116 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { queryOptions } from "@tanstack/react-query";
+import { queryOptions, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase/client";
-import { logDbError, actionsQuery, meetingsQuery, risksQuery } from "@/lib/api";
-import { normalizeContext, decisionsQuery, projectsQuery, type ProjectContext } from "@/lib/projects";
+import { logDbError } from "@/lib/api";
+import {
+  normalizeContext,
+  type Decision,
+  type ProjectContext,
+} from "@/lib/projects";
 import { computeProjectHealth, type ProjectHealth } from "@/lib/health";
 import type { EvolutionRecord } from "@/lib/evolution";
-import type { Meeting } from "@/lib/domain";
+import type { ActionItem, Meeting, RiskItem } from "@/lib/domain";
 
 /* ------------------------------------------------------------------ *
  * Cockpit da carteira: calcula a saúde consultiva de todos os projetos
- * reaproveitando as queries já existentes. Nenhuma métrica nova é
- * inventada — apenas agregação do que já está no banco.
+ * com consultas próprias e enxutas. O motor de saúde permanece no
+ * frontend; esta camada busca apenas os campos consumidos pelo cálculo.
  * ------------------------------------------------------------------ */
+
+const COCKPIT_PROJECT_COLUMNS = "id, client_id, name, status";
+const COCKPIT_ACTION_COLUMNS =
+  "client_id, meeting_id, status, deadline, created_at, updated_at";
+const COCKPIT_RISK_COLUMNS = "client_id, meeting_id, level, active";
+const COCKPIT_MEETING_COLUMNS = "id, project_id, meeting_date, has_measurable_result";
+const COCKPIT_DECISION_COLUMNS = "project_id, status, due_date";
+const COCKPIT_CONTEXT_COLUMNS = "project_id, results";
+const COCKPIT_EVOLUTION_COLUMNS = "project_id, movement, summary, created_at";
+
+type CockpitProject = {
+  id: string;
+  client_id: string;
+  name: string;
+  status: string;
+};
+
+const cockpitProjectsQuery = () =>
+  queryOptions({
+    queryKey: ["projects", "cockpit"],
+    queryFn: async (): Promise<CockpitProject[]> => {
+      const res = await supabase
+        .from("projects")
+        .select(COCKPIT_PROJECT_COLUMNS)
+        .is("merged_into_project_id", null);
+      if (res.error) {
+        logDbError("projects", "select-cockpit", res.error);
+        throw new Error(res.error.message);
+      }
+      return (res.data ?? []) as CockpitProject[];
+    },
+  });
+
+const cockpitActionsQuery = () =>
+  queryOptions({
+    queryKey: ["actions", "cockpit"],
+    queryFn: async (): Promise<ActionItem[]> => {
+      const res = await supabase.from("actions").select(COCKPIT_ACTION_COLUMNS);
+      if (res.error) {
+        logDbError("actions", "select-cockpit", res.error);
+        throw new Error(res.error.message);
+      }
+      return (res.data ?? []) as unknown as ActionItem[];
+    },
+  });
+
+const cockpitRisksQuery = () =>
+  queryOptions({
+    queryKey: ["risks", "cockpit", "active"],
+    queryFn: async (): Promise<RiskItem[]> => {
+      const res = await supabase
+        .from("risks")
+        .select(COCKPIT_RISK_COLUMNS)
+        .eq("active", true);
+      if (res.error) {
+        logDbError("risks", "select-cockpit-active", res.error);
+        throw new Error(res.error.message);
+      }
+      return (res.data ?? []) as unknown as RiskItem[];
+    },
+  });
+
+const cockpitMeetingsQuery = () =>
+  queryOptions({
+    queryKey: ["meetings", "cockpit"],
+    queryFn: async (): Promise<Meeting[]> => {
+      const res = await supabase.from("meetings").select(COCKPIT_MEETING_COLUMNS);
+      if (res.error) {
+        logDbError("meetings", "select-cockpit", res.error);
+        throw new Error(res.error.message);
+      }
+      return (res.data ?? []) as unknown as Meeting[];
+    },
+  });
+
+const cockpitDecisionsQuery = () =>
+  queryOptions({
+    queryKey: ["decisions", "cockpit"],
+    queryFn: async (): Promise<Decision[]> => {
+      const res = await supabase.from("decisions").select(COCKPIT_DECISION_COLUMNS);
+      if (res.error) {
+        logDbError("decisions", "select-cockpit", res.error);
+        throw new Error(res.error.message);
+      }
+      return (res.data ?? []) as unknown as Decision[];
+    },
+  });
 
 export const allProjectContextsQuery = () =>
   queryOptions({
-    queryKey: ["project_context", "all"],
+    queryKey: ["project_context", "cockpit"],
     queryFn: async (): Promise<ProjectContext[]> => {
-      const res = await supabase.from("project_context").select("*");
+      const res = await supabase.from("project_context").select(COCKPIT_CONTEXT_COLUMNS);
       if (res.error) {
-        logDbError("project_context", "select-all", res.error);
+        logDbError("project_context", "select-cockpit", res.error);
         return [];
       }
       return ((res.data ?? []) as Record<string, unknown>[]).map(normalizeContext);
@@ -29,20 +119,17 @@ export const allProjectContextsQuery = () =>
 
 export const allEvolutionsQuery = () =>
   queryOptions({
-    queryKey: ["meeting_evolution", "all"],
+    queryKey: ["meeting_evolution", "cockpit"],
     queryFn: async (): Promise<EvolutionRecord[]> => {
       const res = await supabase
         .from("meeting_evolution")
-        .select("*, items:meeting_evolution_items(*)")
+        .select(COCKPIT_EVOLUTION_COLUMNS)
         .order("created_at", { ascending: false });
       if (res.error) {
-        logDbError("meeting_evolution", "select-all", res.error);
+        logDbError("meeting_evolution", "select-cockpit", res.error);
         return [];
       }
-      return ((res.data ?? []) as unknown as EvolutionRecord[]).map((r) => ({
-        ...r,
-        items: r.items ?? [],
-      }));
+      return (res.data ?? []) as unknown as EvolutionRecord[];
     },
   });
 
@@ -57,11 +144,11 @@ export type ProjectHealthRow = {
 const PRIORITY_ORDER = { URGENTE: 0, ALTA: 1, "MÉDIA": 2, BAIXA: 3 } as const;
 
 export function useProjectsHealth() {
-  const projects = useQuery(projectsQuery());
-  const actions = useQuery(actionsQuery());
-  const risks = useQuery(risksQuery());
-  const meetings = useQuery(meetingsQuery());
-  const decisions = useQuery(decisionsQuery());
+  const projects = useQuery(cockpitProjectsQuery());
+  const actions = useQuery(cockpitActionsQuery());
+  const risks = useQuery(cockpitRisksQuery());
+  const meetings = useQuery(cockpitMeetingsQuery());
+  const decisions = useQuery(cockpitDecisionsQuery());
   const contexts = useQuery(allProjectContextsQuery());
   const evolutions = useQuery(allEvolutionsQuery());
 
@@ -71,11 +158,9 @@ export function useProjectsHealth() {
 
     const allMeetings = (meetings.data ?? []) as Meeting[];
     const meetingsByProject = new Map<string, Meeting[]>();
-    const projectByMeeting = new Map<string, string>();
     for (const m of allMeetings) {
       const pid = (m as Meeting & { project_id?: string | null }).project_id ?? null;
       if (!pid) continue;
-      projectByMeeting.set(m.id, pid);
       meetingsByProject.set(pid, [...(meetingsByProject.get(pid) ?? []), m]);
     }
 
@@ -95,9 +180,8 @@ export function useProjectsHealth() {
       );
       const scopedRisks = (risks.data ?? []).filter(
         (r) =>
-          r.active &&
-          ((r.meeting_id && meetingIds.has(r.meeting_id)) ||
-            (!r.meeting_id && r.client_id === p.client_id)),
+          (r.meeting_id && meetingIds.has(r.meeting_id)) ||
+          (!r.meeting_id && r.client_id === p.client_id),
       );
       const scopedDecisions = (decisions.data ?? []).filter((d) => d.project_id === p.id);
 
