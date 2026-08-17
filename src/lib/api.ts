@@ -20,6 +20,8 @@ import {
 
 type SupabaseErrorLike = { message: string; code?: string; details?: string | null } | null;
 
+export type PublicProfile = Pick<Profile, "id" | "full_name" | "active">;
+
 /**
  * Registra tabela, operação e código do erro — nunca tokens ou credenciais.
  */
@@ -41,7 +43,10 @@ export const profilesQuery = () =>
   queryOptions({
     queryKey: ["profiles"],
     queryFn: async () =>
-      unwrap<Profile[]>("profiles",await supabase.from("profiles").select("*").order("full_name")),
+      unwrap<PublicProfile[]>(
+        "profiles",
+        await supabase.from("profiles").select("id, full_name, active").order("full_name"),
+      ),
   });
 
 export const clientsQuery = () =>
@@ -180,11 +185,15 @@ export const meQuery = () =>
       const { data } = await supabase.auth.getUser();
       const user = data.user;
       if (!user) return null;
-      const profileRes = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+      const profileRes = await supabase
+        .from("profiles")
+        .select("id, full_name, active")
+        .eq("id", user.id)
+        .maybeSingle();
       return {
         id: user.id,
         email: user.email ?? null,
-        profile: (profileRes.data as Profile | null) ?? null,
+        profile: (profileRes.data as PublicProfile | null) ?? null,
       };
     },
   });

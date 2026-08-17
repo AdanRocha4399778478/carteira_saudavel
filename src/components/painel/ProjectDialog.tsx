@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase/client";
-import type { Client, Profile } from "@/lib/domain";
+import type { Client } from "@/lib/domain";
+import type { PublicProfile } from "@/lib/api";
 import { consultantDisplayName, selectableConsultants } from "@/lib/consultants";
 import {
   ensureProjectContext,
@@ -64,7 +65,7 @@ export function ProjectDialog({
   onOpenChange: (v: boolean) => void;
   project?: Project | null;
   clients: Client[];
-  consultants: Profile[];
+  consultants: PublicProfile[];
   defaultClientId?: string;
   onCreated?: (projectId: string) => void;
 }) {

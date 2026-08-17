@@ -9,6 +9,7 @@ import {
   profilesQuery,
   riskRulesQuery,
   risksQuery,
+  type PublicProfile,
 } from "@/lib/api";
 import {
   isOverdue,
@@ -16,7 +17,6 @@ import {
   type Client,
   type Meeting,
   type OpportunityItem,
-  type Profile,
   type RiskItem,
   type RiskRule,
 } from "@/lib/domain";
@@ -59,7 +59,7 @@ function useCarteiraData(tables: readonly TableKey[]) {
   const clients = get<Client>("clients");
   const meetings = get<Meeting>("meetings");
   const actions = get<ActionItem>("actions");
-  const profiles = get<Profile>("profiles");
+  const profiles = get<PublicProfile>("profiles");
   const risks = get<RiskItem>("risks");
   const opportunities = get<OpportunityItem>("opportunities");
   const riskRules = get<RiskRule>("risk_rules");
