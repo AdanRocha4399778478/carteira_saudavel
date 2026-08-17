@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase/client";
-import { ACCOUNT_STATUSES, quadrantOf, type Client, type Profile } from "@/lib/domain";
+import { ACCOUNT_STATUSES, quadrantOf, type Client } from "@/lib/domain";
+import type { PublicProfile } from "@/lib/api";
 import { consultantDisplayName, selectableConsultants } from "@/lib/consultants";
 import { useAccess } from "@/lib/auth/access";
 import {
@@ -57,7 +58,7 @@ export function ClientDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
   client?: Client | null;
-  consultants: Profile[];
+  consultants: PublicProfile[];
 }) {
   const queryClient = useQueryClient();
   const { access, isAdmin } = useAccess();
