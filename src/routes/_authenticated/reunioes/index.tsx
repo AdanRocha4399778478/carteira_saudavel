@@ -7,7 +7,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/painel/states
 import { Pill, RiskBadge } from "@/components/painel/badges";
 import { MeetingDialog } from "@/components/painel/MeetingDialog";
 import { ImportMeetingDialog } from "@/components/painel/ImportMeetingDialog";
-import { useMeetingsListData } from "@/hooks/useCarteira";
+import { useMeetingsListSupportData } from "@/hooks/useMeetingsListSupportData";
 import { meetingsListPageQuery } from "@/lib/meetings-list";
 import { MEETING_TYPES, formatDate, formatScore, type Meeting } from "@/lib/domain";
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,6 @@ export const Route = createFileRoute("/_authenticated/reunioes/")({
     ],
   }),
   component: MeetingsPage,
-  // Error boundary local: uma falha aqui não derruba a sidebar nem o app.
   errorComponent: MeetingsRouteError,
 });
 
@@ -63,7 +62,7 @@ function MeetingsRouteError({ error, reset }: { error: Error; reset: () => void 
 }
 
 function MeetingsPage() {
-  const { clients, actions, riskRules, error, refetchAll, clientName } = useMeetingsListData();
+  const { clients, actions, riskRules, error, refetchAll, clientName } = useMeetingsListSupportData();
 
   const [search, setSearch] = useState("");
   const [client, setClient] = useState("all");
@@ -265,10 +264,6 @@ function MeetingsPage() {
   );
 }
 
-/**
- * Registros legados podem ter campos ausentes; a renderização é tolerante e
- * um registro inconsistente gera aviso local, nunca queda da página.
- */
 function MeetingCard({ meeting: m, clientName }: { meeting: Meeting; clientName: string }) {
   const inconsistent = !m.meeting_date || !m.client_id;
   const participants = m.participants.length ? m.participants.join(", ") : "sem participantes";
