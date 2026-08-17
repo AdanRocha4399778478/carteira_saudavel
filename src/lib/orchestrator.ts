@@ -190,7 +190,6 @@ export async function resolveRecommendation(
     }
   }
 
-  const { data: auth } = await supabase.auth.getUser();
   const insert = await supabase
     .from(TABLE as never)
     .insert({
@@ -206,9 +205,7 @@ export async function resolveRecommendation(
       alternative_reason: recommendation.alternative_reason,
       erp_classification: recommendation.erp_classification,
       source,
-      status: "suggested",
       state_hash: stateHash,
-      created_by: auth.user?.id ?? null,
     } as never)
     .select("*")
     .single();
