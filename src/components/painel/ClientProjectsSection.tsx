@@ -8,7 +8,8 @@ import { EmptyState } from "@/components/painel/states";
 import { Pill } from "@/components/painel/badges";
 import { ProjectDialog } from "@/components/painel/ProjectDialog";
 import { projectsQuery, PROJECT_STATUS_LABEL } from "@/lib/projects";
-import { formatDate, type Client, type Profile } from "@/lib/domain";
+import { formatDate, type Client } from "@/lib/domain";
+import type { PublicProfile } from "@/lib/api";
 
 /** Projetos consultivos de um cliente — exibido dentro da visão do cliente. */
 export function ClientProjectsSection({
@@ -18,7 +19,7 @@ export function ClientProjectsSection({
 }: {
   clientId: string;
   clients: Client[];
-  consultants: Profile[];
+  consultants: PublicProfile[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
