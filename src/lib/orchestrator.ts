@@ -21,7 +21,6 @@ import type {
  * ------------------------------------------------------------------ */
 
 const TABLE = "orchestrator_recommendations";
-const STATUS_RPC = "update_orchestrator_recommendation_status";
 
 type Row = Record<string, unknown>;
 type MutableRecommendationStatus = "approved" | "rejected" | "executed" | "superseded";
@@ -57,41 +56,19 @@ function fromRow(row: Row): StoredRecommendation {
   };
 }
 
-async function updateRecommendationStatusViaRpc(
-  id: string,
-  status: MutableRecommendationStatus,
-): Promise<void> {
-  const res = await supabase.rpc(
-    STATUS_RPC as never,
-    { p_recommendation_id: id, p_status: status } as never,
-  );
-  if (res.error) {
-    logDbError(TABLE, `rpc-${status}`, res.error);
-    throw new Error(res.error.message);
-  }
-}
-
 async function updateRecommendationStatus(
   id: string,
   status: MutableRecommendationStatus,
 ): Promise<void> {
-  const direct = await supabase
+  const res = await supabase
     .from(TABLE as never)
     .update({ status } as never)
     .eq("id", id);
 
-  if (!direct.error) return;
-
-  // Compatibilidade de implantação: enquanto o banco ainda não conceder
-  // UPDATE(status) ao authenticated, usa a RPC existente. Depois da fase 2,
-  // o UPDATE direto passa e este fallback deixa de ser necessário.
-  if (direct.error.code === "42501") {
-    await updateRecommendationStatusViaRpc(id, status);
-    return;
+  if (res.error) {
+    logDbError(TABLE, `update-status-${status}`, res.error);
+    throw new Error(res.error.message);
   }
-
-  logDbError(TABLE, `update-status-${status}`, direct.error);
-  throw new Error(direct.error.message);
 }
 
 async function latestRecommendation(projectId: string): Promise<StoredRecommendation | null> {
