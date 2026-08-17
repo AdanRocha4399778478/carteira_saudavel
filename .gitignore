@@ -36,3 +36,5 @@ supabase/.temp/
 *.njsproj
 *.sln
 *.sw?
+
+supabase/.branches/
