@@ -11,7 +11,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/painel/states
 import { ActionStatusBadge } from "@/components/painel/badges";
 import { KpiCard } from "@/components/painel/KpiCard";
 import { ActionDialog } from "@/components/painel/ActionDialog";
-import { useActionsData } from "@/hooks/useCarteira";
+import { useActionsListData } from "@/hooks/useActionsListData";
 import {
   ACTION_STATUSES,
   ERP_AREAS,
@@ -67,7 +67,7 @@ function ActionsPage() {
     error,
     refetchAll,
     clientName,
-  } = useActionsData();
+  } = useActionsListData();
   const queryClient = useQueryClient();
 
   const [search, setSearch] = useState("");
