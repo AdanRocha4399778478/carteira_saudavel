@@ -44,8 +44,11 @@ export const profilesQuery = () =>
     queryKey: ["profiles"],
     queryFn: async () =>
       unwrap<PublicProfile[]>(
-        "profiles",
-        await supabase.from("profiles").select("id, full_name, active").order("full_name"),
+        "profile_directory",
+        await supabase
+          .from("profile_directory" as "profiles")
+          .select("id, full_name, active")
+          .order("full_name"),
       ),
   });
 
@@ -186,7 +189,7 @@ export const meQuery = () =>
       const user = data.user;
       if (!user) return null;
       const profileRes = await supabase
-        .from("profiles")
+        .from("profile_directory" as "profiles")
         .select("id, full_name, active")
         .eq("id", user.id)
         .maybeSingle();
