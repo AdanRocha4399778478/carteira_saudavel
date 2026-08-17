@@ -282,7 +282,182 @@ export function useClientDetailData() {
   };
 }
 
-const DASHBOARD_TABLES = ["clients", "meetings", "actions", "profiles"] as const;
+const DASHBOARD_CLIENT_COLUMNS =
+  "id, company_name, segment, consultant_id, account_status, current_satisfaction, current_value_score, current_risk_score, current_risk_level, current_quadrant, last_meeting_date, active";
+const DASHBOARD_MEETING_COLUMNS =
+  "client_id, meeting_date, satisfaction_score, value_score, calculated_risk_score";
+const DASHBOARD_ACTION_COLUMNS = "id, client_id, description, deadline, status";
+const DASHBOARD_OPPORTUNITY_COLUMNS = "client_id, status";
+
+function dashboardClientsQuery() {
+  return {
+    queryKey: ["clients", "dashboard"],
+    queryFn: async (): Promise<Client[]> => {
+      const res = await supabase
+        .from("clients")
+        .select(DASHBOARD_CLIENT_COLUMNS)
+        .order("company_name");
+      if (res.error) {
+        logDbError("clients", "select-dashboard", res.error);
+        throw new Error(res.error.message);
+      }
+      return (res.data ?? []) as Client[];
+    },
+  };
+}
+
+function dashboardMeetingsQuery() {
+  return {
+    queryKey: ["meetings", "dashboard"],
+    queryFn: async (): Promise<Meeting[]> => {
+      const res = await supabase
+        .from("meetings")
+        .select(DASHBOARD_MEETING_COLUMNS)
+        .order("meeting_date", { ascending: false });
+      if (res.error) {
+        logDbError("meetings", "select-dashboard", res.error);
+        throw new Error(res.error.message);
+      }
+      return (res.data ?? []) as Meeting[];
+    },
+  };
+}
+
+function dashboardActionsQuery() {
+  return {
+    queryKey: ["actions", "dashboard", "open"],
+    queryFn: async (): Promise<ActionItem[]> => {
+      const res = await supabase
+        .from("actions")
+        .select(DASHBOARD_ACTION_COLUMNS)
+        .neq("status", "concluída")
+        .order("deadline", { ascending: true });
+      if (res.error) {
+        logDbError("actions", "select-dashboard-open", res.error);
+        throw new Error(res.error.message);
+      }
+      return (res.data ?? []) as ActionItem[];
+    },
+  };
+}
+
+function dashboardOpportunitiesQuery() {
+  return {
+    queryKey: ["opportunities", "dashboard", "active"],
+    queryFn: async (): Promise<OpportunityItem[]> => {
+      const res = await supabase
+        .from("opportunities")
+        .select(DASHBOARD_OPPORTUNITY_COLUMNS)
+        .neq("status", "descartada");
+      if (res.error) {
+        logDbError("opportunities", "select-dashboard-active", res.error);
+        throw new Error(res.error.message);
+      }
+      return (res.data ?? []) as OpportunityItem[];
+    },
+  };
+}
+
+/**
+ * Dashboard executivo: consultas próprias e enxutas evitam reutilizar os
+ * carregamentos globais das telas operacionais. O histórico de reuniões ainda
+ * é preservado para manter exatamente os filtros de período existentes.
+ */
+export function useDashboardData() {
+  const results = useQueries({
+    queries: [
+      dashboardClientsQuery(),
+      dashboardMeetingsQuery(),
+      dashboardActionsQuery(),
+      profilesQuery(),
+      dashboardOpportunitiesQuery(),
+    ],
+  });
+
+  const [clientsResult, meetingsResult, actionsResult, profilesResult, opportunitiesResult] = results;
+  const clients = (clientsResult?.data as Client[] | undefined) ?? (EMPTY as Client[]);
+  const meetings = (meetingsResult?.data as Meeting[] | undefined) ?? (EMPTY as Meeting[]);
+  const actions = (actionsResult?.data as ActionItem[] | undefined) ?? (EMPTY as ActionItem[]);
+  const profiles = (profilesResult?.data as PublicProfile[] | undefined) ?? (EMPTY as PublicProfile[]);
+  const opportunities =
+    (opportunitiesResult?.data as OpportunityItem[] | undefined) ?? (EMPTY as OpportunityItem[]);
+
+  const isLoading = results.some((r) => r.isLoading && r.data === undefined);
+  const isRefreshing = results.some((r) => r.isFetching) && !isLoading;
+  const failed = results.find(
+    (r) =>
+      r.data === undefined && (r.error || (r.failureCount >= MAX_QUERY_RETRIES && r.failureReason)),
+  );
+  const liveError = (failed?.error ?? failed?.failureReason ?? null) as Error | null;
+
+  const [latchedError, setLatchedError] = useState<Error | null>(null);
+  const hasData = results.some((r) => r.data !== undefined);
+  useEffect(() => {
+    if (liveError) setLatchedError(liveError);
+    else if (hasData) setLatchedError(null);
+  }, [liveError, hasData]);
+
+  const error = liveError ?? latchedError;
+  const refetchAll = () => {
+    setLatchedError(null);
+    results.forEach((r) => void r.refetch());
+  };
+
+  const [isSlow, setIsSlow] = useState(false);
+  useEffect(() => {
+    if (!isLoading) {
+      setIsSlow(false);
+      return;
+    }
+    const timer = setTimeout(() => setIsSlow(true), SLOW_QUERY_MS);
+    return () => clearTimeout(timer);
+  }, [isLoading]);
+
+  const consultantName = useMemo(() => {
+    const map = new Map(profiles.map((p) => [p.id, consultantDisplayName(p)]));
+    return (id: string | null) => (id ? (map.get(id) ?? "Não atribuído") : "Não atribuído");
+  }, [profiles]);
+
+  const clientName = useMemo(() => {
+    const map = new Map(clients.map((c) => [c.id, c.company_name]));
+    return (id: string | null) => (id ? (map.get(id) ?? "—") : "—");
+  }, [clients]);
+
+  const overdueByClient = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const a of actions) {
+      if (!isOverdue(a)) continue;
+      map.set(a.client_id, (map.get(a.client_id) ?? 0) + 1);
+    }
+    return map;
+  }, [actions]);
+
+  const nextActionByClient = useMemo(() => {
+    const map = new Map<string, ActionItem>();
+    for (const a of actions) {
+      if (!map.has(a.client_id)) map.set(a.client_id, a);
+    }
+    return map;
+  }, [actions]);
+
+  return {
+    clients,
+    meetings,
+    actions,
+    profiles,
+    opportunities,
+    isLoading,
+    isRefreshing,
+    isSlow,
+    error,
+    refetchAll,
+    consultantName,
+    clientName,
+    overdueByClient,
+    nextActionByClient,
+  };
+}
+
 const CLIENTS_TABLES = ["clients", "actions", "profiles"] as const;
 const MEETINGS_TABLES = ["clients", "meetings", "actions", "risk_rules"] as const;
 /** A listagem de reuniões é paginada no banco — aqui só os apoios da tela. */
@@ -290,7 +465,6 @@ const MEETINGS_LIST_TABLES = ["clients", "actions", "risk_rules"] as const;
 const ACTIONS_TABLES = ["clients", "actions", "risk_rules"] as const;
 const SETTINGS_TABLES = ["risk_rules", "profiles"] as const;
 
-export const useDashboardData = () => useCarteiraData(DASHBOARD_TABLES);
 export const useClientsData = () => useCarteiraData(CLIENTS_TABLES);
 export const useMeetingsData = () => useCarteiraData(MEETINGS_TABLES);
 export const useMeetingsListData = () => useCarteiraData(MEETINGS_LIST_TABLES);
