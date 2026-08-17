@@ -1,9 +1,16 @@
 import { useQueries } from "@tanstack/react-query";
+import { useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { MAX_QUERY_RETRIES } from "@/lib/query-errors";
+import { supabase } from "@/lib/supabase/client";
 import {
   actionsQuery,
+  clientActionsQuery,
+  clientMeetingsQuery,
+  clientOpportunitiesQuery,
+  clientRisksQuery,
   clientsQuery,
+  logDbError,
   meetingsQuery,
   opportunitiesQuery,
   profilesQuery,
@@ -167,17 +174,116 @@ function useCarteiraData(tables: readonly TableKey[]) {
   };
 }
 
+const CLIENT_DETAIL_COLUMNS =
+  "id, company_name, segment, consultant_id, start_date, account_status, current_satisfaction, current_value_score, current_risk_score, current_risk_level, current_quadrant, last_meeting_date, next_meeting_date, notes, active, created_at, updated_at";
+
+function clientDetailQuery(clientId: string) {
+  return {
+    queryKey: ["clients", clientId],
+    enabled: !!clientId,
+    queryFn: async (): Promise<Client | null> => {
+      const res = await supabase
+        .from("clients")
+        .select(CLIENT_DETAIL_COLUMNS)
+        .eq("id", clientId)
+        .maybeSingle();
+      if (res.error) {
+        logDbError("clients", "select-one", res.error);
+        throw new Error(res.error.message);
+      }
+      return (res.data as Client | null) ?? null;
+    },
+  };
+}
+
+/**
+ * Visão de um único cliente: mantém a mesma interface consumida pela página,
+ * mas todas as tabelas volumosas já chegam filtradas por client_id no banco.
+ */
+export function useClientDetailData() {
+  const params = useParams({ strict: false }) as { clientId?: string };
+  const clientId = params.clientId ?? "";
+
+  const results = useQueries({
+    queries: [
+      clientDetailQuery(clientId),
+      clientMeetingsQuery(clientId),
+      clientActionsQuery(clientId),
+      clientRisksQuery(clientId),
+      clientOpportunitiesQuery(clientId),
+      riskRulesQuery(),
+      profilesQuery(),
+    ],
+  });
+
+  const [clientResult, meetingsResult, actionsResult, risksResult, opportunitiesResult, riskRulesResult, profilesResult] =
+    results;
+
+  const client = (clientResult?.data as Client | null | undefined) ?? null;
+  const clients = client ? [client] : (EMPTY as Client[]);
+  const meetings = (meetingsResult?.data as Meeting[] | undefined) ?? (EMPTY as Meeting[]);
+  const actions = (actionsResult?.data as ActionItem[] | undefined) ?? (EMPTY as ActionItem[]);
+  const risks = (risksResult?.data as RiskItem[] | undefined) ?? (EMPTY as RiskItem[]);
+  const opportunities =
+    (opportunitiesResult?.data as OpportunityItem[] | undefined) ?? (EMPTY as OpportunityItem[]);
+  const riskRules = (riskRulesResult?.data as RiskRule[] | undefined) ?? (EMPTY as RiskRule[]);
+  const profiles = (profilesResult?.data as PublicProfile[] | undefined) ?? (EMPTY as PublicProfile[]);
+
+  const isLoading = results.some((r) => r.isLoading && r.data === undefined);
+  const isRefreshing = results.some((r) => r.isFetching) && !isLoading;
+  const failed = results.find(
+    (r) =>
+      r.data === undefined && (r.error || (r.failureCount >= MAX_QUERY_RETRIES && r.failureReason)),
+  );
+  const liveError = (failed?.error ?? failed?.failureReason ?? null) as Error | null;
+
+  const [latchedError, setLatchedError] = useState<Error | null>(null);
+  const hasData = results.some((r) => r.data !== undefined);
+  useEffect(() => {
+    if (liveError) setLatchedError(liveError);
+    else if (hasData) setLatchedError(null);
+  }, [liveError, hasData]);
+
+  const error = liveError ?? latchedError;
+  const refetchAll = () => {
+    setLatchedError(null);
+    results.forEach((r) => void r.refetch());
+  };
+
+  const [isSlow, setIsSlow] = useState(false);
+  useEffect(() => {
+    if (!isLoading) {
+      setIsSlow(false);
+      return;
+    }
+    const timer = setTimeout(() => setIsSlow(true), SLOW_QUERY_MS);
+    return () => clearTimeout(timer);
+  }, [isLoading]);
+
+  const consultantName = useMemo(() => {
+    const map = new Map(profiles.map((p) => [p.id, consultantDisplayName(p)]));
+    return (id: string | null) => (id ? (map.get(id) ?? "Não atribuído") : "Não atribuído");
+  }, [profiles]);
+
+  return {
+    clients,
+    meetings,
+    actions,
+    profiles,
+    risks,
+    opportunities,
+    riskRules,
+    isLoading,
+    isRefreshing,
+    isSlow,
+    error,
+    refetchAll,
+    consultantName,
+  };
+}
+
 const DASHBOARD_TABLES = ["clients", "meetings", "actions", "profiles"] as const;
 const CLIENTS_TABLES = ["clients", "actions", "profiles"] as const;
-const CLIENT_DETAIL_TABLES = [
-  "clients",
-  "meetings",
-  "actions",
-  "risks",
-  "opportunities",
-  "risk_rules",
-  "profiles",
-] as const;
 const MEETINGS_TABLES = ["clients", "meetings", "actions", "risk_rules"] as const;
 /** A listagem de reuniões é paginada no banco — aqui só os apoios da tela. */
 const MEETINGS_LIST_TABLES = ["clients", "actions", "risk_rules"] as const;
@@ -186,7 +292,6 @@ const SETTINGS_TABLES = ["risk_rules", "profiles"] as const;
 
 export const useDashboardData = () => useCarteiraData(DASHBOARD_TABLES);
 export const useClientsData = () => useCarteiraData(CLIENTS_TABLES);
-export const useClientDetailData = () => useCarteiraData(CLIENT_DETAIL_TABLES);
 export const useMeetingsData = () => useCarteiraData(MEETINGS_TABLES);
 export const useMeetingsListData = () => useCarteiraData(MEETINGS_LIST_TABLES);
 export const useActionsData = () => useCarteiraData(ACTIONS_TABLES);
