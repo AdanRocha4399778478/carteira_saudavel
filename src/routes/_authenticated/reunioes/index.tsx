@@ -8,7 +8,7 @@ import { Pill, RiskBadge } from "@/components/painel/badges";
 import { MeetingDialog } from "@/components/painel/MeetingDialog";
 import { ImportMeetingDialog } from "@/components/painel/ImportMeetingDialog";
 import { useMeetingsListData } from "@/hooks/useCarteira";
-import { meetingsPageQuery } from "@/lib/api";
+import { meetingsListPageQuery } from "@/lib/meetings-list";
 import { MEETING_TYPES, formatDate, formatScore, type Meeting } from "@/lib/domain";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,7 +78,7 @@ function MeetingsPage() {
   }, [search, client, type, pageSize]);
 
   const pageQuery = useQuery(
-    meetingsPageQuery({
+    meetingsListPageQuery({
       page,
       pageSize,
       clientId: client === "all" ? null : client,
