@@ -27,9 +27,7 @@ import { MeetingAnalysisDialog } from "@/components/painel/MeetingAnalysisDialog
 import {
   clientActionsQuery,
   clientOpportunitiesQuery,
-  clientQuery,
   clientRisksQuery,
-  clientsQuery,
   profilesQuery,
 } from "@/lib/api";
 import { supabase } from "@/lib/supabase/client";
@@ -43,7 +41,6 @@ import {
   emptyContextLists,
   projectContextQuery,
   projectMeetingsQuery,
-  projectQuery,
   saveProjectContext,
   setMeetingProject,
   type ContextItem,
@@ -51,6 +48,12 @@ import {
   type Decision,
 } from "@/lib/projects";
 import { formatDate, isOverdue, type Meeting } from "@/lib/domain";
+import {
+  projectClientQuery,
+  projectDetailQuery,
+  projectEditClientsQuery,
+  projectUnlinkedMeetingsQuery,
+} from "@/lib/project-detail";
 import {
   evolutionAgendaTopics,
   projectEvolutionQuery,
@@ -159,9 +162,9 @@ function ProjectDetailPage() {
   const { projectId } = Route.useParams();
   const queryClient = useQueryClient();
 
-  const project = useQuery(projectQuery(projectId));
+  const project = useQuery(projectDetailQuery(projectId));
   const clientId = project.data?.client_id ?? "";
-  const client = useQuery(clientQuery(clientId));
+  const client = useQuery(projectClientQuery(clientId));
   const profiles = useQuery(profilesQuery());
   const context = useQuery(projectContextQuery(projectId));
   const meetings = useQuery(projectMeetingsQuery(projectId));
@@ -176,7 +179,7 @@ function ProjectDetailPage() {
   const [editingDecision, setEditingDecision] = useState<Decision | null>(null);
   const [linkMeetingId, setLinkMeetingId] = useState("");
   const [analysisMeeting, setAnalysisMeeting] = useState<Meeting | null>(null);
-  const clients = useQuery({ ...clientsQuery(), enabled: editOpen });
+  const clients = useQuery({ ...projectEditClientsQuery(), enabled: editOpen });
 
 
   const [form, setForm] = useState<ContextForm>({
@@ -268,20 +271,7 @@ function ProjectDetailPage() {
   }, [latestEvolution, snapshots.data, snapshots.isLoading, health, projectId, project.data, queryClient]);
 
 
-  const unlinkedMeetings = useQuery({
-    queryKey: ["meetings", "unlinked", client.data?.id ?? ""],
-    enabled: !!client.data?.id,
-    queryFn: async (): Promise<Meeting[]> => {
-      const res = await supabase
-        .from("meetings")
-        .select("*")
-        .eq("client_id", client.data!.id)
-        .is("project_id", null)
-        .order("meeting_date", { ascending: false });
-      if (res.error) throw new Error(res.error.message);
-      return (res.data ?? []) as unknown as Meeting[];
-    },
-  });
+  const unlinkedMeetings = useQuery(projectUnlinkedMeetingsQuery(client.data?.id ?? ""));
 
   const saveContext = useMutation({
     mutationFn: async () => {
@@ -853,7 +843,7 @@ function ProjectDetailPage() {
         actions={actions.data ?? []}
         risks={risks.data ?? []}
         decisions={decisions.data ?? []}
-        opportunities={opportunities.data ?? []}
+        opportunities={(opportunities.data ?? []).filter((o) => o.client_id === p.client_id)}
         projectMeetingIds={(meetings.data ?? []).map((m) => m.id)}
       />
     </div>
