@@ -181,6 +181,7 @@ function ProjectDetailPage() {
   const [analysisMeeting, setAnalysisMeeting] = useState<Meeting | null>(null);
   const clients = useQuery({ ...projectEditClientsQuery(), enabled: editOpen });
 
+
   const [form, setForm] = useState<ContextForm>({
     executive_summary: "",
     current_scenario: "",
@@ -268,6 +269,7 @@ function ProjectDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ["project_health_snapshots", projectId] });
     })();
   }, [latestEvolution, snapshots.data, snapshots.isLoading, health, projectId, project.data, queryClient]);
+
 
   const unlinkedMeetings = useQuery(projectUnlinkedMeetingsQuery(client.data?.id ?? ""));
 
@@ -400,6 +402,7 @@ function ProjectDetailPage() {
             <TabsTrigger value="resultados">Resultados</TabsTrigger>
           </TabsList>
 
+          {/* -------- Visão Geral -------- */}
           <TabsContent value="visao-geral" className="mt-4 flex flex-col gap-4">
             <ProjectHealthCard health={health} />
             <NextActionCard
@@ -414,6 +417,7 @@ function ProjectDetailPage() {
               evolution={latestEvolution}
             />
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+
               <div className="card-surface p-4">
                 <p className="text-xs text-muted-foreground">Ações abertas</p>
                 <p className="mt-1 text-2xl font-bold">{openActions.length}</p>
@@ -461,6 +465,7 @@ function ProjectDetailPage() {
             </div>
           </TabsContent>
 
+          {/* -------- Contexto -------- */}
           <TabsContent value="contexto" className="mt-4 flex flex-col gap-4">
             <Section
               title="Estado atual do projeto"
@@ -524,6 +529,8 @@ function ProjectDetailPage() {
             </div>
           </TabsContent>
 
+          {/* -------- Reuniões -------- */}
+          {/* -------- Evolução entre reuniões -------- */}
           <TabsContent value="evolucao" className="mt-4 flex flex-col gap-4">
             <Section
               title="O que mudou desde a última reunião"
@@ -635,6 +642,7 @@ function ProjectDetailPage() {
                           <Unlink className="size-4" aria-hidden /> Desvincular
                         </Button>
                       </div>
+
                     </li>
                   ))}
                 </ul>
@@ -642,6 +650,7 @@ function ProjectDetailPage() {
             </Section>
           </TabsContent>
 
+          {/* -------- Ações -------- */}
           <TabsContent value="acoes" className="mt-4">
             <Section
               title="Ações relacionadas"
@@ -676,6 +685,7 @@ function ProjectDetailPage() {
             </Section>
           </TabsContent>
 
+          {/* -------- Decisões -------- */}
           <TabsContent value="decisoes" className="mt-4">
             <Section
               title="Decisões do projeto"
@@ -741,6 +751,7 @@ function ProjectDetailPage() {
             </Section>
           </TabsContent>
 
+          {/* -------- Riscos -------- */}
           <TabsContent value="riscos" className="mt-4">
             <Section title="Riscos ativos" description="Riscos das reuniões do projeto e da conta.">
               {projectRisks.length === 0 ? (
@@ -770,6 +781,7 @@ function ProjectDetailPage() {
             </Section>
           </TabsContent>
 
+          {/* -------- Resultados -------- */}
           <TabsContent value="resultados" className="mt-4 flex flex-col gap-4">
             <Section
               title="Resultados alcançados"
@@ -835,54 +847,70 @@ function ProjectDetailPage() {
         projectMeetingIds={(meetings.data ?? []).map((m) => m.id)}
       />
     </div>
+
   );
 }
 
+/** Cartão de uma reunião na linha do tempo de evolução do projeto. */
 function EvolutionCard({ record, meetingDate }: { record: EvolutionRecord; meetingDate: string }) {
   const agenda = evolutionAgendaTopics(record);
   return (
     <article className="rounded-lg border p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-sm font-semibold">{formatDate(meetingDate)}</p>
-          <p className="mt-1 text-sm text-muted-foreground">{record.summary?.summary ?? "Sem resumo."}</p>
+          <h3 className="text-sm font-semibold">Reunião de {formatDate(meetingDate)}</h3>
+          <p className="text-xs text-muted-foreground">
+            {record.summary?.highlights?.join(" · ") || "Sem itens comparados"}
+          </p>
         </div>
-        <Pill tone={EVOLUTION_TONE[record.movement] ?? "neutral"}>
+        <Pill
+          tone={
+            record.movement === "avancando"
+              ? "healthy"
+              : record.movement === "estavel"
+                ? "neutral"
+                : record.movement === "regredindo"
+                  ? "critical"
+                  : "attention"
+          }
+        >
           {MOVEMENT_LABEL[record.movement] ?? record.movement}
         </Pill>
       </div>
 
-      {(record.items ?? []).length > 0 ? (
-        <ul className="mt-4 grid gap-2">
-          {record.items.map((item) => (
-            <li key={item.id} className="rounded-lg bg-muted/40 p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Pill tone={EVOLUTION_TONE[item.classification] ?? "neutral"}>
-                  {EVOLUTION_LABEL[item.classification] ?? item.classification}
-                </Pill>
-                <span className="text-xs text-muted-foreground">
-                  {EVOLUTION_ENTITY_LABEL[item.entity_type] ?? item.entity_type}
+      <ul className="mt-3 space-y-2">
+        {record.items.map((item) => (
+          <li key={item.id} className="grid gap-1 rounded-md bg-muted/40 p-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="min-w-0 text-sm">
+                <span className="text-muted-foreground">
+                  {EVOLUTION_ENTITY_LABEL[item.entity_type] ?? item.entity_type} ·{" "}
                 </span>
-              </div>
-              <p className="mt-2 text-sm font-medium">{item.label}</p>
-              {item.current_state ? (
-                <p className="mt-1 text-sm text-muted-foreground">{item.current_state}</p>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+                {item.label}
+              </p>
+              <Pill tone={EVOLUTION_TONE[item.classification]}>
+                {EVOLUTION_LABEL[item.classification] ?? item.classification}
+              </Pill>
+            </div>
+            {(item.previous_state || item.current_state) && (
+              <p className="text-xs text-muted-foreground">
+                {[item.previous_state, item.current_state].filter(Boolean).join(" → ")}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
 
-      {agenda.length > 0 ? (
-        <div className="mt-4">
-          <p className="text-xs font-semibold text-muted-foreground">Sugestões para próxima pauta</p>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
-            {agenda.map((item) => (
-              <li key={item}>{item}</li>
+      {agenda.length > 0 && (
+        <div className="mt-3 rounded-md border border-dashed p-2">
+          <p className="text-xs font-semibold">Levar para a próxima pauta</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-muted-foreground">
+            {agenda.map((t) => (
+              <li key={t}>{t}</li>
             ))}
           </ul>
         </div>
-      ) : null}
+      )}
     </article>
   );
 }
