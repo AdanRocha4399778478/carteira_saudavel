@@ -36,7 +36,6 @@ import {
   CONTEXT_LIST_LABEL,
   DECISION_STATUS_LABEL,
   PROJECT_STATUS_LABEL,
-  decisionsQuery,
   ensureProjectContext,
   emptyContextLists,
   projectContextQuery,
@@ -50,6 +49,7 @@ import {
 import { formatDate, isOverdue, type Meeting } from "@/lib/domain";
 import {
   projectClientQuery,
+  projectDecisionsQuery,
   projectDetailQuery,
   projectEditClientsQuery,
   projectUnlinkedMeetingsQuery,
@@ -168,7 +168,7 @@ function ProjectDetailPage() {
   const profiles = useQuery(profilesQuery());
   const context = useQuery(projectContextQuery(projectId));
   const meetings = useQuery(projectMeetingsQuery(projectId));
-  const decisions = useQuery(decisionsQuery(projectId));
+  const decisions = useQuery(projectDecisionsQuery(projectId));
   const actions = useQuery(clientActionsQuery(clientId));
   const risks = useQuery(clientRisksQuery(clientId));
   const opportunities = useQuery(clientOpportunitiesQuery(clientId));
