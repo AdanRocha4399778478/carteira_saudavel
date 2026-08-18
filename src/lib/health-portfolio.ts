@@ -147,6 +147,12 @@ export type ProjectHealthRow = {
 
 const PRIORITY_ORDER = { URGENTE: 0, ALTA: 1, "MÉDIA": 2, BAIXA: 3 } as const;
 
+function appendToMap<T>(map: Map<string, T[]>, key: string, item: T) {
+  const bucket = map.get(key);
+  if (bucket) bucket.push(item);
+  else map.set(key, [item]);
+}
+
 export function useProjectsHealth() {
   const projects = useQuery(cockpitProjectsQuery());
   const actions = useQuery(cockpitActionsQuery());
@@ -160,12 +166,30 @@ export function useProjectsHealth() {
     const list = projects.data ?? [];
     if (list.length === 0) return [];
 
-    const allMeetings = (meetings.data ?? []) as Meeting[];
     const meetingsByProject = new Map<string, Meeting[]>();
-    for (const m of allMeetings) {
+    for (const m of (meetings.data ?? []) as Meeting[]) {
       const pid = (m as Meeting & { project_id?: string | null }).project_id ?? null;
       if (!pid) continue;
-      meetingsByProject.set(pid, [...(meetingsByProject.get(pid) ?? []), m]);
+      appendToMap(meetingsByProject, pid, m);
+    }
+
+    const actionsByMeeting = new Map<string, ActionItem[]>();
+    const clientWideActions = new Map<string, ActionItem[]>();
+    for (const action of actions.data ?? []) {
+      if (action.meeting_id) appendToMap(actionsByMeeting, action.meeting_id, action);
+      else appendToMap(clientWideActions, action.client_id, action);
+    }
+
+    const risksByMeeting = new Map<string, RiskItem[]>();
+    const clientWideRisks = new Map<string, RiskItem[]>();
+    for (const risk of risks.data ?? []) {
+      if (risk.meeting_id) appendToMap(risksByMeeting, risk.meeting_id, risk);
+      else appendToMap(clientWideRisks, risk.client_id, risk);
+    }
+
+    const decisionsByProject = new Map<string, Decision[]>();
+    for (const decision of decisions.data ?? []) {
+      appendToMap(decisionsByProject, decision.project_id, decision);
     }
 
     const contextByProject = new Map((contexts.data ?? []).map((c) => [c.project_id, c]));
@@ -173,23 +197,18 @@ export function useProjectsHealth() {
 
     return list.map((p) => {
       const projectMeetings = meetingsByProject.get(p.id) ?? [];
-      const meetingIds = new Set(projectMeetings.map((m) => m.id));
-      const scopedActions = (actions.data ?? []).filter(
-        (a) =>
-          (a.meeting_id && meetingIds.has(a.meeting_id)) ||
-          (!a.meeting_id && a.client_id === p.client_id),
-      );
-      const scopedRisks = (risks.data ?? []).filter(
-        (r) =>
-          (r.meeting_id && meetingIds.has(r.meeting_id)) ||
-          (!r.meeting_id && r.client_id === p.client_id),
-      );
-      const scopedDecisions = (decisions.data ?? []).filter((d) => d.project_id === p.id);
+      const scopedActions = [...(clientWideActions.get(p.client_id) ?? [])];
+      const scopedRisks = [...(clientWideRisks.get(p.client_id) ?? [])];
+
+      for (const meeting of projectMeetings) {
+        scopedActions.push(...(actionsByMeeting.get(meeting.id) ?? []));
+        scopedRisks.push(...(risksByMeeting.get(meeting.id) ?? []));
+      }
 
       const health = computeProjectHealth({
         actions: scopedActions,
         risks: scopedRisks,
-        decisions: scopedDecisions,
+        decisions: decisionsByProject.get(p.id) ?? [],
         meetings: projectMeetings,
         evolution: latestEvolution.get(p.id) ?? null,
         results: contextByProject.get(p.id)?.results ?? [],
