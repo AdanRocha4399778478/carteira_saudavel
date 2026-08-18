@@ -117,16 +117,20 @@ export const allProjectContextsQuery = () =>
     },
   });
 
+/**
+ * O Cockpit consome somente a evolução mais recente de cada projeto. A view
+ * security_invoker reduz o histórico no banco sem contornar as policies RLS
+ * de meeting_evolution.
+ */
 export const allEvolutionsQuery = () =>
   queryOptions({
-    queryKey: ["meeting_evolution", "cockpit"],
+    queryKey: ["meeting_evolution", "cockpit", "latest"],
     queryFn: async (): Promise<EvolutionRecord[]> => {
       const res = await supabase
-        .from("meeting_evolution")
-        .select(COCKPIT_EVOLUTION_COLUMNS)
-        .order("created_at", { ascending: false });
+        .from("latest_project_evolution" as "meeting_evolution")
+        .select(COCKPIT_EVOLUTION_COLUMNS);
       if (res.error) {
-        logDbError("meeting_evolution", "select-cockpit", res.error);
+        logDbError("latest_project_evolution", "select-cockpit", res.error);
         return [];
       }
       return (res.data ?? []) as unknown as EvolutionRecord[];
@@ -165,10 +169,7 @@ export function useProjectsHealth() {
     }
 
     const contextByProject = new Map((contexts.data ?? []).map((c) => [c.project_id, c]));
-    const latestEvolution = new Map<string, EvolutionRecord>();
-    for (const e of evolutions.data ?? []) {
-      if (!latestEvolution.has(e.project_id)) latestEvolution.set(e.project_id, e);
-    }
+    const latestEvolution = new Map((evolutions.data ?? []).map((e) => [e.project_id, e]));
 
     return list.map((p) => {
       const projectMeetings = meetingsByProject.get(p.id) ?? [];
