@@ -15,34 +15,64 @@ import type {
 /* ------------------------------------------------------------------ *
  * Serviço do Orquestrador (cliente).
  *
- * Antiduplicidade: se o `state_hash` não mudou desde a última
- * recomendação viva, nada é recalculado, a IA não é chamada e nenhuma
- * linha nova é criada — a recomendação existente é devolvida.
+ * Antiduplicidade:
+ *
+ * 1. Se já existe recomendação viva para o mesmo project_id + state_hash,
+ *    ela é retornada imediatamente.
+ *
+ * 2. Se duas chamadas iguais acontecerem ao mesmo tempo no frontend,
+ *    ambas compartilham a mesma Promise.
+ *
+ * 3. O índice único do banco continua sendo a proteção final contra
+ *    concorrência entre abas, sessões, dispositivos ou usuários.
  * ------------------------------------------------------------------ */
 
 const TABLE = "orchestrator_recommendations";
 
 type Row = Record<string, unknown>;
-type MutableRecommendationStatus = "approved" | "rejected" | "executed" | "superseded";
+
+type MutableRecommendationStatus =
+  | "approved"
+  | "rejected"
+  | "executed"
+  | "superseded";
+
+const LIVE_STATUSES = [
+  "suggested",
+  "approved",
+  "executed",
+] as const;
+
+const inFlightRecommendations = new Map<
+  string,
+  Promise<StoredRecommendation>
+>();
 
 function fromRow(row: Row): StoredRecommendation {
   const bottleneck = (row["main_bottleneck"] ?? {}) as Record<string, unknown>;
   const erp = (row["erp_classification"] ?? {}) as Record<string, unknown>;
+
   return {
     id: String(row["id"]),
     project_id: String(row["project_id"]),
     project_stage: row["project_stage"] as ProjectStage,
     main_bottleneck: {
-      type: (bottleneck["type"] as StoredRecommendation["main_bottleneck"]["type"]) ?? "INDEFINIDO",
+      type:
+        (bottleneck["type"] as StoredRecommendation["main_bottleneck"]["type"]) ??
+        "INDEFINIDO",
       description: String(bottleneck["description"] ?? ""),
     },
     recommended_agent: row["recommended_agent"] as OrchestratorAgent,
     confidence: Number(row["confidence"] ?? 0),
     reason: String(row["reason"] ?? ""),
     expected_result: String(row["expected_result"] ?? ""),
-    evidence: Array.isArray(row["evidence"]) ? (row["evidence"] as string[]) : [],
-    alternative_agent: (row["alternative_agent"] as OrchestratorAgent | null) ?? null,
-    alternative_reason: (row["alternative_reason"] as string | null) ?? null,
+    evidence: Array.isArray(row["evidence"])
+      ? (row["evidence"] as string[])
+      : [],
+    alternative_agent:
+      (row["alternative_agent"] as OrchestratorAgent | null) ?? null,
+    alternative_reason:
+      (row["alternative_reason"] as string | null) ?? null,
     erp_classification: {
       area: (erp["area"] as string | null) ?? null,
       process: (erp["process"] as string | null) ?? null,
@@ -71,7 +101,9 @@ async function updateRecommendationStatus(
   }
 }
 
-async function latestRecommendation(projectId: string): Promise<StoredRecommendation | null> {
+async function latestRecommendation(
+  projectId: string,
+): Promise<StoredRecommendation | null> {
   const res = await supabase
     .from(TABLE as never)
     .select("*")
@@ -79,10 +111,34 @@ async function latestRecommendation(projectId: string): Promise<StoredRecommenda
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
   if (res.error) {
     logDbError(TABLE, "select-latest", res.error);
     throw new Error(res.error.message);
   }
+
+  return res.data ? fromRow(res.data as Row) : null;
+}
+
+async function liveRecommendationForState(
+  projectId: string,
+  stateHash: string,
+): Promise<StoredRecommendation | null> {
+  const res = await supabase
+    .from(TABLE as never)
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("state_hash", stateHash)
+    .in("status", [...LIVE_STATUSES])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (res.error) {
+    logDbError(TABLE, "select-live-state", res.error);
+    throw new Error(res.error.message);
+  }
+
   return res.data ? fromRow(res.data as Row) : null;
 }
 
@@ -98,15 +154,19 @@ export const orchestratorHistoryQuery = (projectId: string) =>
         .eq("project_id", projectId)
         .order("created_at", { ascending: false })
         .limit(20);
+
       if (res.error) {
         logDbError(TABLE, "select-history", res.error);
         return [];
       }
+
       return ((res.data ?? []) as Row[]).map(fromRow);
     },
   });
 
-async function buildRecommendation(state: OrchestratorState): Promise<{
+async function buildRecommendation(
+  state: OrchestratorState,
+): Promise<{
   recommendation: Recommendation;
   source: "rules" | "ai";
 }> {
@@ -114,7 +174,12 @@ async function buildRecommendation(state: OrchestratorState): Promise<{
   const base = toRecommendation(outcome);
 
   // IA só entra quando a regra determinística não é forte o suficiente.
-  if (outcome.strong) return { recommendation: base, source: "rules" };
+  if (outcome.strong) {
+    return {
+      recommendation: base,
+      source: "rules",
+    };
+  }
 
   try {
     const ai = await enrichOrchestratorRecommendation({
@@ -130,63 +195,110 @@ async function buildRecommendation(state: OrchestratorState): Promise<{
         },
       },
     });
-    if (!ai.used) return { recommendation: base, source: "rules" };
+
+    if (!ai.used) {
+      return {
+        recommendation: base,
+        source: "rules",
+      };
+    }
 
     return {
       source: "ai",
       recommendation: {
         ...base,
-        project_stage: (ai.project_stage as ProjectStage | null) ?? base.project_stage,
-        recommended_agent: (ai.recommended_agent as OrchestratorAgent | null) ?? base.recommended_agent,
+        project_stage:
+          (ai.project_stage as ProjectStage | null) ?? base.project_stage,
+        recommended_agent:
+          (ai.recommended_agent as OrchestratorAgent | null) ??
+          base.recommended_agent,
         main_bottleneck: {
           ...base.main_bottleneck,
-          description: ai.main_bottleneck_description ?? base.main_bottleneck.description,
+          description:
+            ai.main_bottleneck_description ??
+            base.main_bottleneck.description,
         },
         reason: ai.reason ?? base.reason,
         expected_result: ai.expected_result ?? base.expected_result,
-        alternative_agent: (ai.alternative_agent as OrchestratorAgent | null) ?? base.alternative_agent,
-        alternative_reason: ai.alternative_reason ?? base.alternative_reason,
+        alternative_agent:
+          (ai.alternative_agent as OrchestratorAgent | null) ??
+          base.alternative_agent,
+        alternative_reason:
+          ai.alternative_reason ?? base.alternative_reason,
         erp_classification: ai.erp_classification,
         confidence: Math.min(0.8, base.confidence + 0.15),
       },
     };
   } catch {
     // Degradação graciosa: a recomendação determinística continua válida.
-    return { recommendation: base, source: "rules" };
+    return {
+      recommendation: base,
+      source: "rules",
+    };
   }
 }
 
-/**
- * Recomendação viva do projeto. Recalcula apenas quando o `state_hash`
- * muda (nova reunião, saúde, riscos, ações, decisões, evolução).
- */
-export async function resolveRecommendation(
+async function performRecommendationResolution(
   projectId: string,
   state: OrchestratorState,
+  stateHash: string,
 ): Promise<StoredRecommendation> {
-  const stateHash = await computeStateHash(state);
+  /**
+   * Primeira proteção:
+   * procura diretamente uma recomendação viva para este estado.
+   *
+   * Isso evita INSERT desnecessário quando já existe uma recomendação
+   * approved/suggested/executed para o mesmo project_id + state_hash.
+   */
+  const existingLive = await liveRecommendationForState(
+    projectId,
+    stateHash,
+  );
+
+  if (existingLive) {
+    return existingLive;
+  }
+
+  /**
+   * Ainda consultamos a recomendação mais recente porque ela pode ser:
+   *
+   * - rejected para o mesmo estado;
+   * - suggested de um estado anterior que precisa ser superseded.
+   */
   const latest = await latestRecommendation(projectId);
 
+  // Uma recomendação rejeitada para o mesmo estado não é refeita.
   if (
     latest &&
     latest.state_hash === stateHash &&
-    (latest.status === "suggested" || latest.status === "approved" || latest.status === "executed")
+    latest.status === "rejected"
   ) {
     return latest;
   }
-  // Uma recomendação rejeitada para o mesmo estado não é refeita.
-  if (latest && latest.state_hash === stateHash && latest.status === "rejected") return latest;
 
-  const { recommendation, source } = await buildRecommendation(state);
+  const { recommendation, source } =
+    await buildRecommendation(state);
 
   // A recomendação anterior ainda sugerida deixa de valer.
-  if (latest && latest.status === "suggested") {
+  if (
+    latest &&
+    latest.status === "suggested"
+  ) {
     try {
-      await updateRecommendationStatus(latest.id, "superseded");
+      await updateRecommendationStatus(
+        latest.id,
+        "superseded",
+      );
     } catch (error) {
-      console.error("[orchestrator] supersede-status", {
-        message: error instanceof Error ? error.message : "unknown error",
-      });
+      console.error(
+        "[orchestrator] supersede-status",
+        {
+          message:
+            error instanceof Error
+              ? error.message
+              : "unknown error",
+        },
+      );
     }
   }
 
@@ -211,20 +323,110 @@ export async function resolveRecommendation(
     .single();
 
   if (insert.error) {
+    /**
+     * Terceira proteção:
+     * se houve concorrência real e outra sessão criou a mesma recomendação
+     * entre nosso SELECT e o INSERT, reutilizamos o registro existente.
+     */
+    const isLiveStateConflict =
+      insert.error.code === "23505" &&
+      (
+        insert.error.message.includes(
+          "orchestrator_recommendations_live_state_idx",
+        ) ||
+        insert.error.details?.includes(
+          "orchestrator_recommendations_live_state_idx",
+        )
+      );
+
+    if (isLiveStateConflict) {
+      const existing = await liveRecommendationForState(
+        projectId,
+        stateHash,
+      );
+
+      if (existing) {
+        return existing;
+      }
+    }
+
     logDbError(TABLE, "insert", insert.error);
     throw new Error(insert.error.message);
   }
+
   return fromRow(insert.data as Row);
 }
 
-export const orchestratorQuery = (projectId: string, state: OrchestratorState | null) =>
+/**
+ * Recomendação viva do projeto.
+ *
+ * Recalcula apenas quando o state_hash muda.
+ *
+ * Segunda proteção:
+ * chamadas simultâneas no mesmo navegador compartilham a mesma Promise.
+ */
+export async function resolveRecommendation(
+  projectId: string,
+  state: OrchestratorState,
+): Promise<StoredRecommendation> {
+  const stateHash = await computeStateHash(state);
+
+  const inFlightKey = `${projectId}:${stateHash}`;
+
+  const existingRequest =
+    inFlightRecommendations.get(inFlightKey);
+
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request = performRecommendationResolution(
+    projectId,
+    state,
+    stateHash,
+  );
+
+  inFlightRecommendations.set(
+    inFlightKey,
+    request,
+  );
+
+  try {
+    return await request;
+  } finally {
+    if (
+      inFlightRecommendations.get(inFlightKey) === request
+    ) {
+      inFlightRecommendations.delete(inFlightKey);
+    }
+  }
+}
+
+export const orchestratorQuery = (
+  projectId: string,
+  state: OrchestratorState | null,
+) =>
   queryOptions({
-    queryKey: ["orchestrator", projectId, state ? canonicalStateSignature(state) : "sem-estado"],
+    queryKey: [
+      "orchestrator",
+      projectId,
+      state
+        ? canonicalStateSignature(state)
+        : "sem-estado",
+    ],
     enabled: !!projectId && !!state,
-    // Não recalcula a cada render: só quando o estado muda ou o cache é invalidado.
+
+    // Não recalcula a cada render:
+    // só quando o estado muda ou o cache é invalidado.
     staleTime: 5 * 60 * 1000,
+
     retry: false,
-    queryFn: async () => resolveRecommendation(projectId, state as OrchestratorState),
+
+    queryFn: async () =>
+      resolveRecommendation(
+        projectId,
+        state as OrchestratorState,
+      ),
   });
 
 /* ---------------- decisão humana ---------------- */
@@ -233,5 +435,8 @@ export async function setRecommendationStatus(
   id: string,
   status: "approved" | "rejected",
 ): Promise<void> {
-  await updateRecommendationStatus(id, status);
+  await updateRecommendationStatus(
+    id,
+    status,
+  );
 }
