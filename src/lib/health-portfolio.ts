@@ -20,7 +20,8 @@ import type { ActionItem, Meeting, RiskItem } from "@/lib/domain";
 const COCKPIT_PROJECT_COLUMNS = "id, client_id, name, status";
 const COCKPIT_ACTION_COLUMNS =
   "client_id, meeting_id, status, deadline, created_at, updated_at";
-const COCKPIT_RISK_COLUMNS = "client_id, meeting_id, level, active";
+const COCKPIT_RISK_COUNT_COLUMNS =
+  "project_id, critical_count, high_count, medium_count, low_count";
 const COCKPIT_MEETING_COLUMNS = "id, project_id, meeting_date, has_measurable_result";
 const COCKPIT_DECISION_COLUMNS = "project_id, status, due_date";
 const COCKPIT_CONTEXT_COLUMNS = "project_id, results";
@@ -31,6 +32,14 @@ type CockpitProject = {
   client_id: string;
   name: string;
   status: string;
+};
+
+type CockpitRiskCounts = {
+  project_id: string;
+  critical_count: number;
+  high_count: number;
+  medium_count: number;
+  low_count: number;
 };
 
 const cockpitProjectsQuery = () =>
@@ -62,19 +71,18 @@ const cockpitActionsQuery = () =>
     },
   });
 
-const cockpitRisksQuery = () =>
+const cockpitRiskCountsQuery = () =>
   queryOptions({
-    queryKey: ["risks", "cockpit", "active"],
-    queryFn: async (): Promise<RiskItem[]> => {
+    queryKey: ["cockpit_project_risk_counts"],
+    queryFn: async (): Promise<CockpitRiskCounts[]> => {
       const res = await supabase
-        .from("risks")
-        .select(COCKPIT_RISK_COLUMNS)
-        .eq("active", true);
+        .from("cockpit_project_risk_counts" as "risks")
+        .select(COCKPIT_RISK_COUNT_COLUMNS);
       if (res.error) {
-        logDbError("risks", "select-cockpit-active", res.error);
+        logDbError("cockpit_project_risk_counts", "select-cockpit", res.error);
         throw new Error(res.error.message);
       }
-      return (res.data ?? []) as unknown as RiskItem[];
+      return (res.data ?? []) as unknown as CockpitRiskCounts[];
     },
   });
 
@@ -153,10 +161,29 @@ function appendToMap<T>(map: Map<string, T[]>, key: string, item: T) {
   else map.set(key, [item]);
 }
 
+function expandRiskCounts(projectId: string, clientId: string, counts?: CockpitRiskCounts): RiskItem[] {
+  const makeRisk = (level: string): RiskItem => ({
+    id: `aggregate:${projectId}:${level}`,
+    client_id: clientId,
+    meeting_id: null,
+    description: "",
+    level,
+    active: true,
+    created_at: "",
+  });
+
+  return [
+    ...Array(counts?.critical_count ?? 0).fill(makeRisk("crítico")),
+    ...Array(counts?.high_count ?? 0).fill(makeRisk("alto")),
+    ...Array(counts?.medium_count ?? 0).fill(makeRisk("médio")),
+    ...Array(counts?.low_count ?? 0).fill(makeRisk("baixo")),
+  ];
+}
+
 export function useProjectsHealth() {
   const projects = useQuery(cockpitProjectsQuery());
   const actions = useQuery(cockpitActionsQuery());
-  const risks = useQuery(cockpitRisksQuery());
+  const risks = useQuery(cockpitRiskCountsQuery());
   const meetings = useQuery(cockpitMeetingsQuery());
   const decisions = useQuery(cockpitDecisionsQuery());
   const contexts = useQuery(allProjectContextsQuery());
@@ -180,12 +207,7 @@ export function useProjectsHealth() {
       else appendToMap(clientWideActions, action.client_id, action);
     }
 
-    const risksByMeeting = new Map<string, RiskItem[]>();
-    const clientWideRisks = new Map<string, RiskItem[]>();
-    for (const risk of risks.data ?? []) {
-      if (risk.meeting_id) appendToMap(risksByMeeting, risk.meeting_id, risk);
-      else appendToMap(clientWideRisks, risk.client_id, risk);
-    }
+    const riskCountsByProject = new Map((risks.data ?? []).map((r) => [r.project_id, r]));
 
     const decisionsByProject = new Map<string, Decision[]>();
     for (const decision of decisions.data ?? []) {
@@ -198,16 +220,14 @@ export function useProjectsHealth() {
     return list.map((p) => {
       const projectMeetings = meetingsByProject.get(p.id) ?? [];
       const scopedActions = [...(clientWideActions.get(p.client_id) ?? [])];
-      const scopedRisks = [...(clientWideRisks.get(p.client_id) ?? [])];
 
       for (const meeting of projectMeetings) {
         scopedActions.push(...(actionsByMeeting.get(meeting.id) ?? []));
-        scopedRisks.push(...(risksByMeeting.get(meeting.id) ?? []));
       }
 
       const health = computeProjectHealth({
         actions: scopedActions,
-        risks: scopedRisks,
+        risks: expandRiskCounts(p.id, p.client_id, riskCountsByProject.get(p.id)),
         decisions: decisionsByProject.get(p.id) ?? [],
         meetings: projectMeetings,
         evolution: latestEvolution.get(p.id) ?? null,
@@ -243,6 +263,6 @@ export function useProjectsHealth() {
       risks.isLoading ||
       meetings.isLoading ||
       decisions.isLoading,
-    error: projects.error ?? actions.error ?? meetings.error ?? null,
+    error: projects.error ?? actions.error ?? risks.error ?? meetings.error ?? null,
   };
 }
