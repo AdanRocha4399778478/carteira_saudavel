@@ -38,3 +38,6 @@ supabase/.temp/
 *.sw?
 
 supabase/.branches/
+
+backup-antes-limpeza-2026-08-19.sql
+backup-completo-antes-limpeza-2026-08-19.sql
