@@ -15,15 +15,19 @@ export default defineConfig(async ({ command, mode }) => {
   const fileEnv = loadEnv(mode, process.cwd(), "VITE_");
   const processEnv = Object.fromEntries(
     Object.entries(process.env).filter(
-      ([key, value]) => key.startsWith("VITE_") && typeof value === "string" && value !== "",
+      ([key, value]) =>
+        key.startsWith("VITE_") &&
+        typeof value === "string" &&
+        value !== "",
     ),
   ) as Record<string, string>;
+
   const env = { ...fileEnv, ...processEnv };
   const define: Record<string, string> = {};
+
   for (const [key, value] of Object.entries(env)) {
     define[`import.meta.env.${key}`] = JSON.stringify(value);
   }
-
 
   const isDevBuild = command === "build" && mode === "development";
 
@@ -31,7 +35,9 @@ export default defineConfig(async ({ command, mode }) => {
     ? {
         environments: {
           client: {
-            define: { "process.env.NODE_ENV": JSON.stringify("development") },
+            define: {
+              "process.env.NODE_ENV": JSON.stringify("development"),
+            },
           },
         },
       }
@@ -40,8 +46,11 @@ export default defineConfig(async ({ command, mode }) => {
   return {
     define,
     ...devBuildConfig,
+
     resolve: {
-      alias: { "@": srcDir },
+      alias: {
+        "@": srcDir,
+      },
       dedupe: [
         "react",
         "react-dom",
@@ -51,6 +60,7 @@ export default defineConfig(async ({ command, mode }) => {
         "@tanstack/query-core",
       ],
     },
+
     optimizeDeps: {
       include: [
         "react",
@@ -60,17 +70,26 @@ export default defineConfig(async ({ command, mode }) => {
         "react/jsx-dev-runtime",
       ],
     },
+
     server: {
       host: "::",
       port: 8080,
       strictPort: true,
-      hmr: { overlay: false },
+      hmr: {
+        overlay: false,
+      },
     },
+
     plugins: [
       tailwindcss(),
-      tsConfigPaths({ projects: ["./tsconfig.json"] }),
+      tsConfigPaths({
+        projects: ["./tsconfig.json"],
+      }),
+
       tanstackStart({
-        server: { entry: "server" },
+        server: {
+          entry: "server",
+        },
         importProtection: {
           behavior: "error",
           client: {
@@ -79,19 +98,9 @@ export default defineConfig(async ({ command, mode }) => {
           },
         },
       }),
-      ...(command === "build"
-        ? [
-            nitro({
-              preset: "cloudflare-module",
-              output: {
-                dir: "dist",
-                serverDir: "dist/server",
-                publicDir: "dist/client",
-              },
-              cloudflare: { nodeCompat: true, deployConfig: true },
-            }),
-          ]
-        : []),
+
+      ...(command === "build" ? [nitro()] : []),
+
       react(),
     ],
   };
