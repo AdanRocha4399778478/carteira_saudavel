@@ -99,7 +99,7 @@ export default defineConfig(async ({ command, mode }) => {
         },
       }),
 
-      ...(command === "build" ? [nitro()] : []),
+      ...(command === "build" ? [nitro({ preset: "vercel" })] : []),
 
       react(),
     ],
