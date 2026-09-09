@@ -1,0 +1,17 @@
+# Normaliza finais de linha: LF no repositório, conversão automática no checkout.
+* text=auto eol=lf
+
+# Binários / arquivos que nunca devem sofrer conversão de EOL.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+
+# Lockfiles: tratados como texto LF, sem diffs de merge ruidosos.
+bun.lock -diff
+package-lock.json -diff
