@@ -4,15 +4,22 @@ import { resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "..");
 const migrationsDir = resolve(root, "supabase", "migrations");
-const base = readFileSync(resolve(migrationsDir, "20260811000000_initial_schema.sql"), "utf8");
-const rls = readFileSync(resolve(migrationsDir, "20260811120000_rls_scope_carteira.sql"), "utf8");
-const orchestrator = readFileSync(
-  resolve(migrationsDir, "20260813220000_orchestrator_recommendations.sql"),
-  "utf8",
-);
+
+// Normaliza EOL: as asserções de conteúdo abaixo casam trechos com "\n" e não
+// devem depender de o checkout local ter usado LF ou CRLF.
+function readMigration(name: string) {
+  return readFileSync(resolve(migrationsDir, name), "utf8").replace(/\r\n/g, "\n");
+}
+
+const base = readMigration("20260811000000_initial_schema.sql");
+const rls = readMigration("20260811120000_rls_scope_carteira.sql");
+const orchestrator = readMigration("20260813220000_orchestrator_recommendations.sql");
 const allSql = [base, rls, orchestrator].join("\n");
 
-const expectedMigrations = [
+// Migrations base auditadas em detalhe neste arquivo. A cadeia real cresce de
+// forma incremental (workflow normal do Supabase CLI); o que garantimos é que
+// essa fundação permanece como as primeiras migrations, na ordem.
+const canonicalBaseline = [
   "20260811000000_initial_schema.sql",
   "20260811120000_rls_scope_carteira.sql",
   "20260813220000_orchestrator_recommendations.sql",
@@ -41,9 +48,24 @@ function withoutComments(sql: string) {
 
 describe("Supabase backend baseline", () => {
   test("keeps one ordered canonical migration chain", () => {
-    expect(readdirSync(migrationsDir).filter((name) => name.endsWith(".sql")).sort()).toEqual(
-      expectedMigrations,
-    );
+    const migrations = readdirSync(migrationsDir)
+      .filter((name) => name.endsWith(".sql"))
+      .sort();
+
+    // A fundação continua sendo as primeiras migrations, na ordem esperada.
+    expect(migrations.slice(0, canonicalBaseline.length)).toEqual(canonicalBaseline);
+
+    // Uma única cadeia ordenada: todo arquivo usa prefixo de timestamp e os
+    // prefixos são estritamente crescentes (sem colisão nem retrocesso).
+    const stamps = migrations.map((name) => {
+      expect(name).toMatch(/^\d{14}_/);
+      return name.slice(0, 14);
+    });
+    for (let i = 1; i < stamps.length; i += 1) {
+      expect(stamps[i]! > stamps[i - 1]!).toBe(true);
+    }
+
+    // Sem diretório paralelo de migrations (evita execução em duplicidade).
     expect(
       readdirSync(resolve(root, "db", "migrations")).filter((name) => name.endsWith(".sql")),
     ).toEqual([]);
