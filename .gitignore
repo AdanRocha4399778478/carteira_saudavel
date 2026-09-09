@@ -21,7 +21,8 @@ dist-ssr
 .env.*
 !.env.example
 
-# Wrangler / Cloudflare
+# Deploy (Vercel prebuilt output) / Cloudflare
+.vercel/
 .wrangler/
 .dev.vars
 supabase/.temp/

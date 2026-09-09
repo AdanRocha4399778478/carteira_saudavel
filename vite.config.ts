@@ -81,15 +81,16 @@ export default defineConfig(async ({ command, mode }) => {
       }),
       ...(command === "build"
         ? [
-            nitro({
-              preset: "cloudflare-module",
-              output: {
-                dir: "dist",
-                serverDir: "dist/server",
-                publicDir: "dist/client",
-              },
-              cloudflare: { nodeCompat: true, deployConfig: true },
-            }),
+            // Preset agnóstico de plataforma. No build da plataforma de deploy
+            // (Vercel, Netlify, etc.) o Nitro detecta o alvo automaticamente e
+            // escreve na saída esperada (ex.: `.vercel/output`). Localmente cai
+            // no preset padrão (`node-server` em `.output/`). Para forçar um
+            // alvo específico, defina a env `NITRO_PRESET`.
+            nitro(
+              process.env["NITRO_PRESET"]
+                ? { preset: process.env["NITRO_PRESET"] }
+                : {},
+            ),
           ]
         : []),
       react(),
