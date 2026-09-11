@@ -1,5 +1,3 @@
-import { ShieldCheck } from "lucide-react";
-
 /** Moldura visual compartilhada pelas telas públicas de autenticação. */
 export function AuthShell({
   title,
@@ -14,9 +12,11 @@ export function AuthShell({
     <div className="grid min-h-dvh lg:grid-cols-2">
       <div className="hidden flex-col justify-between bg-sidebar p-12 text-sidebar-foreground lg:flex">
         <div className="flex items-center gap-3">
-          <span className="grid size-10 place-items-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
-            <ShieldCheck className="size-5" aria-hidden />
-          </span>
+          <img
+            src="/brand/chip-96.png"
+            alt="Resultados S/A"
+            className="h-10 w-auto shrink-0"
+          />
           <div>
             <p className="font-display font-bold">Resultados S/A</p>
             <p className="text-xs text-sidebar-foreground/60">Uso interno</p>
