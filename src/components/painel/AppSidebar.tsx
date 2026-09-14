@@ -9,7 +9,6 @@ import {
   LogOut,
   Settings,
   Sparkles,
-  ShieldCheck,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { useAccess } from "@/lib/auth/access";
@@ -46,9 +45,11 @@ export function AppSidebar() {
   return (
     <aside className="flex h-dvh w-16 shrink-0 flex-col bg-sidebar text-sidebar-foreground md:w-64">
       <div className="flex items-center gap-3 px-3 py-5 md:px-5">
-        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
-          <ShieldCheck className="size-5" aria-hidden />
-        </span>
+        <img
+          src="/brand/chip-96.png"
+          alt="Resultados S/A"
+          className="h-9 w-auto shrink-0"
+        />
         <div className="hidden min-w-0 md:block">
           <p className="font-display truncate text-sm font-bold">Resultados S/A</p>
           <p className="truncate text-xs text-sidebar-foreground/60">Saúde da Carteira</p>
