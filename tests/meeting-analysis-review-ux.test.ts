@@ -58,20 +58,20 @@ describe("GATE 10A — nenhuma alteração em thresholds/dedupe/backend", () => 
 describe("GATE 10A — resumo geral (nível 1)", () => {
   test("card 'Revisão da análise' usa countReviewBlock e expõe 'Aplicar sugestões seguras'", () => {
     expect(dialogSource).toContain("function ReviewSummaryCard(");
-    expect(dialogSource).toContain("<ReviewSummaryCard counts={overallCounts} onApplySafe={applyAllSafe} />");
+    expect(dialogSource).toContain("<ReviewSummaryCard\n                  counts={overallCounts}\n                  onApplySafe={applyAllSafe}");
     expect(dialogSource).toContain("Aplicar sugestões seguras");
   });
 
-  test("applyAllSafe cobre todos os blocos (contexto + decisões/ações/riscos/oportunidades) via applySafeResolutions", () => {
+  test("applyAllSafe cobre todos os blocos (contexto + decisões/ações/riscos/oportunidades) via applySafeResolutions, registrando a decisão como 'approved' (GATE 10D)", () => {
     const block = dialogSource.slice(
       dialogSource.indexOf("const applyAllSafe = () => {"),
       dialogSource.indexOf("};", dialogSource.indexOf("const applyAllSafe = () => {")),
     );
-    expect(block).toContain("mergeSel(setContextSel, applySafeResolutions(g.items))");
-    expect(block).toContain("mergeSel(setDecisionSel, applySafeResolutions(decisionItems))");
-    expect(block).toContain("mergeSel(setActionSel, applySafeResolutions(actionItems))");
-    expect(block).toContain("mergeSel(setRiskSel, applySafeResolutions(riskItems))");
-    expect(block).toContain("mergeSel(setOppSel, applySafeResolutions(oppItems))");
+    expect(block).toContain("applyBlockDecision(`context:${g.list}`, g.items, setContextSel, applySafeResolutions(g.items), \"approved\")");
+    expect(block).toContain('applyBlockDecision("decisions", decisionItems, setDecisionSel, applySafeResolutions(decisionItems), "approved")');
+    expect(block).toContain('applyBlockDecision("actions", actionItems, setActionSel, applySafeResolutions(actionItems), "approved")');
+    expect(block).toContain('applyBlockDecision("risks", riskItems, setRiskSel, applySafeResolutions(riskItems), "approved")');
+    expect(block).toContain('applyBlockDecision("opportunities", oppItems, setOppSel, applySafeResolutions(oppItems), "approved")');
   });
 
   test("linha final antes do botão de aprovar mostra novos/atualizações/ignorados/para revisar", () => {
@@ -117,18 +117,22 @@ describe("GATE 10A — blocos recolhíveis (nível 2)", () => {
     expect(dialogSource).toContain('<ReviewBlock\n                  id="actions"');
     expect(dialogSource).toContain('<ReviewBlock\n                  id="risks"');
     expect(dialogSource).toContain('<ReviewBlock\n                  id="opportunities"');
-    expect(dialogSource).toContain('id={`context:${group.list}`}');
+    expect(dialogSource).toContain("id={blockId}");
     expect(dialogSource).not.toContain("<ReviewList");
     expect(dialogSource).not.toContain("function ReviewList(");
   });
 
   test("'Aprovar bloco' chama applySafeResolutions (nunca autoaprova POSSIBLE_DUPLICATE) e 'Ignorar bloco' chama applyIgnoreBlock", () => {
-    expect(dialogSource).toContain(
-      'onApplySafe={() => mergeSel(setDecisionSel, applySafeResolutions(decisionItems))}',
+    expect(dialogSource).toContain("applySafeResolutions(decisionItems)");
+    expect(dialogSource).toContain("applyIgnoreBlock(decisionItems)");
+    // Ambas passam pelo mesmo applyBlockDecision — nunca chamam setSel direto sem registrar a decisão.
+    const decisionsBlock = dialogSource.slice(
+      dialogSource.indexOf('<ReviewBlock\n                  id="decisions"'),
+      dialogSource.indexOf("</ReviewBlock>", dialogSource.indexOf('id="decisions"')),
     );
-    expect(dialogSource).toContain(
-      'onIgnoreAll={() => mergeSel(setDecisionSel, applyIgnoreBlock(decisionItems))}',
-    );
+    expect(decisionsBlock).toContain("applyBlockDecision(");
+    expect(decisionsBlock).not.toMatch(/onApplySafe=\{\(\) => mergeSel/);
+    expect(decisionsBlock).not.toMatch(/onIgnoreAll=\{\(\) => mergeSel/);
   });
 
   test("blocos seguros iniciam fechados e blocos com revisão necessária iniciam abertos (default fixado por análise)", () => {
@@ -171,10 +175,92 @@ describe("GATE 10A — revisão individual (nível 3)", () => {
       expect(dialogSource.slice(blockOpen, blockClose)).toContain("<ReviewRow");
     }
 
-    const contextAnchor = dialogSource.indexOf("id={`context:${group.list}`}");
+    const contextAnchor = dialogSource.indexOf("const blockId = `context:${group.list}`;");
     expect(contextAnchor).toBeGreaterThan(-1);
-    const contextOpen = dialogSource.lastIndexOf("<ReviewBlock", contextAnchor);
+    const contextOpen = dialogSource.indexOf("<ReviewBlock", contextAnchor);
     const contextClose = dialogSource.indexOf("</ReviewBlock>", contextAnchor);
     expect(dialogSource.slice(contextOpen, contextClose)).toContain("<ReviewRow");
+  });
+});
+
+describe("GATE 10D — feedback visual de aprovar/ignorar bloco", () => {
+  test("Aprovar bloco e Ignorar bloco chamam applyBlockDecision (não só mergeSel solto) — registra a decisão para o feedback visual", () => {
+    expect(dialogSource).toContain("function applyBlockDecision<K extends string | number>(");
+    // A definição usa genérico (`applyBlockDecision<K...>(`), então só as CHAMADAS
+    // batem com a string "applyBlockDecision(" — 2 usos por bloco (approve/ignore) ×
+    // 5 blocos (contexto+4 entidades) + 5 usos dentro de applyAllSafe = 15.
+    const occurrences = dialogSource.split("applyBlockDecision(").length - 1;
+    expect(occurrences).toBe(15);
+  });
+
+  test("status do bloco vem de computeBlockStatus (nunca é um booleano solto tipo 'aprovado = true')", () => {
+    expect(dialogSource).toContain(
+      'status={computeBlockStatus(items, blockDecisions[blockId])}',
+    );
+    expect(dialogSource).toContain(
+      'status={computeBlockStatus(decisionItems, blockDecisions["decisions"])}',
+    );
+    expect(dialogSource).toContain(
+      'status={computeBlockStatus(actionItems, blockDecisions["actions"])}',
+    );
+    expect(dialogSource).toContain(
+      'status={computeBlockStatus(riskItems, blockDecisions["risks"])}',
+    );
+    expect(dialogSource).toContain(
+      'status={computeBlockStatus(oppItems, blockDecisions["opportunities"])}',
+    );
+  });
+
+  test("blockDecisions é resetado junto com blockOpen quando uma NOVA análise carrega (nunca vaza estado de revisão entre reuniões)", () => {
+    const effectBlock = dialogSource.slice(
+      dialogSource.indexOf("useEffect(() => {\n    if (!analysis) return;"),
+      dialogSource.indexOf("}, [analysis]);") + "}, [analysis]);".length,
+    );
+    expect(effectBlock).toContain("setBlockOpen(next);");
+    expect(effectBlock).toContain("setBlockDecisions({});");
+  });
+
+  test("ReviewBlock mostra '✓ Bloco aprovado' / '✓ Bloco ignorado' / 'Revisado manualmente' conforme o status", () => {
+    const block = dialogSource.slice(dialogSource.indexOf("function ReviewBlock("));
+    expect(block).toContain('status === "approved" && (');
+    expect(block).toContain("✓ Bloco aprovado");
+    expect(block).toContain('status === "ignored" && (');
+    expect(block).toContain("✓ Bloco ignorado");
+    expect(block).toContain('status === "manual" && (');
+    expect(block).toContain("Revisado manualmente");
+  });
+
+  test("o botão já aplicado fica desabilitado (Aprovar bloco quando approved, Ignorar bloco quando ignored)", () => {
+    const block = dialogSource.slice(dialogSource.indexOf("function ReviewBlock("));
+    expect(block).toContain('disabled={status === "approved"}');
+    expect(block).toContain('disabled={status === "ignored"}');
+  });
+
+  test("o resumo superior distingue classificação (verdict) de progresso de revisão por blocos, sem virar dashboard novo", () => {
+    expect(dialogSource).toContain("blocksTotal: number;");
+    expect(dialogSource).toContain("blocksReviewed: number;");
+    expect(dialogSource).toContain("Progresso da revisão por blocos:");
+    // Continua sendo só um <p>, não uma seção nova cheia de métricas.
+    const summaryBlock = dialogSource.slice(
+      dialogSource.indexOf("function ReviewSummaryCard("),
+      dialogSource.indexOf("function ReviewBlock("),
+    );
+    expect((summaryBlock.match(/<section/g) ?? []).length).toBe(1);
+  });
+
+  test("nenhum comportamento de dedupe muda: contagens continuam vindo só de countReviewBlock (verdict/hasOverride/mode), status é um campo separado", () => {
+    // countReviewBlock não recebe blockDecisions nem status como argumento em lugar nenhum.
+    expect(dialogSource).not.toMatch(/countReviewBlock\([^)]*blockDecisions/);
+    expect(dialogSource).not.toMatch(/countReviewBlock\([^)]*status/);
+    // BlockDecisionRecord/BlockStatus não são importados nem usados por deduplication.ts,
+    // meeting-analysis.ts ou embeddings.server.ts.
+    const dedupeSource = read("src/lib/deduplication.ts");
+    const embeddingsSource = read("src/lib/embeddings.server.ts");
+    const analysisSrc = read("src/lib/meeting-analysis.ts");
+    for (const src of [dedupeSource, embeddingsSource, analysisSrc]) {
+      expect(src).not.toContain("BlockDecisionRecord");
+      expect(src).not.toContain("BlockStatus");
+      expect(src).not.toContain("blockDecisions");
+    }
   });
 });

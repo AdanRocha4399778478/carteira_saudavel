@@ -114,3 +114,58 @@ export function applyIgnoreBlock<K extends string | number>(
   for (const item of items) patch[item.key] = "skip";
   return patch;
 }
+
+/* ------------------------------------------------------------------ *
+ * GATE 10D — feedback visual de "Aprovar bloco" / "Ignorar bloco".
+ *
+ * "Aprovar bloco" com itens já no default (ex.: 3 NEW → create) reaplica o
+ * MESMO modo — os contadores de classificação (verdict) não mudam, e por
+ * isso não são a fonte certa para dizer se o bloco foi revisado. Em vez
+ * disso, guardamos uma decisão explícita + um "retrato" do modo de cada
+ * item no instante da decisão; comparar esse retrato com o modo ATUAL do
+ * item é o que detecta que o consultor mexeu manualmente depois.
+ * ------------------------------------------------------------------ */
+
+export type BlockDecisionKind = "approved" | "ignored";
+
+export type BlockDecisionRecord<K extends string | number = string | number> = {
+  decision: BlockDecisionKind;
+  /** Modo de cada item no momento da decisão (patch aplicado + o que já estava). */
+  snapshot: Partial<Record<K, ResolutionMode>>;
+};
+
+export type BlockStatus = "none" | BlockDecisionKind | "manual";
+
+/**
+ * Modo efetivo de cada item logo após um patch em lote: o patch tem
+ * prioridade; item fora do patch mantém o modo que já tinha.
+ */
+export function snapshotAfterPatch<K extends string | number>(
+  items: ReviewBlockItem<K>[],
+  patch: Partial<Record<K, ResolutionMode>>,
+): Partial<Record<K, ResolutionMode>> {
+  const snapshot: Partial<Record<K, ResolutionMode>> = {};
+  for (const item of items) snapshot[item.key] = patch[item.key] ?? item.mode;
+  return snapshot;
+}
+
+/** true enquanto o modo atual de cada item do bloco ainda bate com o retrato guardado. */
+export function blockMatchesSnapshot<K extends string | number>(
+  items: ReviewBlockItem<K>[],
+  snapshot: Partial<Record<K, ResolutionMode>>,
+): boolean {
+  return items.every((item) => snapshot[item.key] === item.mode);
+}
+
+/**
+ * Estado visual coerente do bloco. Nunca afirma "aprovado"/"ignorado" se
+ * algum item mudou de modo depois da decisão (edição manual do consultor,
+ * ou uma nova decisão de bloco mais recente) — nesse caso vira "manual".
+ */
+export function computeBlockStatus<K extends string | number>(
+  items: ReviewBlockItem<K>[],
+  record: BlockDecisionRecord<K> | undefined,
+): BlockStatus {
+  if (!record) return "none";
+  return blockMatchesSnapshot(items, record.snapshot) ? record.decision : "manual";
+}

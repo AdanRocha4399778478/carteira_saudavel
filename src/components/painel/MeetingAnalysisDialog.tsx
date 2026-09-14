@@ -67,8 +67,12 @@ import {
 import {
   applyIgnoreBlock,
   applySafeResolutions,
+  computeBlockStatus,
   countReviewBlock,
   formatBlockSummary,
+  snapshotAfterPatch,
+  type BlockDecisionRecord,
+  type BlockStatus,
   type ReviewBlockCounts,
   type ReviewBlockItem,
 } from "@/lib/review-blocks";
@@ -452,6 +456,14 @@ export function MeetingAnalysisDialog({
 
   /** Expand/recolher por bloco — o default (aberto se precisa revisão) é fixado uma vez por análise carregada. */
   const [blockOpen, setBlockOpen] = useState<Record<string, boolean>>({});
+  /**
+   * GATE 10D — decisão explícita de "Aprovar bloco"/"Ignorar bloco", por
+   * bloco. Não é redundante com contextSel/decisionSel/…: aqueles guardam a
+   * RESOLUÇÃO de cada item; isto guarda que uma AÇÃO EM LOTE foi tomada e o
+   * retrato de modos naquele instante, só para o feedback visual do botão —
+   * nunca é lido por applyApprovedAnalysis nem influencia contagem alguma.
+   */
+  const [blockDecisions, setBlockDecisions] = useState<Record<string, BlockDecisionRecord>>({});
   useEffect(() => {
     if (!analysis) return;
     const next: Record<string, boolean> = {};
@@ -463,20 +475,56 @@ export function MeetingAnalysisDialog({
     next["risks"] = countReviewBlock(riskItems).reviewCount > 0;
     next["opportunities"] = countReviewBlock(oppItems).reviewCount > 0;
     setBlockOpen(next);
+    setBlockDecisions({});
     // Só reavalia o default de abertura quando uma NOVA análise é carregada —
     // não a cada seleção manual do consultor (senão um bloco resolvido
     // recolheria sozinho debaixo do usuário).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysis]);
 
+  /**
+   * Aplica um patch em lote E registra a decisão (para o feedback visual).
+   * O retrato ("snapshot") é o modo de cada item logo após o patch — se o
+   * consultor mudar algo manualmente depois, o modo atual deixa de bater com
+   * o retrato e o bloco passa a mostrar "Revisado manualmente" em vez de
+   * continuar afirmando que está aprovado/ignorado.
+   */
+  function applyBlockDecision<K extends string | number>(
+    blockId: string,
+    items: ReviewBlockItem<K>[],
+    setSel: Dispatch<SetStateAction<Record<K, ResolutionMode>>>,
+    patch: Partial<Record<K, ResolutionMode>>,
+    decision: "approved" | "ignored",
+  ) {
+    mergeSel(setSel, patch);
+    setBlockDecisions((s) => ({
+      ...s,
+      [blockId]: { decision, snapshot: snapshotAfterPatch(items, patch) },
+    }));
+  }
+
   /** "Aplicar sugestões seguras" no card do topo — cobre todos os blocos de uma vez. */
   const applyAllSafe = () => {
-    for (const g of contextItemsByGroup) mergeSel(setContextSel, applySafeResolutions(g.items));
-    mergeSel(setDecisionSel, applySafeResolutions(decisionItems));
-    mergeSel(setActionSel, applySafeResolutions(actionItems));
-    mergeSel(setRiskSel, applySafeResolutions(riskItems));
-    mergeSel(setOppSel, applySafeResolutions(oppItems));
+    for (const g of contextItemsByGroup) {
+      applyBlockDecision(`context:${g.list}`, g.items, setContextSel, applySafeResolutions(g.items), "approved");
+    }
+    applyBlockDecision("decisions", decisionItems, setDecisionSel, applySafeResolutions(decisionItems), "approved");
+    applyBlockDecision("actions", actionItems, setActionSel, applySafeResolutions(actionItems), "approved");
+    applyBlockDecision("risks", riskItems, setRiskSel, applySafeResolutions(riskItems), "approved");
+    applyBlockDecision("opportunities", oppItems, setOppSel, applySafeResolutions(oppItems), "approved");
   };
+
+  /** Status coerente de cada bloco — usado no card do topo (progresso da revisão). */
+  const blockStatuses: BlockStatus[] = useMemo(
+    () => [
+      ...contextItemsByGroup.map((g) => computeBlockStatus(g.items, blockDecisions[`context:${g.list}`])),
+      computeBlockStatus(decisionItems, blockDecisions["decisions"]),
+      computeBlockStatus(actionItems, blockDecisions["actions"]),
+      computeBlockStatus(riskItems, blockDecisions["risks"]),
+      computeBlockStatus(oppItems, blockDecisions["opportunities"]),
+    ],
+    [contextItemsByGroup, decisionItems, actionItems, riskItems, oppItems, blockDecisions],
+  );
 
   /* ---------------- evolução desde a última reunião ---------------- */
 
@@ -878,49 +926,76 @@ export function MeetingAnalysisDialog({
                   </section>
                 )}
 
-                <ReviewSummaryCard counts={overallCounts} onApplySafe={applyAllSafe} />
+                <ReviewSummaryCard
+                  counts={overallCounts}
+                  onApplySafe={applyAllSafe}
+                  blocksTotal={blockStatuses.length}
+                  blocksReviewed={blockStatuses.filter((s) => s === "approved" || s === "ignored").length}
+                />
 
-                {contextRows.map((group, gi) => (
-                  <ReviewBlock
-                    key={group.list}
-                    id={`context:${group.list}`}
-                    title={CONTEXT_LIST_LABEL[group.list]}
-                    items={contextItemsByGroup[gi]?.items ?? []}
-                    open={blockOpen[`context:${group.list}`] ?? false}
-                    onOpenChange={(v) => setBlockOpen((s) => ({ ...s, [`context:${group.list}`]: v }))}
-                    onApplySafe={() =>
-                      mergeSel(setContextSel, applySafeResolutions(contextItemsByGroup[gi]?.items ?? []))
-                    }
-                    onIgnoreAll={() =>
-                      mergeSel(setContextSel, applyIgnoreBlock(contextItemsByGroup[gi]?.items ?? []))
-                    }
-                  >
-                    <p className="pb-1 text-xs text-muted-foreground">
-                      {group.current.length} atuais
-                    </p>
-                    <ul className="space-y-2">
-                      {group.rows.map((r) => (
-                        <ReviewRow
-                          key={r.key}
-                          primary={r.item.text}
-                          secondary={OPERATION_LABEL[r.item.operation as ChangeOperation] ?? ""}
-                          classification={r.item.classification}
-                          row={r}
-                          onChange={(mode) => setContextSel((s) => ({ ...s, [r.key]: mode }))}
-                        />
-                      ))}
-                    </ul>
-                  </ReviewBlock>
-                ))}
+                {contextRows.map((group, gi) => {
+                  const blockId = `context:${group.list}`;
+                  const items = contextItemsByGroup[gi]?.items ?? [];
+                  return (
+                    <ReviewBlock
+                      key={group.list}
+                      id={blockId}
+                      title={CONTEXT_LIST_LABEL[group.list]}
+                      items={items}
+                      status={computeBlockStatus(items, blockDecisions[blockId])}
+                      open={blockOpen[blockId] ?? false}
+                      onOpenChange={(v) => setBlockOpen((s) => ({ ...s, [blockId]: v }))}
+                      onApplySafe={() =>
+                        applyBlockDecision(blockId, items, setContextSel, applySafeResolutions(items), "approved")
+                      }
+                      onIgnoreAll={() =>
+                        applyBlockDecision(blockId, items, setContextSel, applyIgnoreBlock(items), "ignored")
+                      }
+                    >
+                      <p className="pb-1 text-xs text-muted-foreground">
+                        {group.current.length} atuais
+                      </p>
+                      <ul className="space-y-2">
+                        {group.rows.map((r) => (
+                          <ReviewRow
+                            key={r.key}
+                            primary={r.item.text}
+                            secondary={OPERATION_LABEL[r.item.operation as ChangeOperation] ?? ""}
+                            classification={r.item.classification}
+                            row={r}
+                            onChange={(mode) => setContextSel((s) => ({ ...s, [r.key]: mode }))}
+                          />
+                        ))}
+                      </ul>
+                    </ReviewBlock>
+                  );
+                })}
 
                 <ReviewBlock
                   id="decisions"
                   title="Decisões"
                   items={decisionItems}
+                  status={computeBlockStatus(decisionItems, blockDecisions["decisions"])}
                   open={blockOpen["decisions"] ?? false}
                   onOpenChange={(v) => setBlockOpen((s) => ({ ...s, decisions: v }))}
-                  onApplySafe={() => mergeSel(setDecisionSel, applySafeResolutions(decisionItems))}
-                  onIgnoreAll={() => mergeSel(setDecisionSel, applyIgnoreBlock(decisionItems))}
+                  onApplySafe={() =>
+                    applyBlockDecision(
+                      "decisions",
+                      decisionItems,
+                      setDecisionSel,
+                      applySafeResolutions(decisionItems),
+                      "approved",
+                    )
+                  }
+                  onIgnoreAll={() =>
+                    applyBlockDecision(
+                      "decisions",
+                      decisionItems,
+                      setDecisionSel,
+                      applyIgnoreBlock(decisionItems),
+                      "ignored",
+                    )
+                  }
                 >
                   <ul className="space-y-2">
                     {decisionRows.map((r) => (
@@ -940,10 +1015,21 @@ export function MeetingAnalysisDialog({
                   id="actions"
                   title="Ações"
                   items={actionItems}
+                  status={computeBlockStatus(actionItems, blockDecisions["actions"])}
                   open={blockOpen["actions"] ?? false}
                   onOpenChange={(v) => setBlockOpen((s) => ({ ...s, actions: v }))}
-                  onApplySafe={() => mergeSel(setActionSel, applySafeResolutions(actionItems))}
-                  onIgnoreAll={() => mergeSel(setActionSel, applyIgnoreBlock(actionItems))}
+                  onApplySafe={() =>
+                    applyBlockDecision(
+                      "actions",
+                      actionItems,
+                      setActionSel,
+                      applySafeResolutions(actionItems),
+                      "approved",
+                    )
+                  }
+                  onIgnoreAll={() =>
+                    applyBlockDecision("actions", actionItems, setActionSel, applyIgnoreBlock(actionItems), "ignored")
+                  }
                 >
                   <ul className="space-y-2">
                     {actionRows.map((r) => (
@@ -965,10 +1051,15 @@ export function MeetingAnalysisDialog({
                   id="risks"
                   title="Riscos"
                   items={riskItems}
+                  status={computeBlockStatus(riskItems, blockDecisions["risks"])}
                   open={blockOpen["risks"] ?? false}
                   onOpenChange={(v) => setBlockOpen((s) => ({ ...s, risks: v }))}
-                  onApplySafe={() => mergeSel(setRiskSel, applySafeResolutions(riskItems))}
-                  onIgnoreAll={() => mergeSel(setRiskSel, applyIgnoreBlock(riskItems))}
+                  onApplySafe={() =>
+                    applyBlockDecision("risks", riskItems, setRiskSel, applySafeResolutions(riskItems), "approved")
+                  }
+                  onIgnoreAll={() =>
+                    applyBlockDecision("risks", riskItems, setRiskSel, applyIgnoreBlock(riskItems), "ignored")
+                  }
                 >
                   <ul className="space-y-2">
                     {riskRows.map((r) => (
@@ -990,10 +1081,21 @@ export function MeetingAnalysisDialog({
                   id="opportunities"
                   title="Oportunidades"
                   items={oppItems}
+                  status={computeBlockStatus(oppItems, blockDecisions["opportunities"])}
                   open={blockOpen["opportunities"] ?? false}
                   onOpenChange={(v) => setBlockOpen((s) => ({ ...s, opportunities: v }))}
-                  onApplySafe={() => mergeSel(setOppSel, applySafeResolutions(oppItems))}
-                  onIgnoreAll={() => mergeSel(setOppSel, applyIgnoreBlock(oppItems))}
+                  onApplySafe={() =>
+                    applyBlockDecision(
+                      "opportunities",
+                      oppItems,
+                      setOppSel,
+                      applySafeResolutions(oppItems),
+                      "approved",
+                    )
+                  }
+                  onIgnoreAll={() =>
+                    applyBlockDecision("opportunities", oppItems, setOppSel, applyIgnoreBlock(oppItems), "ignored")
+                  }
                 >
                   <ul className="space-y-2">
                     {oppRows.map((r) => (
@@ -1270,9 +1372,14 @@ function ReviewRow({
 function ReviewSummaryCard({
   counts,
   onApplySafe,
+  blocksTotal,
+  blocksReviewed,
 }: {
   counts: ReviewBlockCounts;
   onApplySafe: () => void;
+  /** Progresso da REVISÃO por blocos (GATE 10D) — não é classificação do dedupe. */
+  blocksTotal: number;
+  blocksReviewed: number;
 }) {
   if (counts.total === 0) return null;
   const stats: { label: string; value: number }[] = [
@@ -1298,6 +1405,11 @@ function ReviewSummaryCard({
           </div>
         ))}
       </dl>
+      {blocksTotal > 0 ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          Progresso da revisão por blocos: {blocksReviewed} de {blocksTotal} revisados
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -1311,6 +1423,7 @@ function ReviewBlock({
   id,
   title,
   items,
+  status,
   open,
   onOpenChange,
   onApplySafe,
@@ -1320,6 +1433,8 @@ function ReviewBlock({
   id: string;
   title: string;
   items: ReviewBlockItem[];
+  /** Estado da REVISÃO (GATE 10D) — nunca afeta a classificação/contagem exibida. */
+  status: BlockStatus;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onApplySafe: () => void;
@@ -1346,15 +1461,42 @@ function ReviewBlock({
                 Requer revisão
               </Badge>
             )}
+            {status === "approved" && (
+              <Pill tone="healthy" className="shrink-0">
+                ✓ Bloco aprovado
+              </Pill>
+            )}
+            {status === "ignored" && (
+              <Pill tone="neutral" className="shrink-0">
+                ✓ Bloco ignorado
+              </Pill>
+            )}
+            {status === "manual" && (
+              <Pill tone="attention" className="shrink-0">
+                Revisado manualmente
+              </Pill>
+            )}
           </div>
           <p className="text-xs text-muted-foreground">{formatBlockSummary(counts)}</p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <Button type="button" size="sm" variant="outline" onClick={onApplySafe}>
-            Aprovar bloco
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={onApplySafe}
+            disabled={status === "approved"}
+          >
+            {status === "approved" ? "Bloco aprovado" : "Aprovar bloco"}
           </Button>
-          <Button type="button" size="sm" variant="outline" onClick={onIgnoreAll}>
-            Ignorar bloco
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={onIgnoreAll}
+            disabled={status === "ignored"}
+          >
+            {status === "ignored" ? "Bloco ignorado" : "Ignorar bloco"}
           </Button>
           <CollapsibleTrigger asChild>
             <Button type="button" size="sm" variant="ghost" className="gap-1" aria-label={triggerLabel}>
