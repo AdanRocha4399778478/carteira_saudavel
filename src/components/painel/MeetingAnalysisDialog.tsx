@@ -1,7 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, Copy, Loader2, Sparkles, Wand2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Loader2,
+  ShieldCheck,
+  Sparkles,
+  Wand2,
+} from "lucide-react";
 import {
   formatDate,
   isOverdue,
@@ -46,6 +64,14 @@ import {
   type ItemResolution,
   type ResolutionMode,
 } from "@/lib/deduplication";
+import {
+  applyIgnoreBlock,
+  applySafeResolutions,
+  countReviewBlock,
+  formatBlockSummary,
+  type ReviewBlockCounts,
+  type ReviewBlockItem,
+} from "@/lib/review-blocks";
 import {
   buildEvolution,
   computeMovement,
@@ -107,25 +133,51 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 type Step = "entrada" | "revisao" | "pauta";
 
 /** Linha do preview: item proposto + veredito antiduplicidade + escolha do consultor. */
-type DedupeRow<T> = {
+type DedupeRow<T, K extends string | number = string | number> = {
+  /** Chave estável usada nos mapas de seleção (contextSel/decisionSel/…) e nos blocos. */
+  key: K;
   item: T;
   match: DedupeMatch<unknown>;
   mode: ResolutionMode;
   resolution: ItemResolution;
 };
 
-function buildRow<T>(
+function buildRow<T, K extends string | number>(
+  key: K,
   item: T,
   match: DedupeMatch<unknown>,
   override: ResolutionMode | undefined,
-): DedupeRow<T> {
+): DedupeRow<T, K> {
   const base = defaultResolution(match);
   const mode = override ?? base.mode;
-  return { item, match, mode, resolution: { ...base, mode } };
+  return { key, item, match, mode, resolution: { ...base, mode } };
+}
+
+/** Converte linhas de dedupe (já com key/match/mode) no formato que review-blocks.ts entende. */
+function toReviewItems<K extends string | number>(
+  rows: { key: K; match: DedupeMatch<unknown>; mode: ResolutionMode }[],
+  sel: Record<K, ResolutionMode>,
+): ReviewBlockItem<K>[] {
+  return rows.map((r) => ({
+    key: r.key,
+    verdict: r.match.type,
+    mode: r.mode,
+    hasOverride: sel[r.key] !== undefined,
+  }));
+}
+
+/** Aplica um patch de seleção em lote — no-op se o patch estiver vazio. */
+function mergeSel<K extends string | number>(
+  setSel: Dispatch<SetStateAction<Record<K, ResolutionMode>>>,
+  patch: Partial<Record<K, ResolutionMode>>,
+) {
+  if (Object.keys(patch).length === 0) return;
+  setSel((s) => ({ ...s, ...patch }));
 }
 
 function ClassificationBadge({ value }: { value: string }) {
@@ -297,16 +349,22 @@ export function MeetingAnalysisDialog({
       contextDiff.map((group) => ({
         ...group,
         rows: group.proposed.map((p) =>
-          buildRow(p, matchContextItem(p.text, group.current, (p as { embedding?: number[] | null }).embedding), contextSel[p.key]),
+          buildRow(
+            p.key,
+            p,
+            matchContextItem(p.text, group.current, (p as { embedding?: number[] | null }).embedding),
+            contextSel[p.key],
+          ),
         ),
       })),
     [contextDiff, contextSel],
   );
 
-  const decisionRows: DedupeRow<MeetingAnalysis["decisions"][number]>[] = useMemo(
+  const decisionRows: DedupeRow<MeetingAnalysis["decisions"][number], number>[] = useMemo(
     () =>
       (analysis?.decisions ?? []).map((item, i) =>
         buildRow(
+          i,
           item,
           matchDecision(
             { title: item.title, description: item.description, embedding: item.embedding ?? null },
@@ -318,10 +376,11 @@ export function MeetingAnalysisDialog({
     [analysis, decisions, decisionSel],
   );
 
-  const actionRows: DedupeRow<MeetingAnalysis["actions"][number]>[] = useMemo(
+  const actionRows: DedupeRow<MeetingAnalysis["actions"][number], number>[] = useMemo(
     () =>
       (analysis?.actions ?? []).map((item, i) =>
         buildRow(
+          i,
           item,
           matchAction(
             {
@@ -339,10 +398,11 @@ export function MeetingAnalysisDialog({
     [analysis, meetingActions, actionSel],
   );
 
-  const riskRows: DedupeRow<MeetingAnalysis["risks"][number]>[] = useMemo(
+  const riskRows: DedupeRow<MeetingAnalysis["risks"][number], number>[] = useMemo(
     () =>
       (analysis?.risks ?? []).map((item, i) =>
         buildRow(
+          i,
           item,
           matchRisk({ description: item.description, level: item.level, embedding: item.embedding ?? null }, scopedRisks),
           riskSel[i],
@@ -351,10 +411,11 @@ export function MeetingAnalysisDialog({
     [analysis, scopedRisks, riskSel],
   );
 
-  const oppRows: DedupeRow<MeetingAnalysis["opportunities"][number]>[] = useMemo(
+  const oppRows: DedupeRow<MeetingAnalysis["opportunities"][number], number>[] = useMemo(
     () =>
       (analysis?.opportunities ?? []).map((item, i) =>
         buildRow(
+          i,
           item,
           matchOpportunity(
             { description: item.description, expected_benefit: item.expected_benefit, embedding: item.embedding ?? null },
@@ -365,6 +426,57 @@ export function MeetingAnalysisDialog({
       ),
     [analysis, opportunities, oppSel],
   );
+
+  /* ---------------- GATE 10A — revisão em blocos ---------------- */
+
+  const contextItemsByGroup = useMemo(
+    () => contextRows.map((g) => ({ list: g.list, items: toReviewItems(g.rows, contextSel) })),
+    [contextRows, contextSel],
+  );
+  const decisionItems = useMemo(() => toReviewItems(decisionRows, decisionSel), [decisionRows, decisionSel]);
+  const actionItems = useMemo(() => toReviewItems(actionRows, actionSel), [actionRows, actionSel]);
+  const riskItems = useMemo(() => toReviewItems(riskRows, riskSel), [riskRows, riskSel]);
+  const oppItems = useMemo(() => toReviewItems(oppRows, oppSel), [oppRows, oppSel]);
+
+  const allReviewItems = useMemo(
+    () => [
+      ...contextItemsByGroup.flatMap((g) => g.items),
+      ...decisionItems,
+      ...actionItems,
+      ...riskItems,
+      ...oppItems,
+    ],
+    [contextItemsByGroup, decisionItems, actionItems, riskItems, oppItems],
+  );
+  const overallCounts = useMemo(() => countReviewBlock(allReviewItems), [allReviewItems]);
+
+  /** Expand/recolher por bloco — o default (aberto se precisa revisão) é fixado uma vez por análise carregada. */
+  const [blockOpen, setBlockOpen] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    if (!analysis) return;
+    const next: Record<string, boolean> = {};
+    for (const g of contextItemsByGroup) {
+      next[`context:${g.list}`] = countReviewBlock(g.items).reviewCount > 0;
+    }
+    next["decisions"] = countReviewBlock(decisionItems).reviewCount > 0;
+    next["actions"] = countReviewBlock(actionItems).reviewCount > 0;
+    next["risks"] = countReviewBlock(riskItems).reviewCount > 0;
+    next["opportunities"] = countReviewBlock(oppItems).reviewCount > 0;
+    setBlockOpen(next);
+    // Só reavalia o default de abertura quando uma NOVA análise é carregada —
+    // não a cada seleção manual do consultor (senão um bloco resolvido
+    // recolheria sozinho debaixo do usuário).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysis]);
+
+  /** "Aplicar sugestões seguras" no card do topo — cobre todos os blocos de uma vez. */
+  const applyAllSafe = () => {
+    for (const g of contextItemsByGroup) mergeSel(setContextSel, applySafeResolutions(g.items));
+    mergeSel(setDecisionSel, applySafeResolutions(decisionItems));
+    mergeSel(setActionSel, applySafeResolutions(actionItems));
+    mergeSel(setRiskSel, applySafeResolutions(riskItems));
+    mergeSel(setOppSel, applySafeResolutions(oppItems));
+  };
 
   /* ---------------- evolução desde a última reunião ---------------- */
 
@@ -446,19 +558,6 @@ export function MeetingAnalysisDialog({
 
   const evolutionSummary = useMemo(() => summarizeEvolution(evolutionItems), [evolutionItems]);
   const movement = useMemo(() => computeMovement(evolutionSummary), [evolutionSummary]);
-
-  /** Itens em faixa cinzenta — a aprovação pede confirmação antes de seguir. */
-  const pendingReview = useMemo(
-    () =>
-      [
-        ...contextRows.flatMap((g) => g.rows),
-        ...decisionRows,
-        ...actionRows,
-        ...riskRows,
-        ...oppRows,
-      ].filter((r) => r.match.type === "POSSIBLE_DUPLICATE").length,
-    [contextRows, decisionRows, actionRows, riskRows, oppRows],
-  );
 
   /* ---------------- análise ---------------- */
 
@@ -652,12 +751,7 @@ export function MeetingAnalysisDialog({
     approve.mutate();
   };
 
-  const total =
-    contextRows.reduce((n, g) => n + g.rows.length, 0) +
-    decisionRows.length +
-    actionRows.length +
-    riskRows.length +
-    oppRows.length;
+  const total = overallCounts.total;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -784,75 +878,136 @@ export function MeetingAnalysisDialog({
                   </section>
                 )}
 
-                {contextRows.map((group) => (
-                  <section key={group.list} className="space-y-2">
-                    <h3 className="text-sm font-semibold">
-                      {CONTEXT_LIST_LABEL[group.list]}{" "}
-                      <span className="font-normal text-muted-foreground">
-                        ({group.current.length} atuais)
-                      </span>
-                    </h3>
+                <ReviewSummaryCard counts={overallCounts} onApplySafe={applyAllSafe} />
+
+                {contextRows.map((group, gi) => (
+                  <ReviewBlock
+                    key={group.list}
+                    id={`context:${group.list}`}
+                    title={CONTEXT_LIST_LABEL[group.list]}
+                    items={contextItemsByGroup[gi]?.items ?? []}
+                    open={blockOpen[`context:${group.list}`] ?? false}
+                    onOpenChange={(v) => setBlockOpen((s) => ({ ...s, [`context:${group.list}`]: v }))}
+                    onApplySafe={() =>
+                      mergeSel(setContextSel, applySafeResolutions(contextItemsByGroup[gi]?.items ?? []))
+                    }
+                    onIgnoreAll={() =>
+                      mergeSel(setContextSel, applyIgnoreBlock(contextItemsByGroup[gi]?.items ?? []))
+                    }
+                  >
+                    <p className="pb-1 text-xs text-muted-foreground">
+                      {group.current.length} atuais
+                    </p>
                     <ul className="space-y-2">
                       {group.rows.map((r) => (
                         <ReviewRow
-                          key={r.item.key}
+                          key={r.key}
                           primary={r.item.text}
                           secondary={OPERATION_LABEL[r.item.operation as ChangeOperation] ?? ""}
                           classification={r.item.classification}
                           row={r}
-                          onChange={(mode) =>
-                            setContextSel((s) => ({ ...s, [r.item.key]: mode }))
-                          }
+                          onChange={(mode) => setContextSel((s) => ({ ...s, [r.key]: mode }))}
                         />
                       ))}
                     </ul>
-                  </section>
+                  </ReviewBlock>
                 ))}
 
-                <ReviewList
+                <ReviewBlock
+                  id="decisions"
                   title="Decisões"
-                  rows={decisionRows.map((r) => ({
-                    ...r,
-                    primary: r.item.title,
-                    secondary: [r.item.owner, r.item.due_date].filter(Boolean).join(" · "),
-                    classification: r.item.classification,
-                  }))}
-                  onChange={(i, mode) => setDecisionSel((s) => ({ ...s, [i]: mode }))}
-                />
-                <ReviewList
+                  items={decisionItems}
+                  open={blockOpen["decisions"] ?? false}
+                  onOpenChange={(v) => setBlockOpen((s) => ({ ...s, decisions: v }))}
+                  onApplySafe={() => mergeSel(setDecisionSel, applySafeResolutions(decisionItems))}
+                  onIgnoreAll={() => mergeSel(setDecisionSel, applyIgnoreBlock(decisionItems))}
+                >
+                  <ul className="space-y-2">
+                    {decisionRows.map((r) => (
+                      <ReviewRow
+                        key={r.key}
+                        primary={r.item.title}
+                        secondary={[r.item.owner, r.item.due_date].filter(Boolean).join(" · ")}
+                        classification={r.item.classification}
+                        row={r}
+                        onChange={(mode) => setDecisionSel((s) => ({ ...s, [r.key]: mode }))}
+                      />
+                    ))}
+                  </ul>
+                </ReviewBlock>
+
+                <ReviewBlock
+                  id="actions"
                   title="Ações"
-                  rows={actionRows.map((r) => ({
-                    ...r,
-                    primary: r.item.description,
-                    secondary: [r.item.owner_name, r.item.deadline, r.item.priority]
-                      .filter(Boolean)
-                      .join(" · "),
-                    classification: r.item.classification,
-                  }))}
-                  onChange={(i, mode) => setActionSel((s) => ({ ...s, [i]: mode }))}
-                />
-                <ReviewList
+                  items={actionItems}
+                  open={blockOpen["actions"] ?? false}
+                  onOpenChange={(v) => setBlockOpen((s) => ({ ...s, actions: v }))}
+                  onApplySafe={() => mergeSel(setActionSel, applySafeResolutions(actionItems))}
+                  onIgnoreAll={() => mergeSel(setActionSel, applyIgnoreBlock(actionItems))}
+                >
+                  <ul className="space-y-2">
+                    {actionRows.map((r) => (
+                      <ReviewRow
+                        key={r.key}
+                        primary={r.item.description}
+                        secondary={[r.item.owner_name, r.item.deadline, r.item.priority]
+                          .filter(Boolean)
+                          .join(" · ")}
+                        classification={r.item.classification}
+                        row={r}
+                        onChange={(mode) => setActionSel((s) => ({ ...s, [r.key]: mode }))}
+                      />
+                    ))}
+                  </ul>
+                </ReviewBlock>
+
+                <ReviewBlock
+                  id="risks"
                   title="Riscos"
-                  rows={riskRows.map((r) => ({
-                    ...r,
-                    primary: r.item.description,
-                    secondary: [r.item.level, r.item.impact, r.item.recommendation]
-                      .filter(Boolean)
-                      .join(" · "),
-                    classification: r.item.classification,
-                  }))}
-                  onChange={(i, mode) => setRiskSel((s) => ({ ...s, [i]: mode }))}
-                />
-                <ReviewList
+                  items={riskItems}
+                  open={blockOpen["risks"] ?? false}
+                  onOpenChange={(v) => setBlockOpen((s) => ({ ...s, risks: v }))}
+                  onApplySafe={() => mergeSel(setRiskSel, applySafeResolutions(riskItems))}
+                  onIgnoreAll={() => mergeSel(setRiskSel, applyIgnoreBlock(riskItems))}
+                >
+                  <ul className="space-y-2">
+                    {riskRows.map((r) => (
+                      <ReviewRow
+                        key={r.key}
+                        primary={r.item.description}
+                        secondary={[r.item.level, r.item.impact, r.item.recommendation]
+                          .filter(Boolean)
+                          .join(" · ")}
+                        classification={r.item.classification}
+                        row={r}
+                        onChange={(mode) => setRiskSel((s) => ({ ...s, [r.key]: mode }))}
+                      />
+                    ))}
+                  </ul>
+                </ReviewBlock>
+
+                <ReviewBlock
+                  id="opportunities"
                   title="Oportunidades"
-                  rows={oppRows.map((r) => ({
-                    ...r,
-                    primary: r.item.description,
-                    secondary: r.item.expected_benefit,
-                    classification: r.item.classification,
-                  }))}
-                  onChange={(i, mode) => setOppSel((s) => ({ ...s, [i]: mode }))}
-                />
+                  items={oppItems}
+                  open={blockOpen["opportunities"] ?? false}
+                  onOpenChange={(v) => setBlockOpen((s) => ({ ...s, opportunities: v }))}
+                  onApplySafe={() => mergeSel(setOppSel, applySafeResolutions(oppItems))}
+                  onIgnoreAll={() => mergeSel(setOppSel, applyIgnoreBlock(oppItems))}
+                >
+                  <ul className="space-y-2">
+                    {oppRows.map((r) => (
+                      <ReviewRow
+                        key={r.key}
+                        primary={r.item.description}
+                        secondary={r.item.expected_benefit}
+                        classification={r.item.classification}
+                        row={r}
+                        onChange={(mode) => setOppSel((s) => ({ ...s, [r.key]: mode }))}
+                      />
+                    ))}
+                  </ul>
+                </ReviewBlock>
 
                 {evolutionItems.length > 0 && (
                   <section className="rounded-lg border p-3">
@@ -917,10 +1072,16 @@ export function MeetingAnalysisDialog({
                   </section>
                 )}
 
-                {pendingReview > 0 && (
+                {total > 0 && (
                   <p className="text-xs text-muted-foreground">
-                    {pendingReview} item(ns) em possível duplicidade — revise a escolha antes de
-                    aprovar.
+                    Será aplicado: {overallCounts.newCount} novo(s) · {overallCounts.updateCount}{" "}
+                    atualização(ões) · {overallCounts.ignoredCount} ignorado(s) · {overallCounts.reviewCount}{" "}
+                    para revisar
+                    {overallCounts.reviewCount > 0 ? (
+                      <span className="ml-1 font-medium text-destructive">
+                        — revise os itens marcados antes de aprovar.
+                      </span>
+                    ) : null}
                   </p>
                 )}
 
@@ -1105,38 +1266,109 @@ function ReviewRow({
   );
 }
 
-function ReviewList({
-  title,
-  rows,
-  onChange,
+/** GATE 10A — card "Revisão da análise", no topo da etapa de revisão. */
+function ReviewSummaryCard({
+  counts,
+  onApplySafe,
 }: {
-  title: string;
-  rows: {
-    primary: string;
-    secondary: string;
-    classification: string;
-    match: DedupeMatch<unknown>;
-    mode: ResolutionMode;
-    resolution: ItemResolution;
-  }[];
-  onChange: (index: number, mode: ResolutionMode) => void;
+  counts: ReviewBlockCounts;
+  onApplySafe: () => void;
 }) {
-  if (rows.length === 0) return null;
+  if (counts.total === 0) return null;
+  const stats: { label: string; value: number }[] = [
+    { label: "Total de sugestões", value: counts.total },
+    { label: "Novas", value: counts.newCount },
+    { label: "Atualizações sugeridas", value: counts.updateCount },
+    { label: "Requer revisão (possível duplicidade)", value: counts.reviewCount },
+    { label: "Ignoradas", value: counts.ignoredCount },
+  ];
   return (
-    <section className="space-y-2">
-      <h3 className="text-sm font-semibold">{title}</h3>
-      <ul className="space-y-2">
-        {rows.map((r, i) => (
-          <ReviewRow
-            key={`${title}-${i}`}
-            primary={r.primary}
-            secondary={r.secondary}
-            classification={r.classification}
-            row={r}
-            onChange={(mode) => onChange(i, mode)}
-          />
+    <section className="rounded-lg border bg-muted/20 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold">Revisão da análise</h3>
+        <Button type="button" size="sm" variant="outline" className="gap-2" onClick={onApplySafe}>
+          <ShieldCheck className="size-4" aria-hidden /> Aplicar sugestões seguras
+        </Button>
+      </div>
+      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-5">
+        {stats.map((s) => (
+          <div key={s.label}>
+            <dt className="text-xs text-muted-foreground">{s.label}</dt>
+            <dd className="font-semibold">{s.value}</dd>
+          </div>
         ))}
-      </ul>
+      </dl>
     </section>
+  );
+}
+
+/**
+ * GATE 10A — bloco recolhível de um grupo de revisão (contexto/decisões/
+ * ações/riscos/oportunidades). O cabeçalho mostra contagens e ações em lote;
+ * o conteúdo detalhado (ReviewRow por item) só renderiza quando aberto.
+ */
+function ReviewBlock({
+  id,
+  title,
+  items,
+  open,
+  onOpenChange,
+  onApplySafe,
+  onIgnoreAll,
+  children,
+}: {
+  id: string;
+  title: string;
+  items: ReviewBlockItem[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onApplySafe: () => void;
+  onIgnoreAll: () => void;
+  children: ReactNode;
+}) {
+  if (items.length === 0) return null;
+  const counts = countReviewBlock(items);
+  const needsAttention = counts.reviewCount > 0;
+  const triggerLabel = open ? "Recolher" : "Revisar itens";
+
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={onOpenChange}
+      className={`rounded-lg border ${needsAttention ? "border-destructive/40" : ""}`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 p-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold">{title}</h3>
+            {needsAttention && (
+              <Badge variant="destructive" className="shrink-0">
+                Requer revisão
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">{formatBlockSummary(counts)}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button type="button" size="sm" variant="outline" onClick={onApplySafe}>
+            Aprovar bloco
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={onIgnoreAll}>
+            Ignorar bloco
+          </Button>
+          <CollapsibleTrigger asChild>
+            <Button type="button" size="sm" variant="ghost" className="gap-1" aria-label={triggerLabel}>
+              {triggerLabel}
+              {open ? (
+                <ChevronUp className="size-4" aria-hidden />
+              ) : (
+                <ChevronDown className="size-4" aria-hidden />
+              )}
+            </Button>
+          </CollapsibleTrigger>
+        </div>
+      </div>
+      <CollapsibleContent className="border-t p-3 pt-2">{children}</CollapsibleContent>
+    </Collapsible>
   );
 }
