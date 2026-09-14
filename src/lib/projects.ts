@@ -81,6 +81,8 @@ export type Decision = {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  /** Vetor semântico do título/descrição — usado para reconhecer continuidade entre reuniões. */
+  embedding?: number[] | null;
 };
 
 /**
@@ -95,6 +97,8 @@ export type ContextItem = {
   /** Origem da informação: consultor ou agente. */
   origin?: "consultor" | "ia";
   created_at?: string;
+  /** Vetor semântico do texto — usado para reconhecer continuidade entre reuniões. */
+  embedding?: number[] | null;
 };
 
 export const CONTEXT_LISTS = [

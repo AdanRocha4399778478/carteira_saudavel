@@ -154,6 +154,7 @@ const analysisSchema = z.object({
             due_date: txt,
             status: txt,
             classification,
+            embedding: z.array(z.number()).nullish(),
           }),
         ),
       ),
@@ -187,6 +188,7 @@ const analysisSchema = z.object({
             priority: txt,
             erp_area: txt,
             classification,
+            embedding: z.array(z.number()).nullish(),
           }),
         ),
       ),
@@ -220,6 +222,7 @@ const analysisSchema = z.object({
             evidence: txt,
             recommendation: txt,
             classification,
+            embedding: z.array(z.number()).nullish(),
           }),
         ),
       ),
@@ -249,6 +252,7 @@ const analysisSchema = z.object({
             expected_benefit: txt,
             evidence: txt,
             classification,
+            embedding: z.array(z.number()).nullish(),
           }),
         ),
       ),
@@ -773,6 +777,7 @@ export type ApprovedSelection = {
     owner: string;
     due_date: string;
     resolution?: ItemResolution;
+    embedding?: number[] | null;
   }[];
   actions: {
     description: string;
@@ -782,12 +787,14 @@ export type ApprovedSelection = {
     erp_area: string;
     evidence: string;
     resolution?: ItemResolution;
+    embedding?: number[] | null;
   }[];
-  risks: { description: string; level: string; resolution?: ItemResolution }[];
+  risks: { description: string; level: string; resolution?: ItemResolution; embedding?: number[] | null }[];
   opportunities: {
     description: string;
     expected_benefit: string;
     resolution?: ItemResolution;
+    embedding?: number[] | null;
   }[];
   agenda: AnalysisAgenda;
 };
@@ -1020,6 +1027,7 @@ export async function applyApprovedAnalysis(params: {
       if (d.reason) patch["reason"] = d.reason;
       if (d.owner) patch["owner"] = d.owner;
       if (d.due_date) patch["due_date"] = d.due_date;
+      if (d.embedding) patch["embedding"] = d.embedding;
       const { error } = await supabase.from("decisions").update(patch as never).eq("id", res.targetId);
       if (error) {
         logDbError("decisions", "update-analysis", error);
@@ -1058,6 +1066,7 @@ export async function applyApprovedAnalysis(params: {
         status: "pendente",
         created_by: userId,
         supersedes_decision_id: supersedesId,
+        embedding: d.embedding ?? null,
       })
       .select("id")
       .single();
@@ -1127,6 +1136,7 @@ export async function applyApprovedAnalysis(params: {
       if (a.owner_name) patch["owner_name"] = a.owner_name;
       if (a.priority) patch["priority"] = a.priority;
       if (a.erp_area) patch["erp_area"] = a.erp_area;
+      if (a.embedding) patch["embedding"] = a.embedding;
       // Evidência acumula — a menção mais recente não apaga a anterior.
       const previousEvidence = (previous.data as { evidence?: string | null } | null)?.evidence;
       const note = a.evidence || a.description;
@@ -1169,6 +1179,7 @@ export async function applyApprovedAnalysis(params: {
         priority: a.priority || "média",
         status: "não iniciada",
         erp_area: a.erp_area || null,
+        embedding: a.embedding ?? null,
         evidence: a.evidence || null,
       })
       .select("id")
@@ -1215,6 +1226,7 @@ export async function applyApprovedAnalysis(params: {
       // Risco resolvido apenas muda de estado; reaparecimento reativa o MESMO risco.
       const patch: Record<string, unknown> = { active: res.statusSignal !== "resolved" };
       if (r.level) patch["level"] = r.level;
+      if (r.embedding) patch["embedding"] = r.embedding;
       const { error } = await supabase.from("risks").update(patch as never).eq("id", res.targetId);
       if (error) {
         logDbError("risks", "update-analysis", error);
@@ -1250,6 +1262,7 @@ export async function applyApprovedAnalysis(params: {
         description: r.description,
         level: r.level || "médio",
         active: true,
+        embedding: r.embedding ?? null,
       })
       .select("id")
       .single();
@@ -1298,6 +1311,7 @@ export async function applyApprovedAnalysis(params: {
         .maybeSingle();
       const patch: Record<string, unknown> = {};
       if (o.expected_benefit) patch["expected_benefit"] = o.expected_benefit;
+      if (o.embedding) patch["embedding"] = o.embedding;
       if (Object.keys(patch).length > 0) {
         const { error } = await supabase.from("opportunities").update(patch as never).eq("id", res.targetId);
         if (error) {
@@ -1330,6 +1344,7 @@ export async function applyApprovedAnalysis(params: {
         description: o.description,
         expected_benefit: o.expected_benefit || null,
         status: "aberta",
+        embedding: o.embedding ?? null,
       })
       .select("id")
       .single();
