@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { SlidersHorizontal, UserPlus } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
@@ -15,6 +16,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { InviteConsultantDialog } from "@/components/painel/InviteConsultantDialog";
 import { consultantDisplayName } from "@/lib/consultants";
+import { runEmbeddingsBackfill } from "@/lib/embeddings-backfill.functions";
+import type { BackfillTable, DryRunReport } from "@/lib/embeddings-backfill";
 
 export const Route = createFileRoute("/_authenticated/configuracoes")({
   head: () => ({
@@ -85,6 +88,17 @@ function SettingsPage() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["risk_rules"] });
       toast.success("Critérios de risco atualizados. Recalcule as contas para aplicar.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const dryRunFn = useServerFn(runEmbeddingsBackfill);
+  const embeddingsDryRun = useMutation({
+    mutationFn: async (): Promise<DryRunReport> => {
+      // Esta UI só oferece dry-run — nunca envia mode: "commit".
+      const result = await dryRunFn({ data: { mode: "dry-run" } });
+      if (result.mode !== "dry-run") throw new Error("Resposta inesperada: esperava dry-run.");
+      return result;
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -215,6 +229,47 @@ function SettingsPage() {
             ))}
           </div>
         </section>
+
+        {isAdmin ? (
+          <section className="card-surface p-4 md:p-5">
+            <h2 className="text-base font-semibold">Diagnóstico — backfill de embeddings (GATE 8B.1)</h2>
+            <p className="text-xs text-muted-foreground">
+              Ferramenta administrativa temporária para validar, em modo somente leitura, quantos
+              registros de actions/risks/decisions/opportunities ainda não têm embedding. Só
+              executa DRY-RUN — nunca grava nada no banco.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-3"
+              onClick={() => embeddingsDryRun.mutate()}
+              disabled={embeddingsDryRun.isPending}
+            >
+              {embeddingsDryRun.isPending ? "Executando dry-run…" : "Rodar dry-run de embeddings"}
+            </Button>
+            {embeddingsDryRun.data ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {(Object.keys(embeddingsDryRun.data.tables) as BackfillTable[]).map((table) => {
+                  const summary = embeddingsDryRun.data!.tables[table];
+                  return (
+                    <div key={table} className="rounded-xl border border-border p-3">
+                      <p className="text-xs font-semibold text-muted-foreground">{table}</p>
+                      <p className="text-sm">elegíveis: {summary.eligible}</p>
+                      <p className="text-sm">inválidos: {summary.invalidText}</p>
+                      <p className="text-sm">lotes: {summary.batches}</p>
+                    </div>
+                  );
+                })}
+                <div className="rounded-xl border border-dashed border-border p-3 sm:col-span-2 lg:col-span-4">
+                  <p className="text-sm font-semibold">
+                    total_eligible: {embeddingsDryRun.data.total_eligible} · writes:{" "}
+                    {embeddingsDryRun.data.writes}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
         <section className="card-surface p-4 md:p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
