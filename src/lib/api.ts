@@ -1,5 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
+import type { Database } from "@/lib/supabase/types";
 import {
   accountStatusFromRisk,
   byMeetingDateDesc,
@@ -279,13 +281,30 @@ export const ALL_QUERY_KEYS = [
 ];
 
 /**
+ * Qualquer cliente Supabase compatível com o schema do projeto — o do
+ * frontend (`@/lib/supabase/client`) ou o autenticado por request que o
+ * middleware de servidor (`requireSupabaseAuth`) expõe no context.
+ */
+type SupabaseLike = SupabaseClient<Database>;
+
+/**
  * Recalcula indicadores atuais do cliente a partir do histórico completo.
  * Nunca sobrescreve reuniões anteriores — apenas atualiza a linha do cliente.
+ *
+ * Aceita o cliente Supabase explicitamente para poder ser chamada tanto do
+ * frontend quanto de uma server function autenticada (RLS aplicada em
+ * qualquer um dos dois casos — nunca use um cliente com service role aqui).
+ * Idempotente: rodar de novo com os mesmos dados produz o mesmo resultado,
+ * então é seguro repetir a chamada se uma tentativa anterior falhar.
  */
-export async function recalculateClient(clientId: string, rules?: RiskRule[]) {
+export async function recalculateClientWithSupabase(
+  supabaseClient: SupabaseLike,
+  clientId: string,
+  rules?: RiskRule[],
+) {
   const meetings = unwrap<Record<string, unknown>[]>(
     "meetings",
-    await supabase
+    await supabaseClient
       .from("meetings")
       .select("*")
       .eq("client_id", clientId)
@@ -296,7 +315,7 @@ export async function recalculateClient(clientId: string, rules?: RiskRule[]) {
 
   const actions = unwrap<ActionItem[]>(
     "actions",
-    await supabase.from("actions").select("*").eq("client_id", clientId),
+    await supabaseClient.from("actions").select("*").eq("client_id", clientId),
   );
 
   const latest = meetings[0];
@@ -334,10 +353,13 @@ export async function recalculateClient(clientId: string, rules?: RiskRule[]) {
     rules,
   );
 
-  const current = unwrap<Client[]>("clients",await supabase.from("clients").select("*").eq("id", clientId));
+  const current = unwrap<Client[]>(
+    "clients",
+    await supabaseClient.from("clients").select("*").eq("id", clientId),
+  );
   const keepEnded = current[0]?.account_status === "encerrado";
 
-  const { error } = await supabase
+  const { error } = await supabaseClient
     .from("clients")
     .update({
       current_satisfaction: satisfaction,
@@ -358,6 +380,16 @@ export async function recalculateClient(clientId: string, rules?: RiskRule[]) {
     throw new Error(error.message);
   }
   return risk;
+}
+
+/**
+ * Atalho para o frontend: mesma lógica de `recalculateClientWithSupabase`,
+ * usando o cliente Supabase do navegador. Nada aqui muda de comportamento —
+ * é só a assinatura antiga preservada para não quebrar quem já chama
+ * `recalculateClient(clientId, rules)`.
+ */
+export async function recalculateClient(clientId: string, rules?: RiskRule[]) {
+  return recalculateClientWithSupabase(supabase, clientId, rules);
 }
 
 /* ---------------- importação transacional ---------------- */

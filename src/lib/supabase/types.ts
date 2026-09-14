@@ -1494,6 +1494,7 @@ export type Database = {
       }
     }
     Functions: {
+      admin_undo_meeting: { Args: { p_meeting_id: string }; Returns: Json }
       analysis_scope_is_consistent: {
         Args: {
           p_analysis_id: string
@@ -1574,6 +1575,10 @@ export type Database = {
       is_admin: { Args: never; Returns: boolean }
       merge_context_list: { Args: { a: Json; b: Json }; Returns: Json }
       normalize_project_name: { Args: { p_name: string }; Returns: string }
+      preview_admin_undo_meeting: {
+        Args: { p_meeting_id: string }
+        Returns: Json
+      }
       scope_is_consistent: {
         Args: {
           p_client_id: string

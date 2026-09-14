@@ -1,0 +1,10 @@
+import { createServerFn } from "@tanstack/react-start";
+import { requireSupabaseAuth } from "@/lib/supabase/auth-middleware";
+import { undoMeetingInput, undoMeeting } from "@/lib/meeting-undo.server";
+
+/* Camada fina de RPC: toda a lógica vive em meeting-undo.server.ts */
+
+export const adminUndoMeeting = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) => undoMeetingInput.parse(data))
+  .handler(async ({ data, context }) => undoMeeting(context.supabase, data));
