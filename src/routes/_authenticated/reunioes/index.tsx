@@ -1,13 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CalendarPlus, FileJson, Search, Sparkles } from "lucide-react";
+import { AlertTriangle, CalendarPlus, FileJson, Search, Sparkles, Undo2 } from "lucide-react";
 import { PageHeader } from "@/components/painel/PageHeader";
 import { EmptyState, ErrorState, LoadingState } from "@/components/painel/states";
 import { Pill, RiskBadge } from "@/components/painel/badges";
 import { MeetingDialog } from "@/components/painel/MeetingDialog";
 import { ImportMeetingDialog } from "@/components/painel/ImportMeetingDialog";
+import { MeetingUndoDialog } from "@/components/painel/MeetingUndoDialog";
 import { useMeetingsListSupportData } from "@/hooks/useMeetingsListSupportData";
+import { useAccess } from "@/lib/auth/access";
 import { meetingsListPageQuery } from "@/lib/meetings-list";
 import { MEETING_TYPES, formatDate, formatScore, type Meeting } from "@/lib/domain";
 import { Button } from "@/components/ui/button";
@@ -265,6 +267,8 @@ function MeetingsPage() {
 }
 
 function MeetingCard({ meeting: m, clientName }: { meeting: Meeting; clientName: string }) {
+  const { isAdmin } = useAccess();
+  const [undoOpen, setUndoOpen] = useState(false);
   const inconsistent = !m.meeting_date || !m.client_id;
   const participants = m.participants.length ? m.participants.join(", ") : "sem participantes";
 
@@ -287,7 +291,21 @@ function MeetingCard({ meeting: m, clientName }: { meeting: Meeting; clientName:
             {formatDate(m.meeting_date)} · {m.meeting_type ?? "reunião"} · {participants}
           </p>
         </div>
-        <RiskBadge level={m.calculated_risk_level} score={m.calculated_risk_score} />
+        <div className="flex items-center gap-2">
+          <RiskBadge level={m.calculated_risk_level} score={m.calculated_risk_score} />
+          {isAdmin ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setUndoOpen(true)}
+              title="Desfazer reunião"
+              aria-label="Desfazer reunião"
+            >
+              <Undo2 className="size-4" aria-hidden />
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {inconsistent ? (
@@ -325,6 +343,15 @@ function MeetingCard({ meeting: m, clientName }: { meeting: Meeting; clientName:
           {m.action_owner ? ` · ${m.action_owner}` : ""}
           {m.action_deadline ? ` · até ${formatDate(m.action_deadline)}` : ""}
         </p>
+      ) : null}
+
+      {isAdmin ? (
+        <MeetingUndoDialog
+          meeting={m}
+          clientName={clientName}
+          open={undoOpen}
+          onOpenChange={setUndoOpen}
+        />
       ) : null}
     </article>
   );

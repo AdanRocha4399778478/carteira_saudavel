@@ -4,6 +4,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { logDbError, recalculateClientWithSupabase } from "@/lib/api";
 import type { Database } from "@/lib/supabase/types";
 import type { RiskRule } from "@/lib/domain";
+import { POST_UNDO_FAILURE_PREFIX, isPostUndoFailure } from "@/lib/meeting-undo.shared";
+
+/** Re-exportadas por compatibilidade — a definição client-safe vive em meeting-undo.shared.ts. */
+export { POST_UNDO_FAILURE_PREFIX, isPostUndoFailure };
 
 /* ------------------------------------------------------------------ *
  * DESFAZER REUNIÃO — camada de servidor (GATE 9J)
@@ -94,7 +98,9 @@ export async function undoMeeting(
   const rulesRes = await supabase.from("risk_rules").select("*").order("rule_name");
   if (rulesRes.error) {
     logDbError("risk_rules", "select-post-undo", rulesRes.error);
-    throw new Error(`Undo concluído, mas falhou ao carregar risk_rules: ${rulesRes.error.message}`);
+    throw new Error(
+      `${POST_UNDO_FAILURE_PREFIX} falhou ao carregar risk_rules: ${rulesRes.error.message}. A reunião já foi excluída; não repita o undo.`,
+    );
   }
   const rules = (rulesRes.data as RiskRule[] | null) ?? undefined;
 
@@ -105,7 +111,7 @@ export async function undoMeeting(
   } catch (recalcError) {
     const reason = recalcError instanceof Error ? recalcError.message : String(recalcError);
     throw new Error(
-      `Undo concluído, mas falhou ao recalcular o cliente: ${reason}. A reunião já foi excluída; não repita o undo — corrija a causa do erro e recalcule o cliente manualmente.`,
+      `${POST_UNDO_FAILURE_PREFIX} falhou ao recalcular o cliente: ${reason}. A reunião já foi excluída; não repita o undo — corrija a causa do erro e recalcule o cliente manualmente.`,
     );
   }
 
@@ -116,4 +122,119 @@ export async function undoMeeting(
     recalculated: true,
     undo,
   };
+}
+
+/* ------------------------------------------------------------------ *
+ * PRÉVIA DO DESFAZER — GATE 9K
+ *
+ * Só leitura: chama `preview_admin_undo_meeting`, que calcula no banco o que
+ * o undo faria sem executar nada. Usado pela UI para mostrar o impacto e
+ * decidir se o botão de confirmar fica habilitado, sem nunca chamar
+ * `admin_undo_meeting` antes da confirmação explícita do admin.
+ * ------------------------------------------------------------------ */
+
+export type PreviewEntityCounts = { created: number; updated: number };
+
+/** Formato devolvido por `public.preview_admin_undo_meeting`. */
+export type PreviewAdminUndoMeetingResult = {
+  meeting_id: string;
+  project_id: string | null;
+  client_id: string | null;
+  applied: boolean;
+  allowed: boolean;
+  blocking_reason: string | null;
+  entities: {
+    actions: PreviewEntityCounts;
+    risks: PreviewEntityCounts;
+    opportunities: PreviewEntityCounts;
+    decisions: PreviewEntityCounts;
+  };
+  context_items_affected: number;
+  has_later_application: boolean;
+  has_multiple_applications: boolean;
+  entity_changed_after: boolean;
+  context_changed_after: boolean;
+};
+
+function isEntityCounts(value: unknown): value is PreviewEntityCounts {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v["created"] === "number" && typeof v["updated"] === "number";
+}
+
+/**
+ * Valida o JSON bruto do RPC antes de expor para a UI — nunca confia
+ * cegamente no formato de um `Json` genérico do Postgres.
+ */
+export function parsePreviewAdminUndoMeetingResult(raw: unknown): PreviewAdminUndoMeetingResult {
+  if (typeof raw !== "object" || raw === null) {
+    throw new Error("Resposta inesperada de preview_admin_undo_meeting: formato inválido.");
+  }
+  const r = raw as Record<string, unknown>;
+
+  if (
+    typeof r["meeting_id"] !== "string" ||
+    typeof r["allowed"] !== "boolean" ||
+    typeof r["applied"] !== "boolean"
+  ) {
+    throw new Error(
+      "Resposta inesperada de preview_admin_undo_meeting: campos obrigatórios ausentes.",
+    );
+  }
+
+  const entities = r["entities"];
+  if (typeof entities !== "object" || entities === null) {
+    throw new Error("Resposta inesperada de preview_admin_undo_meeting: entities ausente.");
+  }
+  const e = entities as Record<string, unknown>;
+  if (
+    !isEntityCounts(e["actions"]) ||
+    !isEntityCounts(e["risks"]) ||
+    !isEntityCounts(e["opportunities"]) ||
+    !isEntityCounts(e["decisions"])
+  ) {
+    throw new Error(
+      "Resposta inesperada de preview_admin_undo_meeting: contagens de entidades inválidas.",
+    );
+  }
+
+  return {
+    meeting_id: r["meeting_id"] as string,
+    project_id: typeof r["project_id"] === "string" ? r["project_id"] : null,
+    client_id: typeof r["client_id"] === "string" ? r["client_id"] : null,
+    applied: r["applied"] as boolean,
+    allowed: r["allowed"] as boolean,
+    blocking_reason: typeof r["blocking_reason"] === "string" ? r["blocking_reason"] : null,
+    entities: {
+      actions: e["actions"] as PreviewEntityCounts,
+      risks: e["risks"] as PreviewEntityCounts,
+      opportunities: e["opportunities"] as PreviewEntityCounts,
+      decisions: e["decisions"] as PreviewEntityCounts,
+    },
+    context_items_affected:
+      typeof r["context_items_affected"] === "number" ? r["context_items_affected"] : 0,
+    has_later_application: r["has_later_application"] === true,
+    has_multiple_applications: r["has_multiple_applications"] === true,
+    entity_changed_after: r["entity_changed_after"] === true,
+    context_changed_after: r["context_changed_after"] === true,
+  };
+}
+
+/** Só leitura — nunca executa o undo. */
+export async function previewMeetingUndo(
+  supabase: SupabaseLike,
+  data: UndoMeetingInput,
+): Promise<PreviewAdminUndoMeetingResult> {
+  const { meetingId } = data;
+
+  const { data: rpcData, error } = await supabase.rpc("preview_admin_undo_meeting", {
+    p_meeting_id: meetingId,
+  });
+
+  if (error) {
+    logDbError("meetings", "preview_admin_undo_meeting", error);
+    throw new Error(`Não foi possível carregar a prévia do desfazer: ${error.message}`);
+  }
+
+  return parsePreviewAdminUndoMeetingResult(rpcData);
 }
