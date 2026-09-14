@@ -935,8 +935,13 @@ export async function applyApprovedAnalysis(params: {
           // Atualiza a redação preservando o item (e o histórico em mentions).
           const index = list.findIndex((i) => i.id === res.targetId);
           if (index >= 0) {
-            const previousText = list[index]!.text;
-            list[index] = { ...list[index]!, text: entry.text, source_meeting_id: meeting.id };
+            const previousItem = list[index]!;
+            const nextItem: ContextItem = {
+              ...previousItem,
+              text: entry.text,
+              source_meeting_id: meeting.id,
+            };
+            list[index] = nextItem;
             changed = true;
             result.updated += 1;
             mentions.push({
@@ -949,8 +954,10 @@ export async function applyApprovedAnalysis(params: {
               mention_type: "updated",
               confidence: res.confidence,
               reason: res.reason,
-              previous_value: { text: previousText, list: key },
-              new_value: { text: entry.text, list: key },
+              // `text` e `list` mantêm consumidores legados; `item` permite
+              // restaurar o ContextItem inteiro em um undo transacional.
+              previous_value: { text: previousItem.text, list: key, item: previousItem },
+              new_value: { text: nextItem.text, list: key, item: nextItem },
             });
             continue;
           }
@@ -1429,4 +1436,3 @@ export type ExistingForDedupe = {
   opportunities: OpportunityItem[];
   decisions: Decision[];
 };
-

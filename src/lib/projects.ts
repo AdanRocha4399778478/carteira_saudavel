@@ -157,12 +157,18 @@ export function normalizeContextItems(value: unknown): ContextItem[] {
         const text = String(obj["text"] ?? obj["description"] ?? obj["title"] ?? "").trim();
         if (!text) return null;
         const createdAt = obj["created_at"];
+        const embedding = obj["embedding"];
         return {
           id: String(obj["id"] ?? `${index}-${text.slice(0, 12)}`),
           text,
           source_meeting_id: (obj["source_meeting_id"] as string | null) ?? null,
           origin: obj["origin"] === "ia" ? "ia" : "consultor",
           ...(typeof createdAt === "string" ? { created_at: createdAt } : {}),
+          ...(embedding === null
+            ? { embedding: null }
+            : Array.isArray(embedding) && embedding.every((item) => typeof item === "number")
+              ? { embedding: embedding as number[] }
+              : {}),
         };
       }
       return null;
