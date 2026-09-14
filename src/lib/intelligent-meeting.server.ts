@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { splitTranscript } from "@/lib/transcript-chunking";
+import { getEmbeddings } from "@/lib/embeddings.server";
 
 /* ------------------------------------------------------------------ *
  * REUNIÃO INTELIGENTE — camada de IA (servidor)
@@ -422,5 +423,36 @@ export async function runMeetingAnalysis(data: MeetingAnalysisInput) {
     parts.push(await callGateway(prompt));
   }
 
-  return { json: JSON.stringify(consolidate(parts)), blocks: blocks.length };
+  const consolidated = consolidate(parts) as {
+    identification?: unknown;
+    analysis?: Record<string, unknown>;
+  };
+
+  // Calcula o vetor semântico de cada item extraído nesta reunião — usado
+  // depois pelo preview (MeetingAnalysisDialog) para reconhecer continuidade
+  // com itens já existentes, mesmo quando a redação muda entre reuniões.
+  // Nunca lança exceção: falha aqui só significa que esses itens vão cair
+  // no método de comparação por texto (comportamento anterior, inalterado).
+  const analysisOut = consolidated.analysis ?? {};
+  const decisionsOut = Array.isArray(analysisOut["decisions"]) ? (analysisOut["decisions"] as Record<string, unknown>[]) : [];
+  const actionsOut = Array.isArray(analysisOut["actions"]) ? (analysisOut["actions"] as Record<string, unknown>[]) : [];
+  const risksOut = Array.isArray(analysisOut["risks"]) ? (analysisOut["risks"] as Record<string, unknown>[]) : [];
+  const opportunitiesOut = Array.isArray(analysisOut["opportunities"])
+    ? (analysisOut["opportunities"] as Record<string, unknown>[])
+    : [];
+
+  const embeddingTexts = [
+    ...decisionsOut.map((d) => String(d["title"] ?? "")),
+    ...actionsOut.map((a) => String(a["description"] ?? "")),
+    ...risksOut.map((r) => String(r["description"] ?? "")),
+    ...opportunitiesOut.map((o) => String(o["description"] ?? "")),
+  ];
+  const vectors = await getEmbeddings(embeddingTexts).catch(() => embeddingTexts.map(() => null));
+  let cursor = 0;
+  for (const d of decisionsOut) d["embedding"] = vectors[cursor++] ?? null;
+  for (const a of actionsOut) a["embedding"] = vectors[cursor++] ?? null;
+  for (const r of risksOut) r["embedding"] = vectors[cursor++] ?? null;
+  for (const o of opportunitiesOut) o["embedding"] = vectors[cursor++] ?? null;
+
+  return { json: JSON.stringify(consolidated), blocks: blocks.length };
 }

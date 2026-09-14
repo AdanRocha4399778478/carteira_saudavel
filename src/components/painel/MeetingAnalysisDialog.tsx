@@ -297,7 +297,7 @@ export function MeetingAnalysisDialog({
       contextDiff.map((group) => ({
         ...group,
         rows: group.proposed.map((p) =>
-          buildRow(p, matchContextItem(p.text, group.current), contextSel[p.key]),
+          buildRow(p, matchContextItem(p.text, group.current, (p as { embedding?: number[] | null }).embedding), contextSel[p.key]),
         ),
       })),
     [contextDiff, contextSel],
@@ -306,7 +306,14 @@ export function MeetingAnalysisDialog({
   const decisionRows: DedupeRow<MeetingAnalysis["decisions"][number]>[] = useMemo(
     () =>
       (analysis?.decisions ?? []).map((item, i) =>
-        buildRow(item, matchDecision({ title: item.title, description: item.description }, decisions), decisionSel[i]),
+        buildRow(
+          item,
+          matchDecision(
+            { title: item.title, description: item.description, embedding: item.embedding ?? null },
+            decisions,
+          ),
+          decisionSel[i],
+        ),
       ),
     [analysis, decisions, decisionSel],
   );
@@ -322,6 +329,7 @@ export function MeetingAnalysisDialog({
               owner_name: item.owner_name,
               deadline: item.deadline,
               priority: item.priority,
+              embedding: item.embedding ?? null,
             },
             meetingActions,
           ),
@@ -336,7 +344,7 @@ export function MeetingAnalysisDialog({
       (analysis?.risks ?? []).map((item, i) =>
         buildRow(
           item,
-          matchRisk({ description: item.description, level: item.level }, scopedRisks),
+          matchRisk({ description: item.description, level: item.level, embedding: item.embedding ?? null }, scopedRisks),
           riskSel[i],
         ),
       ),
@@ -349,7 +357,7 @@ export function MeetingAnalysisDialog({
         buildRow(
           item,
           matchOpportunity(
-            { description: item.description, expected_benefit: item.expected_benefit },
+            { description: item.description, expected_benefit: item.expected_benefit, embedding: item.embedding ?? null },
             opportunities,
           ),
           oppSel[i],
@@ -567,6 +575,7 @@ export function MeetingAnalysisDialog({
           owner: r.item.owner,
           due_date: r.item.due_date,
           resolution: r.resolution,
+          embedding: r.item.embedding ?? null,
         })),
         actions: actionRows.map((r) => ({
           description: r.item.description,
@@ -576,16 +585,19 @@ export function MeetingAnalysisDialog({
           erp_area: r.item.erp_area,
           evidence: "",
           resolution: r.resolution,
+          embedding: r.item.embedding ?? null,
         })),
         risks: riskRows.map((r) => ({
           description: r.item.description,
           level: r.item.level,
           resolution: r.resolution,
+          embedding: r.item.embedding ?? null,
         })),
         opportunities: oppRows.map((r) => ({
           description: r.item.description,
           expected_benefit: r.item.expected_benefit,
           resolution: r.resolution,
+          embedding: r.item.embedding ?? null,
         })),
         agenda,
       };

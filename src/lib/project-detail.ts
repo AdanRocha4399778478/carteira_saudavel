@@ -10,7 +10,7 @@ const PROJECT_CLIENT_COLUMNS = "id, company_name, consultant_id";
 const PROJECT_EDIT_CLIENT_COLUMNS = "id, company_name";
 const UNLINKED_MEETING_COLUMNS = "id, meeting_date, meeting_type";
 const PROJECT_DECISION_COLUMNS =
-  "id, meeting_id, title, description, reason, status, owner, due_date";
+  "id, meeting_id, title, description, reason, status, owner, due_date, embedding";
 
 export const projectDetailQuery = (projectId: string) =>
   queryOptions({

@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.15"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -20,6 +20,7 @@ export type Database = {
           created_at: string
           deadline: string | null
           description: string
+          embedding: Json | null
           erp_area: string | null
           evidence: string | null
           id: string
@@ -34,6 +35,7 @@ export type Database = {
           created_at?: string
           deadline?: string | null
           description: string
+          embedding?: Json | null
           erp_area?: string | null
           evidence?: string | null
           id?: string
@@ -48,6 +50,7 @@ export type Database = {
           created_at?: string
           deadline?: string | null
           description?: string
+          embedding?: Json | null
           erp_area?: string | null
           evidence?: string | null
           id?: string
@@ -134,6 +137,13 @@ export type Database = {
             foreignKeyName: "analysis_applications_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "cockpit_project_risk_counts"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "analysis_applications_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -214,6 +224,7 @@ export type Database = {
           created_by: string | null
           description: string | null
           due_date: string | null
+          embedding: Json | null
           id: string
           meeting_id: string | null
           owner: string | null
@@ -230,6 +241,7 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           due_date?: string | null
+          embedding?: Json | null
           id?: string
           meeting_id?: string | null
           owner?: string | null
@@ -246,6 +258,7 @@ export type Database = {
           created_by?: string | null
           description?: string | null
           due_date?: string | null
+          embedding?: Json | null
           id?: string
           meeting_id?: string | null
           owner?: string | null
@@ -275,6 +288,13 @@ export type Database = {
             foreignKeyName: "decisions_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "cockpit_project_risk_counts"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "decisions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -286,6 +306,63 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      email_events: {
+        Row: {
+          bounced_at: string | null
+          created_at: string
+          delivered_at: string | null
+          error_message: string | null
+          failed_at: string | null
+          from_address: string
+          id: string
+          last_event_at: string | null
+          last_event_type: string | null
+          metadata: Json
+          provider_email_id: string
+          recipient: string
+          sent_at: string | null
+          status: string
+          subject: string
+          updated_at: string
+        }
+        Insert: {
+          bounced_at?: string | null
+          created_at?: string
+          delivered_at?: string | null
+          error_message?: string | null
+          failed_at?: string | null
+          from_address: string
+          id?: string
+          last_event_at?: string | null
+          last_event_type?: string | null
+          metadata?: Json
+          provider_email_id: string
+          recipient: string
+          sent_at?: string | null
+          status?: string
+          subject: string
+          updated_at?: string
+        }
+        Update: {
+          bounced_at?: string | null
+          created_at?: string
+          delivered_at?: string | null
+          error_message?: string | null
+          failed_at?: string | null
+          from_address?: string
+          id?: string
+          last_event_at?: string | null
+          last_event_type?: string | null
+          metadata?: Json
+          provider_email_id?: string
+          recipient?: string
+          sent_at?: string | null
+          status?: string
+          subject?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       entity_mentions: {
         Row: {
@@ -362,6 +439,13 @@ export type Database = {
             foreignKeyName: "entity_mentions_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "cockpit_project_risk_counts"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "entity_mentions_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -433,6 +517,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "meetings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meeting_analyses_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "cockpit_project_risk_counts"
+            referencedColumns: ["project_id"]
           },
           {
             foreignKeyName: "meeting_analyses_project_id_fkey"
@@ -516,6 +607,13 @@ export type Database = {
             foreignKeyName: "meeting_evolution_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "cockpit_project_risk_counts"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "meeting_evolution_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -594,6 +692,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "meetings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meeting_evolution_items_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "cockpit_project_risk_counts"
+            referencedColumns: ["project_id"]
           },
           {
             foreignKeyName: "meeting_evolution_items_project_id_fkey"
@@ -728,6 +833,13 @@ export type Database = {
             foreignKeyName: "meetings_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "cockpit_project_risk_counts"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "meetings_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -738,6 +850,7 @@ export type Database = {
           client_id: string
           created_at: string
           description: string
+          embedding: Json | null
           expected_benefit: string | null
           id: string
           meeting_id: string | null
@@ -747,6 +860,7 @@ export type Database = {
           client_id: string
           created_at?: string
           description: string
+          embedding?: Json | null
           expected_benefit?: string | null
           id?: string
           meeting_id?: string | null
@@ -756,6 +870,7 @@ export type Database = {
           client_id?: string
           created_at?: string
           description?: string
+          embedding?: Json | null
           expected_benefit?: string | null
           id?: string
           meeting_id?: string | null
@@ -780,7 +895,9 @@ export type Database = {
       }
       orchestrator_recommendations: {
         Row: {
-          alternative_agent: Database["public"]["Enums"]["orchestrator_agent"] | null
+          alternative_agent:
+            | Database["public"]["Enums"]["orchestrator_agent"]
+            | null
           alternative_reason: string | null
           approved_at: string | null
           approved_by: string | null
@@ -793,6 +910,7 @@ export type Database = {
           expected_result: string
           id: string
           main_bottleneck: Json
+          owner_id: string | null
           project_id: string
           project_stage: Database["public"]["Enums"]["orchestrator_stage"]
           reason: string
@@ -802,11 +920,13 @@ export type Database = {
           status: Database["public"]["Enums"]["orchestrator_status"]
         }
         Insert: {
-          alternative_agent?: Database["public"]["Enums"]["orchestrator_agent"] | null
+          alternative_agent?:
+            | Database["public"]["Enums"]["orchestrator_agent"]
+            | null
           alternative_reason?: string | null
           approved_at?: string | null
           approved_by?: string | null
-          client_id?: string
+          client_id: string
           confidence?: number
           created_at?: string
           created_by?: string | null
@@ -815,6 +935,7 @@ export type Database = {
           expected_result?: string
           id?: string
           main_bottleneck?: Json
+          owner_id?: string | null
           project_id: string
           project_stage: Database["public"]["Enums"]["orchestrator_stage"]
           reason?: string
@@ -824,7 +945,9 @@ export type Database = {
           status?: Database["public"]["Enums"]["orchestrator_status"]
         }
         Update: {
-          alternative_agent?: Database["public"]["Enums"]["orchestrator_agent"] | null
+          alternative_agent?:
+            | Database["public"]["Enums"]["orchestrator_agent"]
+            | null
           alternative_reason?: string | null
           approved_at?: string | null
           approved_by?: string | null
@@ -837,6 +960,7 @@ export type Database = {
           expected_result?: string
           id?: string
           main_bottleneck?: Json
+          owner_id?: string | null
           project_id?: string
           project_stage?: Database["public"]["Enums"]["orchestrator_stage"]
           reason?: string
@@ -857,10 +981,35 @@ export type Database = {
             foreignKeyName: "orchestrator_recommendations_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "cockpit_project_risk_counts"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "orchestrator_recommendations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]
+      }
+      profile_directory: {
+        Row: {
+          active: boolean
+          full_name: string
+          id: string
+        }
+        Insert: {
+          active?: boolean
+          full_name?: string
+          id: string
+        }
+        Update: {
+          active?: boolean
+          full_name?: string
+          id?: string
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
@@ -959,6 +1108,13 @@ export type Database = {
             foreignKeyName: "project_context_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: true
+            referencedRelation: "cockpit_project_risk_counts"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_context_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -1000,6 +1156,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "project_dedupe_log_analysis_id_fkey"
+            columns: ["analysis_id"]
+            isOneToOne: false
+            referencedRelation: "meeting_analyses"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "project_dedupe_log_client_id_fkey"
             columns: ["client_id"]
             isOneToOne: false
@@ -1010,8 +1173,22 @@ export type Database = {
             foreignKeyName: "project_dedupe_log_merged_from_project_id_fkey"
             columns: ["merged_from_project_id"]
             isOneToOne: false
+            referencedRelation: "cockpit_project_risk_counts"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_dedupe_log_merged_from_project_id_fkey"
+            columns: ["merged_from_project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "project_dedupe_log_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "cockpit_project_risk_counts"
+            referencedColumns: ["project_id"]
           },
           {
             foreignKeyName: "project_dedupe_log_project_id_fkey"
@@ -1094,6 +1271,13 @@ export type Database = {
             foreignKeyName: "project_health_snapshots_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "cockpit_project_risk_counts"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "project_health_snapshots_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -1164,6 +1348,13 @@ export type Database = {
             foreignKeyName: "projects_merged_into_project_id_fkey"
             columns: ["merged_into_project_id"]
             isOneToOne: false
+            referencedRelation: "cockpit_project_risk_counts"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "projects_merged_into_project_id_fkey"
+            columns: ["merged_into_project_id"]
+            isOneToOne: false
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },
@@ -1205,6 +1396,7 @@ export type Database = {
           client_id: string
           created_at: string
           description: string
+          embedding: Json | null
           id: string
           level: string
           meeting_id: string | null
@@ -1214,6 +1406,7 @@ export type Database = {
           client_id: string
           created_at?: string
           description: string
+          embedding?: Json | null
           id?: string
           level?: string
           meeting_id?: string | null
@@ -1223,6 +1416,7 @@ export type Database = {
           client_id?: string
           created_at?: string
           description?: string
+          embedding?: Json | null
           id?: string
           level?: string
           meeting_id?: string | null
@@ -1264,54 +1458,78 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      cockpit_project_risk_counts: {
+        Row: {
+          critical_count: number | null
+          high_count: number | null
+          low_count: number | null
+          medium_count: number | null
+          project_id: string | null
+        }
+        Relationships: []
+      }
+      latest_project_evolution: {
+        Row: {
+          created_at: string | null
+          movement: string | null
+          project_id: string | null
+          summary: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meeting_evolution_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "cockpit_project_risk_counts"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "meeting_evolution_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
-      can_access_client: {
-        Args: { _client_id: string }
+      analysis_scope_is_consistent: {
+        Args: {
+          p_analysis_id: string
+          p_client_id: string
+          p_meeting_id: string
+          p_project_id: string
+        }
         Returns: boolean
       }
-      can_access_meeting: {
-        Args: { _meeting_id: string }
-        Returns: boolean
-      }
-      can_access_project: {
-        Args: { _project_id: string }
+      can_access_client: { Args: { _client_id: string }; Returns: boolean }
+      can_access_meeting: { Args: { _meeting_id: string }; Returns: boolean }
+      can_access_project: { Args: { _project_id: string }; Returns: boolean }
+      can_access_related_scope: {
+        Args: {
+          p_analysis_id: string
+          p_client_id: string
+          p_evolution_id: string
+          p_meeting_id: string
+          p_project_id: string
+        }
         Returns: boolean
       }
       can_access_scope: {
         Args: {
-          p_client_id: string | null
-          p_meeting_id: string | null
-          p_project_id: string | null
-        }
-        Returns: boolean
-      }
-      can_access_related_scope: {
-        Args: {
-          p_analysis_id: string | null
-          p_client_id: string | null
-          p_evolution_id: string | null
-          p_meeting_id: string | null
-          p_project_id: string | null
-        }
-        Returns: boolean
-      }
-      analysis_scope_is_consistent: {
-        Args: {
-          p_analysis_id: string
-          p_client_id: string | null
-          p_meeting_id: string | null
-          p_project_id: string | null
+          p_client_id: string
+          p_meeting_id: string
+          p_project_id: string
         }
         Returns: boolean
       }
       evolution_scope_is_consistent: {
         Args: {
-          p_client_id: string | null
+          p_client_id: string
           p_evolution_id: string
-          p_meeting_id: string | null
-          p_project_id: string | null
+          p_meeting_id: string
+          p_project_id: string
         }
         Returns: boolean
       }
@@ -1358,9 +1576,9 @@ export type Database = {
       normalize_project_name: { Args: { p_name: string }; Returns: string }
       scope_is_consistent: {
         Args: {
-          p_client_id: string | null
-          p_meeting_id: string | null
-          p_project_id: string | null
+          p_client_id: string
+          p_meeting_id: string
+          p_project_id: string
         }
         Returns: boolean
       }
@@ -1384,7 +1602,12 @@ export type Database = {
         | "EM_ACOMPANHAMENTO"
         | "TRAVADO"
         | "EM_VALIDACAO"
-      orchestrator_status: "suggested" | "approved" | "rejected" | "executed" | "superseded"
+      orchestrator_status:
+        | "suggested"
+        | "approved"
+        | "rejected"
+        | "executed"
+        | "superseded"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1400,12 +1623,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1429,11 +1652,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1454,11 +1677,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1479,11 +1702,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1496,11 +1719,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1532,7 +1755,13 @@ export const Constants = {
         "TRAVADO",
         "EM_VALIDACAO",
       ],
-      orchestrator_status: ["suggested", "approved", "rejected", "executed", "superseded"],
+      orchestrator_status: [
+        "suggested",
+        "approved",
+        "rejected",
+        "executed",
+        "superseded",
+      ],
     },
   },
 } as const

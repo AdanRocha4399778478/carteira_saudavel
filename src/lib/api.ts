@@ -30,7 +30,11 @@ export function logDbError(table: string, operation: string, error: SupabaseErro
   console.error("[db]", { table, operation, code: error.code ?? null, message: error.message });
 }
 
-function unwrap<T>(table: string, res: { data: T | null; error: SupabaseErrorLike }): T {
+// `data` é `unknown` de propósito: colunas jsonb (ex. `embedding`) vêm
+// tipadas como `Json` pelo Supabase, mais largo que o tipo de domínio
+// (`number[] | null`) — o cast final para `T` já era a fonte de verdade
+// aqui, isso só evita que TS rejeite o argumento antes de chegar nele.
+function unwrap<T>(table: string, res: { data: unknown; error: SupabaseErrorLike }): T {
   if (res.error) {
     logDbError(table, "select", res.error);
     throw new Error(res.error.message);
@@ -201,7 +205,7 @@ export const clientActionsQuery = (clientId: string) =>
         "actions",
         await supabase
           .from("actions")
-          .select("id, client_id, meeting_id, description, owner_name, deadline, priority, status, erp_area, evidence, created_at, updated_at")
+          .select("id, client_id, meeting_id, description, owner_name, deadline, priority, status, erp_area, evidence, created_at, updated_at, embedding")
           .eq("client_id", clientId)
           .order("deadline", { ascending: true }),
       ),
@@ -216,7 +220,7 @@ export const clientRisksQuery = (clientId: string) =>
         "risks",
         await supabase
           .from("risks")
-          .select("id, client_id, meeting_id, description, level, active, created_at")
+          .select("id, client_id, meeting_id, description, level, active, created_at, embedding")
           .eq("client_id", clientId)
           .order("created_at", { ascending: false }),
       ),
@@ -231,7 +235,7 @@ export const clientOpportunitiesQuery = (clientId: string) =>
         "opportunities",
         await supabase
           .from("opportunities")
-          .select("id, client_id, meeting_id, description, expected_benefit, status, created_at")
+          .select("id, client_id, meeting_id, description, expected_benefit, status, created_at, embedding")
           .eq("client_id", clientId)
           .order("created_at", { ascending: false }),
       ),

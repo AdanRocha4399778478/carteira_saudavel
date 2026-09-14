@@ -8,12 +8,17 @@ import type { ContextItem, Decision, Project } from "./projects";
  * duplicidade própria: todos perguntam a este serviço.
  *
  * Nível 1 — igualdade estrutural (texto normalizado + campos-chave)
- * Nível 2 — similaridade textual (Dice de tokens + trigramas)
+ * Nível 2 — similaridade semântica (embedding, quando disponível) OU
+ *           textual (Dice de tokens + trigramas), o que der maior score
  * Nível 3 — regra de negócio por entidade (escopo, status, prazo…)
  *
- * A assinatura de `similarity` é o ponto de extensão para embeddings:
- * basta trocar a implementação por uma comparação semântica; nada
- * mais no sistema precisa mudar.
+ * 2026-09-14: a comparação por embedding foi ativada (ver
+ * cosineSimilarity/pickBest abaixo). Ela é OPCIONAL e aditiva — quando um
+ * dos dois lados não tem vetor calculado ainda (item antigo, ou falha na
+ * chamada de embeddings), o sistema cai automaticamente para o método por
+ * palavras, que continua funcionando exatamente como antes. O score final
+ * é sempre o MAIOR entre os dois métodos, nunca menor que o texto puro
+ * conseguiria sozinho.
  * ------------------------------------------------------------------ */
 
 /* ---------------- limiares (fonte única) ---------------- */
@@ -199,6 +204,46 @@ export function similarity(a: string, b: string): number {
   return hasCompetingQualifiers(ta, tb) ? Math.min(score, DEDUPE_THRESHOLDS.review - 0.02) : score;
 }
 
+/* ---------------- similaridade semântica (embeddings) ---------------- */
+
+/**
+ * Similaridade de cosseno entre dois vetores, normalizada para 0..1
+ * (embeddings da OpenAI já vêm normalizados, então o cosseno bruto já
+ * fica em -1..1 na prática quase sempre positivo; achatamos negativos
+ * a 0 porque não fazem sentido como "similaridade").
+ */
+export function cosineSimilarity(a: number[] | null | undefined, b: number[] | null | undefined): number {
+  if (!a || !b || a.length === 0 || a.length !== b.length) return 0;
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    dot += a[i]! * b[i]!;
+    normA += a[i]! * a[i]!;
+    normB += b[i]! * b[i]!;
+  }
+  if (normA === 0 || normB === 0) return 0;
+  const cos = dot / (Math.sqrt(normA) * Math.sqrt(normB));
+  return Math.max(0, Math.min(1, cos));
+}
+
+/**
+ * Score final de um par de itens: o maior entre a comparação textual
+ * (sempre disponível) e a semântica (só quando ambos os lados têm vetor).
+ * Nunca fica pior que o método atual — só pode reconhecer MAIS pares.
+ */
+export function combinedSimilarity(
+  textA: string,
+  textB: string,
+  embeddingA?: number[] | null,
+  embeddingB?: number[] | null,
+): number {
+  const lexical = similarity(textA, textB);
+  if (!embeddingA || !embeddingB) return lexical;
+  const semantic = cosineSimilarity(embeddingA, embeddingB);
+  return Math.max(lexical, semantic);
+}
+
 /** Núcleo específico do texto curto inteiramente presente no texto longo. */
 function specificContainment(short: string[], longSet: Set<string>): boolean {
   const specific = short.filter((t) => !GENERIC_STEMS.has(t));
@@ -241,10 +286,14 @@ function pickBest<T>(
   candidates: T[],
   text: string,
   get: (item: T) => string,
+  embedding?: number[] | null,
+  getEmbedding?: (item: T) => number[] | null | undefined,
 ): { item: T; score: number } | null {
   let best: { item: T; score: number } | null = null;
   for (const item of candidates) {
-    const score = similarity(text, get(item));
+    const score = getEmbedding
+      ? combinedSimilarity(text, get(item), embedding, getEmbedding(item))
+      : similarity(text, get(item));
     if (!best || score > best.score) best = { item, score };
   }
   return best && best.score > 0 ? best : null;
@@ -268,6 +317,8 @@ export type IncomingAction = {
   priority?: string;
   /** Texto livre da menção (evidência) — usado só para ler sinais de status. */
   evidence?: string;
+  /** Vetor semântico da descrição, calculado no servidor. Opcional. */
+  embedding?: number[] | null;
 };
 
 /**
@@ -278,7 +329,7 @@ export type IncomingAction = {
 export function matchAction(item: IncomingAction, candidates: ActionItem[]): DedupeMatch<ActionItem> {
   const open = candidates.filter((a) => a.status !== "concluída" && a.status !== "cancelada");
   const pool = open.length ? open : candidates;
-  const best = pickBest(pool, item.description, (a) => a.description);
+  const best = pickBest(pool, item.description, (a) => a.description, item.embedding, (a) => a.embedding);
   if (!best) return noMatch<ActionItem>();
 
 
@@ -354,14 +405,20 @@ export function matchAction(item: IncomingAction, candidates: ActionItem[]): Ded
 }
 
 
-export type IncomingDecision = { title: string; description?: string };
+export type IncomingDecision = { title: string; description?: string; embedding?: number[] | null };
 
 /** Escopo: decisões do mesmo projeto. Decisão contrária vira substituição. */
 export function matchDecision(
   item: IncomingDecision,
   candidates: Decision[],
 ): DedupeMatch<Decision> {
-  const best = pickBest(candidates, item.title, (d) => `${d.title} ${d.description ?? ""}`);
+  const best = pickBest(
+    candidates,
+    item.title,
+    (d) => `${d.title} ${d.description ?? ""}`,
+    item.embedding,
+    (d) => d.embedding,
+  );
   if (!best) return noMatch<Decision>();
   const type = verdictFromScore(best.score);
   return {
@@ -378,12 +435,18 @@ export function matchDecision(
   };
 }
 
-export type IncomingRisk = { description: string; level?: string };
+export type IncomingRisk = { description: string; level?: string; embedding?: number[] | null };
 
 /** Escopo: riscos do mesmo cliente/projeto — ativos primeiro. */
 export function matchRisk(item: IncomingRisk, candidates: RiskItem[]): DedupeMatch<RiskItem> {
   const active = candidates.filter((r) => r.active);
-  const best = pickBest(active.length ? active : candidates, item.description, (r) => r.description);
+  const best = pickBest(
+    active.length ? active : candidates,
+    item.description,
+    (r) => r.description,
+    item.embedding,
+    (r) => r.embedding,
+  );
   if (!best) return noMatch<RiskItem>();
 
   const changes: FieldChange[] = [];
@@ -436,7 +499,11 @@ export function matchRisk(item: IncomingRisk, candidates: RiskItem[]): DedupeMat
 }
 
 
-export type IncomingOpportunity = { description: string; expected_benefit?: string };
+export type IncomingOpportunity = {
+  description: string;
+  expected_benefit?: string;
+  embedding?: number[] | null;
+};
 
 /** Escopo: oportunidades abertas do mesmo cliente. */
 export function matchOpportunity(
@@ -444,7 +511,13 @@ export function matchOpportunity(
   candidates: OpportunityItem[],
 ): DedupeMatch<OpportunityItem> {
   const open = candidates.filter((o) => o.status !== "fechada" && o.status !== "descartada");
-  const best = pickBest(open.length ? open : candidates, item.description, (o) => o.description);
+  const best = pickBest(
+    open.length ? open : candidates,
+    item.description,
+    (o) => o.description,
+    item.embedding,
+    (o) => o.embedding,
+  );
   if (!best) return noMatch<OpportunityItem>();
   const type = verdictFromScore(best.score);
   return {
@@ -462,8 +535,12 @@ export function matchOpportunity(
 }
 
 /** Escopo: itens da MESMA lista de contexto do mesmo projeto. */
-export function matchContextItem(text: string, candidates: ContextItem[]): DedupeMatch<ContextItem> {
-  const best = pickBest(candidates, text, (c) => c.text);
+export function matchContextItem(
+  text: string,
+  candidates: ContextItem[],
+  embedding?: number[] | null,
+): DedupeMatch<ContextItem> {
+  const best = pickBest(candidates, text, (c) => c.text, embedding, (c) => c.embedding);
   if (!best) return noMatch<ContextItem>();
   const type = verdictFromScore(best.score);
   return {

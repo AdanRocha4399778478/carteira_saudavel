@@ -121,6 +121,8 @@ export type ActionItem = {
   evidence: string | null;
   created_at: string;
   updated_at: string;
+  /** Vetor semântico da descrição — usado para reconhecer continuidade entre reuniões. */
+  embedding?: number[] | null;
 };
 
 export type RiskItem = {
@@ -131,6 +133,7 @@ export type RiskItem = {
   level: string;
   active: boolean;
   created_at: string;
+  embedding?: number[] | null;
 };
 
 export type OpportunityItem = {
@@ -141,6 +144,7 @@ export type OpportunityItem = {
   expected_benefit: string | null;
   status: string;
   created_at: string;
+  embedding?: number[] | null;
 };
 
 export type RiskRule = {
