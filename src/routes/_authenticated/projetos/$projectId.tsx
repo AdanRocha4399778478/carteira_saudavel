@@ -13,6 +13,7 @@ import {
   Plus,
   Sparkles,
   Target,
+  Trash2,
 
   Unlink,
 } from "lucide-react";
@@ -24,6 +25,8 @@ import { ProjectDialog } from "@/components/painel/ProjectDialog";
 import { DecisionDialog } from "@/components/painel/DecisionDialog";
 import { ContextListEditor } from "@/components/painel/ContextListEditor";
 import { MeetingAnalysisDialog } from "@/components/painel/MeetingAnalysisDialog";
+import { ProjectDeleteDialog } from "@/components/painel/ProjectDeleteDialog";
+import { useAccess } from "@/lib/auth/access";
 import {
   clientActionsQuery,
   clientOpportunitiesQuery,
@@ -161,6 +164,7 @@ type ContextForm = {
 function ProjectDetailPage() {
   const { projectId } = Route.useParams();
   const queryClient = useQueryClient();
+  const { isAdmin } = useAccess();
 
   const project = useQuery(projectDetailQuery(projectId));
   const clientId = project.data?.client_id ?? "";
@@ -179,6 +183,7 @@ function ProjectDetailPage() {
   const [editingDecision, setEditingDecision] = useState<Decision | null>(null);
   const [linkMeetingId, setLinkMeetingId] = useState("");
   const [analysisMeeting, setAnalysisMeeting] = useState<Meeting | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const clients = useQuery({ ...projectEditClientsQuery(), enabled: editOpen });
 
 
@@ -371,6 +376,16 @@ function ProjectDetailPage() {
           <Button size="sm" className="gap-2" onClick={() => setEditOpen(true)}>
             <Pencil className="size-4" aria-hidden /> Editar projeto
           </Button>
+          {isAdmin ? (
+            <Button
+              size="sm"
+              variant="destructive"
+              className="gap-2"
+              onClick={() => setDeleteOpen(true)}
+            >
+              <Trash2 className="size-4" aria-hidden /> Excluir projeto
+            </Button>
+          ) : null}
         </div>
       </PageHeader>
 
@@ -846,6 +861,15 @@ function ProjectDetailPage() {
         opportunities={(opportunities.data ?? []).filter((o) => o.client_id === p.client_id)}
         projectMeetingIds={(meetings.data ?? []).map((m) => m.id)}
       />
+
+      {isAdmin ? (
+        <ProjectDeleteDialog
+          projectId={projectId}
+          projectName={p.name}
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+        />
+      ) : null}
     </div>
 
   );

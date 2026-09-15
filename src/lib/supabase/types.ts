@@ -1494,6 +1494,8 @@ export type Database = {
       }
     }
     Functions: {
+      admin_delete_project: { Args: { p_project_id: string }; Returns: Json }
+      admin_delete_project_preview: { Args: { p_project_id: string }; Returns: Json }
       admin_undo_meeting: { Args: { p_meeting_id: string }; Returns: Json }
       analysis_scope_is_consistent: {
         Args: {
