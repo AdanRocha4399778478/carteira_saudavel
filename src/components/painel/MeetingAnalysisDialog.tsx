@@ -49,6 +49,7 @@ import {
   type AnalysisAgenda,
   type ApprovedSelection,
   type ChangeOperation,
+  type ExecutionQuality,
   type MeetingAnalysis,
 } from "@/lib/meeting-analysis";
 import {
@@ -931,6 +932,7 @@ export function MeetingAnalysisDialog({
                   onApplySafe={applyAllSafe}
                   blocksTotal={blockStatuses.length}
                   blocksReviewed={blockStatuses.filter((s) => s === "approved" || s === "ignored").length}
+                  executionQuality={analysis?.execution_quality}
                 />
 
                 {contextRows.map((group, gi) => {
@@ -1374,12 +1376,15 @@ function ReviewSummaryCard({
   onApplySafe,
   blocksTotal,
   blocksReviewed,
+  executionQuality,
 }: {
   counts: ReviewBlockCounts;
   onApplySafe: () => void;
   /** Progresso da REVISÃO por blocos (GATE 10D) — não é classificação do dedupe. */
   blocksTotal: number;
   blocksReviewed: number;
+  /** GATE 12 — métricas de action-first/consolidação, calculadas no servidor. */
+  executionQuality?: ExecutionQuality;
 }) {
   if (counts.total === 0) return null;
   const stats: { label: string; value: number }[] = [
@@ -1409,6 +1414,38 @@ function ReviewSummaryCard({
         <p className="mt-3 text-xs text-muted-foreground">
           Progresso da revisão por blocos: {blocksReviewed} de {blocksTotal} revisados
         </p>
+      ) : null}
+      {executionQuality ? (
+        <div className="mt-3 border-t pt-3">
+          <p className="text-xs font-semibold">Execução</p>
+          <dl className="mt-1 grid grid-cols-1 gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
+            <div>
+              <dt className="text-muted-foreground">Ações propostas</dt>
+              <dd className="font-semibold">{executionQuality.proposedActions}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Próximos passos convertidos</dt>
+              <dd className="font-semibold">{executionQuality.convertedFromNextSteps}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Pendentes de ação</dt>
+              <dd className="font-semibold">{executionQuality.pendingWithoutAction}</dd>
+            </div>
+          </dl>
+          {executionQuality.pendingWithoutAction > 0 ? (
+            <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+              <p className="font-medium">
+                {executionQuality.pendingWithoutAction} próximo(s) passo(s) parecem executáveis mas não
+                geraram ação automaticamente — revise manualmente:
+              </p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                {executionQuality.pendingNextSteps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );

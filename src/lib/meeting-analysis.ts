@@ -282,10 +282,34 @@ const analysisSchema = z.object({
           recommended_questions: [],
         },
     ),
+
+  /**
+   * GATE 12 — métricas da consolidação/action-first (analysis-consolidation.ts),
+   * calculadas no servidor antes do dedupe. Puramente informativo para a UI de
+   * revisão; nunca influencia thresholds/matchers. Ausente em análises antigas
+   * (pré-GATE 12) — por isso é opcional com default zerado, nunca obrigatório.
+   */
+  execution_quality: z
+    .object({
+      proposedActions: z.number().nullish(),
+      convertedFromNextSteps: z.number().nullish(),
+      pendingWithoutAction: z.number().nullish(),
+      pendingNextSteps: z.array(z.string()).nullish(),
+      repetitionGroupsReduced: z.number().nullish(),
+    })
+    .nullish()
+    .transform((v) => ({
+      proposedActions: v?.proposedActions ?? 0,
+      convertedFromNextSteps: v?.convertedFromNextSteps ?? 0,
+      pendingWithoutAction: v?.pendingWithoutAction ?? 0,
+      pendingNextSteps: v?.pendingNextSteps ?? [],
+      repetitionGroupsReduced: v?.repetitionGroupsReduced ?? 0,
+    })),
 });
 
 export type MeetingAnalysis = z.infer<typeof analysisSchema>;
 export type AnalysisAgenda = MeetingAnalysis["agenda_recommendation"];
+export type ExecutionQuality = MeetingAnalysis["execution_quality"];
 export type ItemClassification = "fact" | "inference" | "suggestion";
 
 export const CLASSIFICATION_LABEL: Record<string, string> = {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { splitTranscript } from "@/lib/transcript-chunking";
 import { getEmbeddings } from "@/lib/embeddings.server";
+import { consolidateAnalysis } from "@/lib/analysis-consolidation";
 
 /* ------------------------------------------------------------------ *
  * REUNIÃO INTELIGENTE — camada de IA (servidor)
@@ -113,6 +114,8 @@ Regras:
 - Confiança é um número de 0 a 1. Se não tiver certeza, use confiança baixa em vez de escolher no chute.
 - A pauta recomendada deve ser específica ao cliente, considerando ações abertas/atrasadas, decisões pendentes e riscos críticos informados.
 - Em context_updates, TODAS as listas (objectives, problems, root_causes, priorities, hypotheses, constraints, results, next_steps) devem ser arrays de objetos {"content": "texto", "classification": "fact|inference|suggestion"}. Nunca devolva string solta, objeto solto nem arrays aninhados. Se não houver itens, devolva [].
+- ACTION FIRST: "next_steps" é só para direções estratégicas contínuas, sem uma entrega única e concluível (ex.: "acompanhar a evolução da saúde financeira nos próximos ciclos"). Qualquer item que exija fazer, entregar, verificar, analisar, enviar, negociar, cobrar, configurar, agendar, acompanhar algo pontual, preparar ou implementar algo concreto DEVE virar um item em "actions", nunca ficar só em "next_steps". Não repita o mesmo item nas duas listas.
+- Evite fragmentar o mesmo assunto em vários itens quase idênticos dentro da mesma lista (ex.: "reduzir antecipação" e "sair da antecipação automática" separados) — escreva um único item por assunto, com a formulação mais completa. Isso não impede que o MESMO tema apareça em papéis diferentes (problema, causa, hipótese, decisão, ação) quando cada papel realmente for distinto.
 
 Formato exigido:
 {
@@ -423,9 +426,21 @@ export async function runMeetingAnalysis(data: MeetingAnalysisInput) {
     parts.push(await callGateway(prompt));
   }
 
-  const consolidated = consolidate(parts) as {
+  const mergedByKey = consolidate(parts) as {
     identification?: unknown;
     analysis?: Record<string, unknown>;
+  };
+
+  // GATE 12: consolidate() acima só une blocos por CHAVE EXATA normalizada —
+  // não reconhece "sair da antecipação automática" e "reduzir antecipação"
+  // como o mesmo assunto (textos diferentes). consolidateAnalysis roda uma
+  // etapa fuzzy adicional (reaproveitando o mesmo similarity() textual do
+  // dedupe, nível 2) dentro da análise já unida, e converte next_steps
+  // executáveis em actions (action-first) — tudo isso é ANTERIOR ao dedupe
+  // contra o banco (matchAction/matchDecision/...), que continua intocado.
+  const { result: consolidated, quality } = consolidateAnalysis(mergedByKey as Record<string, unknown>) as {
+    result: { identification?: unknown; analysis?: Record<string, unknown> };
+    quality: ReturnType<typeof consolidateAnalysis>["quality"];
   };
 
   // Calcula o vetor semântico de cada item extraído nesta reunião — usado
@@ -434,6 +449,7 @@ export async function runMeetingAnalysis(data: MeetingAnalysisInput) {
   // Nunca lança exceção: falha aqui só significa que esses itens vão cair
   // no método de comparação por texto (comportamento anterior, inalterado).
   const analysisOut = consolidated.analysis ?? {};
+  analysisOut["execution_quality"] = quality;
   const decisionsOut = Array.isArray(analysisOut["decisions"]) ? (analysisOut["decisions"] as Record<string, unknown>[]) : [];
   const actionsOut = Array.isArray(analysisOut["actions"]) ? (analysisOut["actions"] as Record<string, unknown>[]) : [];
   const risksOut = Array.isArray(analysisOut["risks"]) ? (analysisOut["risks"] as Record<string, unknown>[]) : [];
