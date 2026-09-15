@@ -51,6 +51,7 @@ import {
   type ChangeOperation,
   type ExecutionQuality,
   type MeetingAnalysis,
+  type SemanticConsolidation,
 } from "@/lib/meeting-analysis";
 import {
   defaultResolution,
@@ -933,6 +934,7 @@ export function MeetingAnalysisDialog({
                   blocksTotal={blockStatuses.length}
                   blocksReviewed={blockStatuses.filter((s) => s === "approved" || s === "ignored").length}
                   executionQuality={analysis?.execution_quality}
+                  semanticConsolidation={analysis?.semantic_consolidation}
                 />
 
                 {contextRows.map((group, gi) => {
@@ -1377,6 +1379,7 @@ function ReviewSummaryCard({
   blocksTotal,
   blocksReviewed,
   executionQuality,
+  semanticConsolidation,
 }: {
   counts: ReviewBlockCounts;
   onApplySafe: () => void;
@@ -1385,7 +1388,10 @@ function ReviewSummaryCard({
   blocksReviewed: number;
   /** GATE 12 — métricas de action-first/consolidação, calculadas no servidor. */
   executionQuality?: ExecutionQuality;
+  /** GATE 12B — métricas de consolidação SEMÂNTICA (embeddings), calculadas no servidor. */
+  semanticConsolidation?: SemanticConsolidation;
 }) {
+  const [showConsolidationGroups, setShowConsolidationGroups] = useState(false);
   if (counts.total === 0) return null;
   const stats: { label: string; value: number }[] = [
     { label: "Total de sugestões", value: counts.total },
@@ -1444,6 +1450,36 @@ function ReviewSummaryCard({
                 ))}
               </ul>
             </div>
+          ) : null}
+        </div>
+      ) : null}
+      {semanticConsolidation && semanticConsolidation.mergedCount > 0 ? (
+        <div className="mt-3 border-t pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold">
+              Consolidação — {semanticConsolidation.mergedCount} item(ns) repetido(s) consolidado(s)
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-6 gap-1 px-2 text-xs"
+              onClick={() => setShowConsolidationGroups((v) => !v)}
+            >
+              {showConsolidationGroups ? "Ocultar" : "Ver o que foi consolidado"}
+            </Button>
+          </div>
+          {showConsolidationGroups ? (
+            <ul className="mt-2 flex flex-col gap-2 text-xs">
+              {semanticConsolidation.groups.map((g, i) => (
+                <li key={`${g.category}-${i}`} className="rounded-md bg-muted/40 p-2">
+                  <p className="font-medium">
+                    {g.canonicalText} <span className="text-muted-foreground">({g.category})</span>
+                  </p>
+                  <p className="mt-0.5 text-muted-foreground">Consolidado com: {g.mergedTexts.join("; ")}</p>
+                </li>
+              ))}
+            </ul>
           ) : null}
         </div>
       ) : null}

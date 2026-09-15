@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { splitTranscript } from "@/lib/transcript-chunking";
 import { getEmbeddings } from "@/lib/embeddings.server";
-import { consolidateAnalysis } from "@/lib/analysis-consolidation";
+import { consolidateAnalysisSemantically } from "@/lib/analysis-consolidation";
 
 /* ------------------------------------------------------------------ *
  * REUNIÃO INTELIGENTE — camada de IA (servidor)
@@ -431,44 +431,95 @@ export async function runMeetingAnalysis(data: MeetingAnalysisInput) {
     analysis?: Record<string, unknown>;
   };
 
-  // GATE 12: consolidate() acima só une blocos por CHAVE EXATA normalizada —
-  // não reconhece "sair da antecipação automática" e "reduzir antecipação"
-  // como o mesmo assunto (textos diferentes). consolidateAnalysis roda uma
-  // etapa fuzzy adicional (reaproveitando o mesmo similarity() textual do
-  // dedupe, nível 2) dentro da análise já unida, e converte next_steps
-  // executáveis em actions (action-first) — tudo isso é ANTERIOR ao dedupe
-  // contra o banco (matchAction/matchDecision/...), que continua intocado.
-  const { result: consolidated, quality } = consolidateAnalysis(mergedByKey as Record<string, unknown>) as {
-    result: { identification?: unknown; analysis?: Record<string, unknown> };
-    quality: ReturnType<typeof consolidateAnalysis>["quality"];
-  };
+  // GATE 12B: consolidate() acima só une blocos por CHAVE EXATA normalizada
+  // — não reconhece "sair da antecipação automática" e "reduzir antecipação"
+  // como o mesmo assunto (poucas palavras em comum). Por isso os embeddings
+  // agora são calculados ANTES da consolidação (não depois, como no GATE
+  // 12A): reaproveitando a MESMA chamada única a getEmbeddings que já
+  // existia para decisions/actions/risks/opportunities, só que estendida
+  // para também cobrir os itens de context_updates (objectives...next_steps)
+  // — zero chamadas extras ao provedor na imensa maioria dos casos, já que
+  // o texto total de uma reunião típica fica bem abaixo do MAX_BATCH=96 de
+  // embeddings.server.ts (ver relatório do GATE 12B, Fase 1/12).
+  //
+  // Os embeddings de context_updates são só TEMPORÁRIOS: usados em memória
+  // por consolidateAnalysisSemantically para decidir o que é o mesmo
+  // assunto, e removidos antes deste JSON ser devolvido — nunca são
+  // persistidos em project_context (sem migration, sem novo campo no banco).
+  const rawAnalysis = mergedByKey.analysis ?? {};
+  const rawContext = (rawAnalysis["context_updates"] as Record<string, unknown>) ?? {};
 
-  // Calcula o vetor semântico de cada item extraído nesta reunião — usado
-  // depois pelo preview (MeetingAnalysisDialog) para reconhecer continuidade
-  // com itens já existentes, mesmo quando a redação muda entre reuniões.
-  // Nunca lança exceção: falha aqui só significa que esses itens vão cair
-  // no método de comparação por texto (comportamento anterior, inalterado).
-  const analysisOut = consolidated.analysis ?? {};
-  analysisOut["execution_quality"] = quality;
-  const decisionsOut = Array.isArray(analysisOut["decisions"]) ? (analysisOut["decisions"] as Record<string, unknown>[]) : [];
-  const actionsOut = Array.isArray(analysisOut["actions"]) ? (analysisOut["actions"] as Record<string, unknown>[]) : [];
-  const risksOut = Array.isArray(analysisOut["risks"]) ? (analysisOut["risks"] as Record<string, unknown>[]) : [];
-  const opportunitiesOut = Array.isArray(analysisOut["opportunities"])
-    ? (analysisOut["opportunities"] as Record<string, unknown>[])
+  const CONTEXT_LISTS_FOR_EMBEDDING = [
+    "objectives",
+    "problems",
+    "root_causes",
+    "priorities",
+    "hypotheses",
+    "constraints",
+    "results",
+    "next_steps",
+  ] as const;
+
+  const contextArrays: Record<string, Record<string, unknown>[]> = {};
+  for (const key of CONTEXT_LISTS_FOR_EMBEDDING) {
+    contextArrays[key] = Array.isArray(rawContext[key])
+      ? (rawContext[key] as Record<string, unknown>[])
+      : [];
+  }
+
+  const decisionsOut = Array.isArray(rawAnalysis["decisions"]) ? (rawAnalysis["decisions"] as Record<string, unknown>[]) : [];
+  const actionsOut = Array.isArray(rawAnalysis["actions"]) ? (rawAnalysis["actions"] as Record<string, unknown>[]) : [];
+  const risksOut = Array.isArray(rawAnalysis["risks"]) ? (rawAnalysis["risks"] as Record<string, unknown>[]) : [];
+  const opportunitiesOut = Array.isArray(rawAnalysis["opportunities"])
+    ? (rawAnalysis["opportunities"] as Record<string, unknown>[])
     : [];
 
-  const embeddingTexts = [
-    ...decisionsOut.map((d) => String(d["title"] ?? "")),
-    ...actionsOut.map((a) => String(a["description"] ?? "")),
-    ...risksOut.map((r) => String(r["description"] ?? "")),
-    ...opportunitiesOut.map((o) => String(o["description"] ?? "")),
-  ];
+  // Uma única lista de textos, uma única chamada a getEmbeddings — a ordem
+  // aqui só precisa bater com a ordem em que os vetores são escritos de volta abaixo.
+  const embeddingTexts: string[] = [];
+  for (const key of CONTEXT_LISTS_FOR_EMBEDDING) {
+    for (const item of contextArrays[key]!) embeddingTexts.push(String(item["content"] ?? ""));
+  }
+  embeddingTexts.push(...decisionsOut.map((d) => String(d["title"] ?? "")));
+  embeddingTexts.push(...actionsOut.map((a) => String(a["description"] ?? "")));
+  embeddingTexts.push(...risksOut.map((r) => String(r["description"] ?? "")));
+  embeddingTexts.push(...opportunitiesOut.map((o) => String(o["description"] ?? "")));
+
+  // Nunca lança exceção: falha aqui só significa que a consolidação
+  // semântica cai automaticamente para lexical-only (combinedSimilarity já
+  // trata embedding nulo) e o dedupe seguinte cai no método por texto —
+  // comportamento de fallback que já existia antes do GATE 12.
   const vectors = await getEmbeddings(embeddingTexts).catch(() => embeddingTexts.map(() => null));
   let cursor = 0;
+  for (const key of CONTEXT_LISTS_FOR_EMBEDDING) {
+    for (const item of contextArrays[key]!) item["__embedding"] = vectors[cursor++] ?? null;
+  }
   for (const d of decisionsOut) d["embedding"] = vectors[cursor++] ?? null;
   for (const a of actionsOut) a["embedding"] = vectors[cursor++] ?? null;
   for (const r of risksOut) r["embedding"] = vectors[cursor++] ?? null;
   for (const o of opportunitiesOut) o["embedding"] = vectors[cursor++] ?? null;
+
+  const analysisWithEmbeddings: Record<string, unknown> = {
+    ...rawAnalysis,
+    context_updates: { ...rawContext, ...contextArrays },
+    decisions: decisionsOut,
+    actions: actionsOut,
+    risks: risksOut,
+    opportunities: opportunitiesOut,
+  };
+
+  const { result: consolidated, quality, semantic } = consolidateAnalysisSemantically({
+    identification: mergedByKey.identification,
+    analysis: analysisWithEmbeddings,
+  }) as {
+    result: { identification?: unknown; analysis?: Record<string, unknown> };
+    quality: ReturnType<typeof consolidateAnalysisSemantically>["quality"];
+    semantic: ReturnType<typeof consolidateAnalysisSemantically>["semantic"];
+  };
+
+  const analysisOut = consolidated.analysis ?? {};
+  analysisOut["execution_quality"] = quality;
+  analysisOut["semantic_consolidation"] = semantic;
 
   return { json: JSON.stringify(consolidated), blocks: blocks.length };
 }

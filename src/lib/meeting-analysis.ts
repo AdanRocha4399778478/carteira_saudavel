@@ -305,11 +305,45 @@ const analysisSchema = z.object({
       pendingNextSteps: v?.pendingNextSteps ?? [],
       repetitionGroupsReduced: v?.repetitionGroupsReduced ?? 0,
     })),
+
+  /**
+   * GATE 12B — métricas da consolidação SEMÂNTICA (embeddings), calculadas
+   * no servidor (analysis-consolidation.ts) antes do dedupe. Puramente
+   * informativo para a UI; ausente em análises antigas (pré-GATE 12B) —
+   * opcional com default zerado, nunca obrigatório.
+   */
+  semantic_consolidation: z
+    .object({
+      totalBefore: z.number().nullish(),
+      totalAfter: z.number().nullish(),
+      mergedCount: z.number().nullish(),
+      groups: z
+        .array(
+          z.object({
+            category: z.string().nullish(),
+            canonicalText: z.string().nullish(),
+            mergedTexts: z.array(z.string()).nullish(),
+          }),
+        )
+        .nullish(),
+    })
+    .nullish()
+    .transform((v) => ({
+      totalBefore: v?.totalBefore ?? 0,
+      totalAfter: v?.totalAfter ?? 0,
+      mergedCount: v?.mergedCount ?? 0,
+      groups: (v?.groups ?? []).map((g) => ({
+        category: g.category ?? "",
+        canonicalText: g.canonicalText ?? "",
+        mergedTexts: g.mergedTexts ?? [],
+      })),
+    })),
 });
 
 export type MeetingAnalysis = z.infer<typeof analysisSchema>;
 export type AnalysisAgenda = MeetingAnalysis["agenda_recommendation"];
 export type ExecutionQuality = MeetingAnalysis["execution_quality"];
+export type SemanticConsolidation = MeetingAnalysis["semantic_consolidation"];
 export type ItemClassification = "fact" | "inference" | "suggestion";
 
 export const CLASSIFICATION_LABEL: Record<string, string> = {

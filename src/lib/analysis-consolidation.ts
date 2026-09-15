@@ -1,4 +1,4 @@
-import { DEDUPE_THRESHOLDS, similarity } from "@/lib/deduplication";
+import { combinedSimilarity, DEDUPE_THRESHOLDS, similarity } from "@/lib/deduplication";
 
 /* ------------------------------------------------------------------ *
  * GATE 12 — consolidação temática + action-first.
@@ -364,5 +364,489 @@ export function consolidateAnalysis(consolidated: Json): { result: Json; quality
       pendingNextSteps: execution.pendingNextSteps.map((s) => textOf(s, "content")),
       repetitionGroupsReduced,
     },
+  };
+}
+
+/* ==================================================================== *
+ * GATE 12B — consolidação SEMÂNTICA (embeddings), além da fuzzy lexical
+ * acima. `consolidateAnalysis` (GATE 12A) fica intocada e continua
+ * exportada/testada — esta é uma função SEPARADA, chamada pelo pipeline
+ * no lugar dela quando embeddings temporários estão disponíveis.
+ *
+ * Por quê uma função nova em vez de estender `consolidateAnalysis`: a
+ * lexical sozinha (GATE 12A) não reconhecia "sair da antecipação
+ * automática" ≈ "reduzir a antecipação" (poucos tokens em comum). Medindo
+ * com embeddings reais (text-embedding-3-small, script de diagnóstico —
+ * ver GATE 12B Fase 11), esses pares batem 0.62-0.76 de cosseno — bem
+ * abaixo de DEDUPE_THRESHOLDS.high (0.90), que por isso NÃO é reaproveitado
+ * aqui (documentado no threshold abaixo, não é tentativa-e-erro).
+ * ==================================================================== */
+
+/**
+ * Limiar de consolidação SEMÂNTICA — medido com pares reais (não fixture
+ * ajustado por tentativa e erro), via `combinedSimilarity` (max(lexical,
+ * cosseno), reaproveitando deduplication.ts sem alterá-lo):
+ *
+ *   DEVEM consolidar (combined medido):
+ *     A) "verificar linha de crédito no banco" × "consultar banco sobre linha de crédito"  → 0.625
+ *     B) "sair da antecipação automática"      × "reduzir a antecipação"                    → 0.757
+ *     F) "reduzir antecipação"                 × "desativar antecipação automática"         → 0.700
+ *   NÃO devem consolidar (combined medido):
+ *     D) "cobrar clientes vencidos"            × "negociar prazo com fornecedores"           → 0.580
+ *     E) "consultar linhas de crédito"         × "comparar CET com antecipação"               → 0.565
+ *     C) "analisar taxas da maquininha"        × "comparar custo do crédito com antecipação"  → 0.486
+ *     G) "montar balanço"                      × "cobrar clientes vencidos"                   → 0.306
+ *
+ * 0.60 é o valor mínimo que separa corretamente TODOS os 7 pares medidos
+ * (maior "não deve" = D em 0.580; menor "deve" = A em 0.625). A margem real
+ * é de só 0.045 — documentada como risco conhecido (ver relatório do GATE
+ * 12B), não escondida. Escolhido UMA VEZ a partir da medição.
+ */
+export const SEMANTIC_CONSOLIDATION_THRESHOLD = 0.6;
+
+const CONFLICT_FIELDS = ["owner_name", "owner", "deadline", "due_date"] as const;
+
+/**
+ * Fase 7 (GATE 12B): dois registros têm CONFLITO MATERIAL se ambos
+ * preenchem o MESMO campo sensível (responsável/prazo) com valores
+ * DIFERENTES. Nesse caso, nunca consolidar silenciosamente — mesmo com
+ * texto/embedding muito parecidos, pode ser tarefa distinta ou atribuição
+ * divergente que o consultor precisa ver separada.
+ */
+export function hasFieldConflict(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  for (const field of CONFLICT_FIELDS) {
+    const va = String(a[field] ?? "").trim();
+    const vb = String(b[field] ?? "").trim();
+    if (va && vb && va.toLowerCase() !== vb.toLowerCase()) return true;
+  }
+  return false;
+}
+
+/** Merge que respeita conflito material — nunca mescla se `hasFieldConflict` for true (proteção redundante na borda; o clustering já deveria ter barrado via `canMerge`). */
+export function mergeRecordPreferFilledGuarded(
+  canonical: Record<string, unknown>,
+  duplicate: Record<string, unknown>,
+): Record<string, unknown> {
+  if (hasFieldConflict(canonical, duplicate)) return canonical;
+  return mergeRecordPreferFilled(canonical, duplicate);
+}
+
+/**
+ * Clustering embedding-aware: mesma lógica gulosa de `clusterBySimilarity`,
+ * mas o score de cada par é `combinedSimilarity` (max(lexical, cosseno) —
+ * reaproveita deduplication.ts sem alterá-lo). `canMerge` é uma segunda
+ * porta: mesmo com score acima do limiar, só entra no cluster se também
+ * passar nessa checagem (usada para bloquear merge com conflito de
+ * owner/prazo).
+ */
+export function clusterSemantic<T>(
+  items: T[],
+  getText: (item: T) => string,
+  getEmbedding: (item: T) => number[] | null | undefined,
+  threshold: number = SEMANTIC_CONSOLIDATION_THRESHOLD,
+  canMerge: (a: T, b: T) => boolean = () => true,
+): TextCluster[] {
+  const clusters: TextCluster[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const text = getText(items[i]!).trim();
+    if (!text) continue;
+    let best: { cluster: TextCluster; score: number } | null = null;
+    for (const cluster of clusters) {
+      const canonicalItem = items[cluster.canonicalIndex]!;
+      const score = combinedSimilarity(
+        text,
+        getText(canonicalItem),
+        getEmbedding(items[i]!),
+        getEmbedding(canonicalItem),
+      );
+      if (score >= threshold && canMerge(canonicalItem, items[i]!) && (!best || score > best.score)) {
+        best = { cluster, score };
+      }
+    }
+    if (best) {
+      best.cluster.memberIndices.push(i);
+      if (text.length > getText(items[best.cluster.canonicalIndex]!).length) {
+        best.cluster.canonicalIndex = i;
+      }
+    } else {
+      clusters.push({ canonicalIndex: i, memberIndices: [i] });
+    }
+  }
+  return clusters;
+}
+
+/** Aplica `clusterSemantic` a uma lista de itens e produz {items, mergedCount, groups}. */
+export function consolidateItemsSemantic<T>(
+  items: T[],
+  getText: (item: T) => string,
+  getEmbedding: (item: T) => number[] | null | undefined,
+  mergeInto: (canonical: T, duplicate: T) => T,
+  canMerge: (a: T, b: T) => boolean = () => true,
+  threshold: number = SEMANTIC_CONSOLIDATION_THRESHOLD,
+): { items: T[]; mergedCount: number; groups: TextCluster[] } {
+  const clusters = clusterSemantic(items, getText, getEmbedding, threshold, canMerge);
+  const out: T[] = [];
+  let mergedCount = 0;
+  for (const cluster of clusters) {
+    let canonical: T = items[cluster.canonicalIndex]!;
+    for (const idx of cluster.memberIndices) {
+      if (idx === cluster.canonicalIndex) continue;
+      canonical = mergeInto(canonical, items[idx]!);
+      mergedCount++;
+    }
+    out.push(canonical);
+  }
+  return { items: out, mergedCount, groups: clusters.filter((c) => c.memberIndices.length > 1) };
+}
+
+/**
+ * Variante embedding-aware de `normalizeExecutionItems`: mesma regra
+ * action-first (Fase 3/4 do GATE 12), mas a checagem "já existe action
+ * correspondente" usa `combinedSimilarity` em vez de só `similarity()` —
+ * reconhece "consultar banco sobre crédito" como coberto por "verificar
+ * linha de crédito no banco" mesmo com poucas palavras em comum.
+ */
+export function normalizeExecutionItemsSemantic<S, A>(
+  nextSteps: S[],
+  getStepText: (step: S) => string,
+  getStepEmbedding: (step: S) => number[] | null | undefined,
+  existingActions: A[],
+  getActionText: (action: A) => string,
+  getActionEmbedding: (action: A) => number[] | null | undefined,
+  buildAction: (step: S) => A,
+  threshold: number = SEMANTIC_CONSOLIDATION_THRESHOLD,
+): NormalizeExecutionItemsResult<S, A> {
+  const strategicNextSteps: S[] = [];
+  const pendingNextSteps: S[] = [];
+  const proposedActions: A[] = [];
+  let reusedCount = 0;
+
+  for (const step of nextSteps) {
+    const text = getStepText(step);
+    const classification = classifyExecutionItem(text);
+
+    if (classification === "strategic") {
+      strategicNextSteps.push(step);
+      continue;
+    }
+    if (classification === "ambiguous") {
+      pendingNextSteps.push(step);
+      continue;
+    }
+
+    const stepEmbedding = getStepEmbedding(step);
+    const alreadyCovered =
+      existingActions.some(
+        (a) => combinedSimilarity(text, getActionText(a), stepEmbedding, getActionEmbedding(a)) >= threshold,
+      ) ||
+      proposedActions.some(
+        (a) => combinedSimilarity(text, getActionText(a), stepEmbedding, getActionEmbedding(a)) >= threshold,
+      );
+
+    if (alreadyCovered) {
+      reusedCount += 1;
+      continue;
+    }
+    proposedActions.push(buildAction(step));
+  }
+
+  return {
+    strategicNextSteps,
+    pendingNextSteps,
+    proposedActions,
+    reusedCount,
+    convertedCount: proposedActions.length + reusedCount,
+  };
+}
+
+export type SemanticGroup = { category: string; canonicalText: string; mergedTexts: string[] };
+
+export type SemanticConsolidationSummary = {
+  totalBefore: number;
+  totalAfter: number;
+  mergedCount: number;
+  groups: SemanticGroup[];
+};
+
+/** Item de contexto com embedding TEMPORÁRIO anexado só para esta análise (nunca persistido). */
+type ContextItemWithTempEmbedding = Json & { __embedding?: number[] | null };
+
+function toSemanticGroups<T>(
+  category: string,
+  items: T[],
+  getText: (item: T) => string,
+  groups: TextCluster[],
+): SemanticGroup[] {
+  return groups.map((g) => ({
+    category,
+    canonicalText: getText(items[g.canonicalIndex]!),
+    mergedTexts: g.memberIndices.filter((i) => i !== g.canonicalIndex).map((i) => getText(items[i]!)),
+  }));
+}
+
+/* ==================================================================== *
+ * GATE 12B.1 — proteção contra over-merge semântico.
+ *
+ * Erro real observado: em `priorities`, "Diminuir a dependência de capital
+ * de curto prazo" foi fundido com "Melhorar previsibilidade financeira"
+ * (combined medido = 0.6159 — passa o limiar 0.60). Ao mesmo tempo,
+ * "Consultar o banco sobre linha de crédito para capital de giro" +
+ * "Verificar quais linhas de crédito estão disponíveis no banco" (combined
+ * medido = 0.6464) é um merge correto. A diferença real medida entre os
+ * dois pares não está no score combinado (quase idêntico, 0.616 vs 0.646)
+ * — está na sobreposição LEXICAL: o par certo compartilha vocabulário
+ * ("banco", "linha", "crédito" — lexical 0.4286); o par errado não
+ * compartilha nada (lexical 0.0135). Cosine sozinho, para contexto
+ * estratégico curto e abstrato, não separa "mesma ideia parafraseada" de
+ * "temas relacionados mas distintos" — precisa de uma segunda evidência.
+ *
+ * Medição completa dos 8 pares pedidos (Fase 6/7) + os 2 pares reais do
+ * incidente confirma uma separação limpa por LEXICAL, com folga grande:
+ *   maior lexical entre os "não devem consolidar" = 0.0435
+ *   menor lexical entre os "devem consolidar"      = 0.4286
+ * `lexicalFloor = 0.20` fica bem no meio dessa faixa (folga de ~0.24 para
+ * cada lado) — não é o valor exato de nenhum par, escolhido com margem.
+ * ==================================================================== */
+
+export type SemanticConsolidationPolicy = {
+  /** Score combinado (max(lexical, cosseno)) mínimo — mesmo valor para as duas categorias; o que muda é a exigência abaixo. */
+  semanticThreshold: number;
+  /** Similaridade LEXICAL mínima exigida quando `allowSemanticOnly` é false — evidência de núcleo conceitual comum, não só tema. */
+  lexicalFloor: number;
+  /** true: cosine sozinho já basta (categorias de EXECUÇÃO). false: exige TAMBÉM lexical >= lexicalFloor (CONTEXTO ESTRATÉGICO). */
+  allowSemanticOnly: boolean;
+};
+
+/** actions/next_steps (antes da promoção)/decisions/risks/opportunities — itens concretos, factuais, curtos; cosine sozinho já se mostrou confiável nos dados medidos. */
+const EXECUTION_POLICY: SemanticConsolidationPolicy = {
+  semanticThreshold: SEMANTIC_CONSOLIDATION_THRESHOLD,
+  lexicalFloor: 0,
+  allowSemanticOnly: true,
+};
+
+/** objectives/problems/root_causes/priorities/hypotheses/constraints/results — texto estratégico/abstrato onde cosine sozinho gerou o over-merge real observado. */
+const STRATEGIC_POLICY: SemanticConsolidationPolicy = {
+  semanticThreshold: SEMANTIC_CONSOLIDATION_THRESHOLD,
+  lexicalFloor: 0.2,
+  allowSemanticOnly: false,
+};
+
+const STRATEGIC_CATEGORIES = new Set([
+  "objectives",
+  "problems",
+  "root_causes",
+  "priorities",
+  "hypotheses",
+  "constraints",
+  "results",
+]);
+
+/**
+ * Política de consolidação por categoria (Fase 4 do GATE 12B.1) —
+ * centralizada e determinística: mesma categoria sempre devolve a mesma
+ * política, sem estado. `actions`/`next_steps`/`decisions`/`risks`/
+ * `opportunities` usam EXECUTION_POLICY (semantic-only permitido);
+ * as 7 listas de contexto estratégico usam STRATEGIC_POLICY (exige
+ * também overlap lexical mínimo — nunca "tematiza", só reconhece
+ * paráfrase real do MESMO núcleo conceitual).
+ */
+export function semanticConsolidationPolicy(category: string): SemanticConsolidationPolicy {
+  return STRATEGIC_CATEGORIES.has(category) ? STRATEGIC_POLICY : EXECUTION_POLICY;
+}
+
+/**
+ * Decide se um par pode consolidar dado seus scores já calculados e a
+ * política da categoria. Nunca decide sozinho por cosine alto quando a
+ * política exige evidência lexical — essa é a proteção central deste GATE.
+ */
+export function meetsConsolidationPolicy(
+  lexicalScore: number,
+  combinedScore: number,
+  policy: SemanticConsolidationPolicy,
+): boolean {
+  if (combinedScore < policy.semanticThreshold) return false;
+  if (policy.allowSemanticOnly) return true;
+  return lexicalScore >= policy.lexicalFloor;
+}
+
+/**
+ * Orquestra a consolidação SEMÂNTICA (Fase 4-6 do GATE 12B) + action-first
+ * embedding-aware, sobre o objeto `{identification, analysis}` já com
+ * embeddings TEMPORÁRIOS anexados pelo chamador:
+ *   - itens de context_updates carregam `__embedding` (temporário, apagado
+ *     antes de retornar — NUNCA é persistido em project_context);
+ *   - decisions/actions/risks/opportunities carregam `embedding` (o mesmo
+ *     campo real que já existia e É persistido, como antes do GATE 12).
+ *
+ * Nunca consolida entre categorias diferentes (cada `consolidateItemsSemantic`
+ * roda isoladamente por lista). Nunca sobrescreve owner/prazo em conflito
+ * (`canMerge`/`mergeRecordPreferFilledGuarded`, Fase 7).
+ */
+export function consolidateAnalysisSemantically(consolidated: Json): {
+  result: Json;
+  quality: ExecutionQualitySummary;
+  semantic: SemanticConsolidationSummary;
+} {
+  const analysis = { ...((consolidated["analysis"] as Json) ?? {}) };
+  const contextUpdates = { ...((analysis["context_updates"] as Json) ?? {}) };
+
+  const groups: SemanticGroup[] = [];
+  let totalBefore = 0;
+  let totalAfter = 0;
+  let mergedCount = 0;
+
+  const CONTEXT_TEXT_LISTS = [
+    "objectives",
+    "problems",
+    "root_causes",
+    "priorities",
+    "hypotheses",
+    "constraints",
+    "results",
+  ] as const;
+
+  const getContextText = (i: Json) => textOf(i, "content");
+  const getContextEmbedding = (i: ContextItemWithTempEmbedding) => i.__embedding ?? null;
+  const stripTempEmbedding = (i: ContextItemWithTempEmbedding): Json => {
+    const { __embedding, ...rest } = i;
+    return rest;
+  };
+
+  /**
+   * GATE 12B.1: aplica a política da categoria (Fase 2-4) por cima de
+   * qualquer guarda já existente (ex.: conflito de owner/prazo). Para
+   * categorias estratégicas, exige overlap lexical mínimo além do score
+   * combinado já checado por `clusterSemantic` — é essa checagem extra que
+   * impede o over-merge de "diminuir dependência de capital..." com
+   * "melhorar previsibilidade financeira".
+   */
+  function withPolicyGuard<T>(
+    getText: (item: T) => string,
+    policy: SemanticConsolidationPolicy,
+    extraGuard: (a: T, b: T) => boolean = () => true,
+  ): (a: T, b: T) => boolean {
+    return (a, b) => {
+      if (!extraGuard(a, b)) return false;
+      if (policy.allowSemanticOnly) return true;
+      return similarity(getText(a), getText(b)) >= policy.lexicalFloor;
+    };
+  }
+
+  for (const key of CONTEXT_TEXT_LISTS) {
+    const items = asArray(contextUpdates[key]) as ContextItemWithTempEmbedding[];
+    totalBefore += items.length;
+    const policy = semanticConsolidationPolicy(key);
+    const { items: merged, groups: catGroups } = consolidateItemsSemantic(
+      items,
+      getContextText,
+      getContextEmbedding,
+      mergeRecordPreferFilled,
+      withPolicyGuard(getContextText, policy),
+      policy.semanticThreshold,
+    );
+    groups.push(...toSemanticGroups(key, items, getContextText, catGroups));
+    mergedCount += catGroups.reduce((sum, g) => sum + g.memberIndices.length - 1, 0);
+    totalAfter += merged.length;
+    contextUpdates[key] = merged.map(stripTempEmbedding);
+  }
+
+  // next_steps: política de EXECUÇÃO (pré-promoção) — consolida a própria
+  // lista primeiro (embedding-aware), igual às demais categorias.
+  const nextStepsRaw = asArray(contextUpdates["next_steps"]) as ContextItemWithTempEmbedding[];
+  totalBefore += nextStepsRaw.length;
+  const nextStepsPolicy = semanticConsolidationPolicy("next_steps");
+  const nextStepsConsolidated = consolidateItemsSemantic(
+    nextStepsRaw,
+    getContextText,
+    getContextEmbedding,
+    mergeRecordPreferFilled,
+    withPolicyGuard(getContextText, nextStepsPolicy),
+    nextStepsPolicy.semanticThreshold,
+  );
+  groups.push(...toSemanticGroups("next_steps", nextStepsRaw, getContextText, nextStepsConsolidated.groups));
+  mergedCount += nextStepsConsolidated.groups.reduce((sum, g) => sum + g.memberIndices.length - 1, 0);
+
+  // decisions/risks/opportunities/actions: consolidação semântica intra-categoria
+  // (política de EXECUÇÃO), com guarda de conflito de owner/prazo (Fase 7).
+  const getEntityEmbedding = (i: Json) => (i["embedding"] as number[] | null | undefined) ?? null;
+  const canMergeEntities = (a: Json, b: Json) => !hasFieldConflict(a, b);
+
+  function consolidateEntityList(category: string, items: Json[], getText: (i: Json) => string) {
+    totalBefore += items.length;
+    const policy = semanticConsolidationPolicy(category);
+    const consolidatedList = consolidateItemsSemantic(
+      items,
+      getText,
+      getEntityEmbedding,
+      mergeRecordPreferFilledGuarded,
+      withPolicyGuard(getText, policy, canMergeEntities),
+      policy.semanticThreshold,
+    );
+    groups.push(...toSemanticGroups(category, items, getText, consolidatedList.groups));
+    mergedCount += consolidatedList.groups.reduce((sum, g) => sum + g.memberIndices.length - 1, 0);
+    totalAfter += consolidatedList.items.length;
+    return consolidatedList.items;
+  }
+
+  const decisions = consolidateEntityList("decisions", asArray(analysis["decisions"]), (i) => textOf(i, "title"));
+  const risks = consolidateEntityList("risks", asArray(analysis["risks"]), (i) => textOf(i, "description"));
+  const opportunities = consolidateEntityList(
+    "opportunities",
+    asArray(analysis["opportunities"]),
+    (i) => textOf(i, "description"),
+  );
+  const actionsConsolidated = consolidateEntityList(
+    "actions",
+    asArray(analysis["actions"]),
+    (i) => textOf(i, "description"),
+  );
+
+  analysis["decisions"] = decisions;
+  analysis["risks"] = risks;
+  analysis["opportunities"] = opportunities;
+
+  // action-first embedding-aware: usa o embedding TEMPORÁRIO do next_step para
+  // (a) checar cobertura contra actions existentes e (b) herdar como embedding
+  // REAL da action promovida (mesmo texto — não perde o sinal para o dedupe seguinte).
+  const execution = normalizeExecutionItemsSemantic<ContextItemWithTempEmbedding, Json>(
+    nextStepsConsolidated.items,
+    getContextText,
+    getContextEmbedding,
+    actionsConsolidated,
+    (a) => textOf(a, "description"),
+    getEntityEmbedding,
+    (step) => ({
+      description: textOf(step, "content"),
+      owner_name: "",
+      deadline: "",
+      priority: "",
+      evidence: `Convertido automaticamente do próximo passo: "${textOf(step, "content")}"`,
+      classification: "suggestion",
+      embedding: step.__embedding ?? null,
+    }),
+  );
+
+  const finalNextSteps = [...execution.strategicNextSteps, ...execution.pendingNextSteps];
+  contextUpdates["next_steps"] = finalNextSteps.map(stripTempEmbedding);
+  const finalActions = [...actionsConsolidated, ...execution.proposedActions];
+  analysis["actions"] = finalActions;
+  analysis["context_updates"] = contextUpdates;
+
+  // totalAfter: recontado diretamente dos arrays finais (mais confiável que
+  // acumular parcialmente) — next_steps mudou de forma pelo action-first
+  // (parte virou action, não "sumiu"), então soma-se aqui em vez de dentro
+  // do loop de categorias de contexto.
+  totalAfter += finalNextSteps.length + execution.proposedActions.length;
+
+  return {
+    result: { ...consolidated, analysis },
+    quality: {
+      proposedActions: execution.proposedActions.length,
+      convertedFromNextSteps: execution.convertedCount,
+      pendingWithoutAction: execution.pendingNextSteps.length,
+      pendingNextSteps: execution.pendingNextSteps.map(getContextText),
+      repetitionGroupsReduced: groups.length,
+    },
+    semantic: { totalBefore, totalAfter, mergedCount, groups },
   };
 }
