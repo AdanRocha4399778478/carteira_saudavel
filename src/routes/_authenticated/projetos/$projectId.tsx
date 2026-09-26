@@ -18,6 +18,7 @@ import {
   Unlink,
 } from "lucide-react";
 import { PageHeader } from "@/components/painel/PageHeader";
+import { TimerWidget } from "@/components/painel/TimerWidget";
 import { routeErrorComponent } from "@/components/painel/RouteError";
 import { EmptyState, ErrorState, LoadingState } from "@/components/painel/states";
 import { ActionStatusBadge, Pill, RiskBadge } from "@/components/painel/badges";
@@ -390,6 +391,8 @@ function ProjectDetailPage() {
       </PageHeader>
 
       <div className="flex flex-col gap-4 px-4 py-6 md:px-8">
+        <TimerWidget clientId={p.client_id} projectId={p.id} />
+
         <section className="card-surface grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-5 md:p-5">
           <Field
             label="Status"
