@@ -489,7 +489,7 @@ export function matchAction(item: IncomingAction, candidates: ActionItem[]): Ded
     type = "UPDATE_EXISTING";
   if (best.relation === "same" && normalizeText(item.description) !== normalizeText(best.item.description))
     type = "UPDATE_EXISTING";
-  if (best.relation === "related" || materialConflict) type = "POSSIBLE_DUPLICATE";
+  if (type !== "NEW" && (best.relation === "related" || materialConflict)) type = "POSSIBLE_DUPLICATE";
 
   // Conclusão/retomada não cria ação nova: muda o estado da existente.
   const done = best.item.status === "concluída";
@@ -579,7 +579,7 @@ export function matchDecision(
   if (type === "EXISTING" && changes.length > 0) type = "UPDATE_EXISTING";
   if (best.relation === "same" && normalizeText(incomingContext) !== normalizeText(`${best.item.title} ${best.item.description ?? ""} ${best.item.reason ?? ""}`))
     type = "UPDATE_EXISTING";
-  if (best.relation === "related" || materialConflict) type = "POSSIBLE_DUPLICATE";
+  if (type !== "NEW" && (best.relation === "related" || materialConflict)) type = "POSSIBLE_DUPLICATE";
   return {
     type,
     confidence: best.score,

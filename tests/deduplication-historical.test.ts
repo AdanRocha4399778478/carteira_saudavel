@@ -237,4 +237,33 @@ describe("GATE 12C — dedupe semântico contra histórico", () => {
     expect(match.changes.some((change) => change.field === "owner_name")).toBe(false);
     expect(match.changes.some((change) => change.field === "deadline")).toBe(false);
   });
+
+  describe("materialConflict não reclassifica matches fracos (< threshold de revisão)", () => {
+    test("action genuinamente não relacionada com owner conflitante continua NEW", () => {
+      const match = matchAction(
+        { description: "Consultar linha de crédito de capital de giro", owner_name: "Maria" },
+        [action("Avaliar taxas de aplicação financeira do caixa", { owner_name: "João", status: "concluída" })],
+      );
+      expect(match.confidence).toBeLessThan(DEDUPE_THRESHOLDS.review);
+      expect(match.type).toBe("NEW");
+    });
+
+    test("decision genuinamente não relacionada com status conflitante continua NEW", () => {
+      const match = matchDecision(
+        { title: "Consultar linha de crédito de capital de giro", status: "aprovada" },
+        [decision("Avaliar taxas de aplicação financeira do caixa", { status: "pendente" })],
+      );
+      expect(match.confidence).toBeLessThan(DEDUPE_THRESHOLDS.review);
+      expect(match.type).toBe("NEW");
+    });
+
+    test("materialConflict continua exigindo revisão quando o match já era plausível (>= 0.70)", () => {
+      const match = matchAction(
+        { description: "Montar balanço patrimonial detalhado", owner_name: "Maria" },
+        [action("Elaboração do balanço patrimonial", { owner_name: "João" })],
+      );
+      expect(match.confidence).toBeGreaterThanOrEqual(DEDUPE_THRESHOLDS.review);
+      expect(match.type).toBe("POSSIBLE_DUPLICATE");
+    });
+  });
 });
