@@ -771,7 +771,7 @@ export function defaultResolution(match: DedupeMatch<unknown>): ItemResolution {
         : "create";
   return {
     mode,
-    targetId: match.existing_id,
+    targetId: match.type === "NEW" ? null : match.existing_id,
     verdict: match.type,
     confidence: match.confidence,
     reason: match.reason,

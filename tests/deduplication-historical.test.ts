@@ -266,4 +266,41 @@ describe("GATE 12C — dedupe semântico contra histórico", () => {
       expect(match.type).toBe("POSSIBLE_DUPLICATE");
     });
   });
+
+  describe("defaultResolution não vaza targetId quando o veredito é NEW", () => {
+    test("match NEW com candidato fraco (existing_id preenchido) vira targetId null", () => {
+      const match = matchAction(
+        { description: "Consultar linha de crédito de capital de giro", owner_name: "Maria" },
+        [action("Avaliar taxas de aplicação financeira do caixa", { owner_name: "João", status: "concluída" })],
+      );
+      expect(match.type).toBe("NEW");
+      expect(match.existing_id).not.toBeNull();
+
+      const resolution = defaultResolution(match);
+      expect(resolution.targetId).toBeNull();
+      expect(resolution.mode).toBe("create");
+    });
+
+    test("match UPDATE_EXISTING continua propagando targetId normalmente", () => {
+      const match = matchAction(
+        { description: "Montar balanço patrimonial detalhado" },
+        [action("Elaboração do balanço patrimonial", { id: "acao-existente" })],
+      );
+      expect(match.type).toBe("UPDATE_EXISTING");
+
+      const resolution = defaultResolution(match);
+      expect(resolution.targetId).toBe("acao-existente");
+    });
+
+    test("match POSSIBLE_DUPLICATE continua propagando targetId normalmente", () => {
+      const match = matchAction(
+        { description: "Montar balanço patrimonial detalhado", owner_name: "Maria" },
+        [action("Elaboração do balanço patrimonial", { id: "acao-conflitante", owner_name: "João" })],
+      );
+      expect(match.type).toBe("POSSIBLE_DUPLICATE");
+
+      const resolution = defaultResolution(match);
+      expect(resolution.targetId).toBe("acao-conflitante");
+    });
+  });
 });
