@@ -278,6 +278,78 @@ function hasCompetingQualifiers(ta: string[], tb: string[]): boolean {
   return exclusiveQualifiers(ta, tb).length > 0 && exclusiveQualifiers(tb, ta).length > 0;
 }
 
+/* ---------------- equivalência de entrega histórica ---------------- */
+
+type DeliverableRelation = "none" | "related" | "same";
+
+/**
+ * Verbos descrevem como executar; o núcleo nominal descreve o que será
+ * entregue. A lista é deliberadamente curta e usada apenas por decisions e
+ * actions contra o histórico — não altera similarity() nem seus thresholds.
+ */
+const OPERATIONAL_VERB_PREFIXES = [
+  "faz", "realiz", "entreg", "verific", "analis", "envi", "negoci", "cobr", "configur", "agend",
+  "acompanh", "prepar", "implement", "consult", "mont", "busc", "levant", "compar", "desativ",
+  "defin", "reduz", "retir", "revis", "atualiz", "contrat", "solicit", "organiz", "elabor",
+  "estrutur", "produz", "confeccion",
+] as const;
+
+const CREATION_VERB_PREFIXES = ["faz", "realiz", "prepar", "mont", "elabor", "estrutur", "produz", "confeccion"] as const;
+const DETAIL_PREFIXES = ["detalh", "aprofund", "especific"] as const;
+
+function startsWithAny(value: string, prefixes: readonly string[]): boolean {
+  return prefixes.some((prefix) => value.startsWith(prefix));
+}
+
+function deliverableProfile(text: string): { nucleus: string[]; verbs: string[] } {
+  const words = normalizeCore(text).split(" ").filter(Boolean);
+  const verbs = words.filter((word) => startsWithAny(word, OPERATIONAL_VERB_PREFIXES));
+  const nucleus = words
+    .filter((word) => !startsWithAny(word, OPERATIONAL_VERB_PREFIXES))
+    .filter((word) => !startsWithAny(word, DETAIL_PREFIXES))
+    .map(stem)
+    .filter((word) => !GENERIC_STEMS.has(word));
+  return { nucleus: [...new Set(nucleus)].sort(), verbs };
+}
+
+function deliverableRelation(a: string, b: string): DeliverableRelation {
+  const left = deliverableProfile(a);
+  const right = deliverableProfile(b);
+  if (left.nucleus.length < 2 || right.nucleus.length < 2) return "none";
+  if (left.nucleus.join("|") !== right.nucleus.join("|")) return "none";
+
+  const leftCreation = left.verbs.some((verb) => startsWithAny(verb, CREATION_VERB_PREFIXES));
+  const rightCreation = right.verbs.some((verb) => startsWithAny(verb, CREATION_VERB_PREFIXES));
+  if (!left.verbs.length || !right.verbs.length || (leftCreation && rightCreation)) return "same";
+
+  const sharedVerb = left.verbs.some((verb) => right.verbs.some((other) => stem(verb) === stem(other)));
+  return sharedVerb ? "same" : "related";
+}
+
+function hasFilledConflict(
+  incoming: string | null | undefined,
+  existing: string | null | undefined,
+  normalize: (value: string | null | undefined) => string = (value) => normalizeText(value ?? ""),
+): boolean {
+  const next = normalize(incoming);
+  const current = normalize(existing);
+  return !!next && !!current && next !== current;
+}
+
+function hasMaterialScopeConflict(
+  incoming: string | null | undefined,
+  existing: string | null | undefined,
+): boolean {
+  if (!normalizeText(incoming ?? "") || !normalizeText(existing ?? "")) return false;
+  const left = tokens(incoming ?? "");
+  const right = tokens(existing ?? "");
+  return (
+    similarity(incoming ?? "", existing ?? "") < DEDUPE_THRESHOLDS.review &&
+    exclusiveQualifiers(left, right).length >= 2 &&
+    exclusiveQualifiers(right, left).length >= 2
+  );
+}
+
 
 
 
@@ -295,6 +367,35 @@ function pickBest<T>(
       ? combinedSimilarity(text, get(item), embedding, getEmbedding(item))
       : similarity(text, get(item));
     if (!best || score > best.score) best = { item, score };
+  }
+  return best && best.score > 0 ? best : null;
+}
+
+function pickBestHistorical<T>(
+  candidates: T[],
+  incomingText: string,
+  incomingContext: string,
+  getText: (item: T) => string,
+  getContext: (item: T) => string,
+  embedding?: number[] | null,
+  getEmbedding?: (item: T) => number[] | null | undefined,
+): { item: T; score: number; relation: DeliverableRelation } | null {
+  let best: { item: T; score: number; relation: DeliverableRelation } | null = null;
+  for (const candidate of candidates) {
+    const candidateText = getText(candidate);
+    const candidateEmbedding = getEmbedding?.(candidate);
+    const rawScore = Math.max(
+      combinedSimilarity(incomingText, candidateText, embedding, candidateEmbedding),
+      combinedSimilarity(incomingContext, getContext(candidate), embedding, candidateEmbedding),
+    );
+    const relation = deliverableRelation(incomingText, candidateText);
+    const score =
+      relation === "same"
+        ? Math.max(rawScore, DEDUPE_THRESHOLDS.high)
+        : relation === "related"
+          ? Math.max(rawScore, DEDUPE_THRESHOLDS.review)
+          : rawScore;
+    if (!best || score > best.score) best = { item: candidate, score, relation };
   }
   return best && best.score > 0 ? best : null;
 }
@@ -329,7 +430,15 @@ export type IncomingAction = {
 export function matchAction(item: IncomingAction, candidates: ActionItem[]): DedupeMatch<ActionItem> {
   const open = candidates.filter((a) => a.status !== "concluída" && a.status !== "cancelada");
   const pool = open.length ? open : candidates;
-  const best = pickBest(pool, item.description, (a) => a.description, item.embedding, (a) => a.embedding);
+  const best = pickBestHistorical(
+    pool,
+    item.description,
+    item.description,
+    (a) => a.description,
+    (a) => a.description,
+    item.embedding,
+    (a) => a.embedding,
+  );
   if (!best) return noMatch<ActionItem>();
 
 
@@ -362,14 +471,27 @@ export function matchAction(item: IncomingAction, candidates: ActionItem[]): Ded
       to: item.priority,
     });
 
+  const rawSignal = detectStatusSignal(`${item.description} ${item.evidence ?? ""}`);
+  const conflictLabels = [
+    hasFilledConflict(item.owner_name, best.item.owner_name, normalizeOwner) ? "responsável" : null,
+    hasFilledConflict(item.deadline, best.item.deadline, normalizeDate) ? "prazo" : null,
+    hasFilledConflict(item.priority, best.item.priority) ? "prioridade" : null,
+    (best.item.status === "concluída" || best.item.status === "cancelada") && rawSignal !== "reopened"
+      ? "status"
+      : null,
+  ].filter((label): label is string => !!label);
+  const materialConflict = conflictLabels.length > 0;
+
   let type = verdictFromScore(score);
   // Item praticamente idêntico mas com dado novo → atualizar, não recriar.
   if (type === "EXISTING" && changes.length > 0) type = "UPDATE_EXISTING";
   if (type === "POSSIBLE_DUPLICATE" && sameOwner && score >= DEDUPE_THRESHOLDS.review + 0.05)
     type = "UPDATE_EXISTING";
+  if (best.relation === "same" && normalizeText(item.description) !== normalizeText(best.item.description))
+    type = "UPDATE_EXISTING";
+  if (best.relation === "related" || materialConflict) type = "POSSIBLE_DUPLICATE";
 
   // Conclusão/retomada não cria ação nova: muda o estado da existente.
-  const rawSignal = detectStatusSignal(`${item.description} ${item.evidence ?? ""}`);
   const done = best.item.status === "concluída";
   // Menção de conclusão costuma ser curta ("o contrato já foi assinado"):
   // exige menos similaridade, mas fica em revisão quando o texto é fraco.
@@ -377,7 +499,7 @@ export function matchAction(item: IncomingAction, candidates: ActionItem[]): Ded
     type = "POSSIBLE_DUPLICATE";
   const statusSignal: StatusSignal =
     type === "NEW" ? null : rawSignal === "resolved" && done ? null : rawSignal === "reopened" && !done ? null : rawSignal;
-  if (statusSignal) {
+  if (statusSignal && !materialConflict && best.relation !== "related") {
     type = "UPDATE_EXISTING";
     changes.push({
       field: "status",
@@ -397,30 +519,67 @@ export function matchAction(item: IncomingAction, candidates: ActionItem[]): Ded
     reason:
       type === "NEW"
         ? "Nenhuma ação aberta semelhante neste cliente."
-        : `Ação aberta semelhante (${pct(score)})${sameOwner ? ", mesmo responsável" : ""}${
-            changes.length ? `, com ${changes.map((c) => c.label.toLowerCase()).join(" e ")} diferente` : ""
-          }.`,
+        : materialConflict
+          ? `Mesma entrega provável (${pct(score)}), mas há conflito material de ${conflictLabels.join(" e ")}; requer revisão.`
+          : best.relation === "same"
+            ? `Mesmo núcleo de entrega identificado (${pct(score)}); a nova formulação detalha o item histórico.`
+            : best.relation === "related"
+              ? `Mesmo núcleo temático (${pct(score)}), mas a intenção ou etapa pode ser diferente; requer revisão.`
+              : `Ação aberta semelhante (${pct(score)})${sameOwner ? ", mesmo responsável" : ""}${
+                  changes.length ? `, com ${changes.map((c) => c.label.toLowerCase()).join(" e ")} diferente` : ""
+                }.`,
     changes,
   };
 }
 
 
-export type IncomingDecision = { title: string; description?: string; embedding?: number[] | null };
+export type IncomingDecision = {
+  title: string;
+  description?: string;
+  reason?: string;
+  owner?: string;
+  due_date?: string;
+  status?: string;
+  embedding?: number[] | null;
+};
 
 /** Escopo: decisões do mesmo projeto. Decisão contrária vira substituição. */
 export function matchDecision(
   item: IncomingDecision,
   candidates: Decision[],
 ): DedupeMatch<Decision> {
-  const best = pickBest(
+  const incomingContext = `${item.title} ${item.description ?? ""} ${item.reason ?? ""}`;
+  const best = pickBestHistorical(
     candidates,
     item.title,
-    (d) => `${d.title} ${d.description ?? ""}`,
+    incomingContext,
+    (d) => d.title,
+    (d) => `${d.title} ${d.description ?? ""} ${d.reason ?? ""}`,
     item.embedding,
     (d) => d.embedding,
   );
   if (!best) return noMatch<Decision>();
-  const type = verdictFromScore(best.score);
+
+  const changes: FieldChange[] = [];
+  if (item.owner && normalizeOwner(item.owner) !== normalizeOwner(best.item.owner))
+    changes.push({ field: "owner", label: "Responsável", from: best.item.owner ?? "—", to: item.owner });
+  if (item.due_date && normalizeDate(item.due_date) !== normalizeDate(best.item.due_date))
+    changes.push({ field: "due_date", label: "Prazo", from: best.item.due_date ?? "—", to: item.due_date });
+  if (item.status && normalizeText(item.status) !== normalizeText(best.item.status))
+    changes.push({ field: "status", label: "Status", from: best.item.status ?? "—", to: item.status });
+
+  const conflictLabels = [
+    hasFilledConflict(item.owner, best.item.owner, normalizeOwner) ? "responsável" : null,
+    hasFilledConflict(item.due_date, best.item.due_date, normalizeDate) ? "prazo" : null,
+    hasFilledConflict(item.status, best.item.status) ? "status" : null,
+    hasMaterialScopeConflict(item.description, best.item.description) ? "escopo textual" : null,
+  ].filter((label): label is string => !!label);
+  const materialConflict = conflictLabels.length > 0;
+  let type = verdictFromScore(best.score);
+  if (type === "EXISTING" && changes.length > 0) type = "UPDATE_EXISTING";
+  if (best.relation === "same" && normalizeText(incomingContext) !== normalizeText(`${best.item.title} ${best.item.description ?? ""} ${best.item.reason ?? ""}`))
+    type = "UPDATE_EXISTING";
+  if (best.relation === "related" || materialConflict) type = "POSSIBLE_DUPLICATE";
   return {
     type,
     confidence: best.score,
@@ -430,8 +589,14 @@ export function matchDecision(
     reason:
       type === "NEW"
         ? "Nenhuma decisão semelhante neste projeto."
-        : `Decisão semelhante já registrada neste projeto (${pct(best.score)}).`,
-    changes: [],
+        : materialConflict
+          ? `Mesma decisão provável (${pct(best.score)}), mas há conflito material de ${conflictLabels.join(" e ")}; requer revisão.`
+          : best.relation === "same"
+            ? `Mesmo núcleo de entrega identificado (${pct(best.score)}); a nova formulação detalha a decisão histórica.`
+            : best.relation === "related"
+              ? `Mesmo núcleo temático (${pct(best.score)}), mas a intenção ou etapa pode ser diferente; requer revisão.`
+              : `Decisão semelhante já registrada neste projeto (${pct(best.score)}).`,
+    changes,
   };
 }
 

@@ -373,7 +373,15 @@ export function MeetingAnalysisDialog({
           i,
           item,
           matchDecision(
-            { title: item.title, description: item.description, embedding: item.embedding ?? null },
+            {
+              title: item.title,
+              description: item.description,
+              reason: item.reason,
+              owner: item.owner,
+              due_date: item.due_date,
+              status: item.status,
+              embedding: item.embedding ?? null,
+            },
             decisions,
           ),
           decisionSel[i],
