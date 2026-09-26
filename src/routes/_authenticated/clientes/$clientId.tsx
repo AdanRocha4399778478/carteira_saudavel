@@ -15,6 +15,7 @@ import {
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/painel/PageHeader";
+import { TimerWidget } from "@/components/painel/TimerWidget";
 import { routeErrorComponent } from "@/components/painel/RouteError";
 import { EmptyState, ErrorState, LoadingState } from "@/components/painel/states";
 import {
@@ -286,6 +287,8 @@ function ClientDetailPage() {
       </PageHeader>
 
       <div className="flex flex-col gap-6 p-4 md:p-8">
+        <TimerWidget clientId={client.id} />
+
         <section className="card-surface grid gap-5 p-4 md:p-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">

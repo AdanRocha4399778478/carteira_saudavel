@@ -1438,6 +1438,86 @@ export type Database = {
           },
         ]
       }
+      time_entries: {
+        Row: {
+          amount_cents: number | null
+          client_id: string
+          consultant_id: string
+          created_at: string
+          description: string | null
+          duration_seconds: number | null
+          ended_at: string | null
+          erp_area: string
+          erp_subarea: string | null
+          hourly_rate_cents: number
+          id: string
+          project_id: string | null
+          started_at: string
+          updated_at: string
+        }
+        Insert: {
+          amount_cents?: number | null
+          client_id: string
+          consultant_id?: string
+          created_at?: string
+          description?: string | null
+          duration_seconds?: number | null
+          ended_at?: string | null
+          erp_area: string
+          erp_subarea?: string | null
+          hourly_rate_cents?: number
+          id?: string
+          project_id?: string | null
+          started_at?: string
+          updated_at?: string
+        }
+        Update: {
+          amount_cents?: number | null
+          client_id?: string
+          consultant_id?: string
+          created_at?: string
+          description?: string | null
+          duration_seconds?: number | null
+          ended_at?: string | null
+          erp_area?: string
+          erp_subarea?: string | null
+          hourly_rate_cents?: number
+          id?: string
+          project_id?: string | null
+          started_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "time_entries_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "time_entries_consultant_id_fkey"
+            columns: ["consultant_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "time_entries_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "cockpit_project_risk_counts"
+            referencedColumns: ["project_id"]
+          },
+          {
+            foreignKeyName: "time_entries_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           id: string
@@ -1494,6 +1574,11 @@ export type Database = {
       }
     }
     Functions: {
+      admin_delete_project: { Args: { p_project_id: string }; Returns: Json }
+      admin_delete_project_preview: {
+        Args: { p_project_id: string }
+        Returns: Json
+      }
       admin_undo_meeting: { Args: { p_meeting_id: string }; Returns: Json }
       analysis_scope_is_consistent: {
         Args: {
