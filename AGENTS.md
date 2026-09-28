@@ -19,3 +19,7 @@
 > ainda assim precisa existir e ser commitado antes de considerar o trabalho
 > concluído. Já aconteceu de colunas existirem só em produção, sem arquivo
 > nenhum no git — ver `supabase/migrations/20260928000000_add_erp_columns_actions_projects.sql`.
+> Já aconteceu também com **policy de RLS**, que é mais grave: a auditoria de
+> 2026-09-28 encontrou policies de produção bem mais permissivas do que as
+> migrations descrevem — qualquer mudança de RLS precisa do mesmo tratamento,
+> nunca aplicada direto pela ferramenta, sob nenhuma justificativa.
