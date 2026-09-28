@@ -6,11 +6,11 @@ Sep 27, 2026
 
 A função "Reunião Inteligente" gera sugestões de itens de projeto (objetivos, ações, decisões, riscos etc.) a partir da transcrição de cada reunião, e tenta detectar duplicidade/atualização contra o histórico antes de aplicar. Hoje essa comparação parece olhar apenas a reunião imediatamente anterior (N vs. N-1), não o conjunto do projeto.
 
-Três reuniões reais do cliente Grupo Erinho (projeto Operações) expuseram o problema:
+Três reuniões reais do cliente piloto (projeto Operações) expuseram o problema:
 
-- **12/05/2026**: gerou a ação "Revisar dados do sistema Conta Azul para avaliação do fluxo de caixa" e a decisão "Aguardar mais meses de dados para finalizar modelo de remuneração".
-- **13/05/2026** (1 dia depois): as 25 sugestões vieram todas marcadas como "novas" (0 marcadas para revisão), incluindo itens que na prática são continuação direta do dia anterior — "Revisar e categorizar corretamente os lançamentos do extrato" (evolução da ação sobre Conta Azul) e a decisão "Implementação do modelo de pagamento baseado em meritocracia" (que contradiz/substitui a decisão de aguardar, do dia anterior, sem qualquer vínculo sinalizado).
-- **20/05/2026**: a decisão "Uso da planilha para substituição do sistema financeiro atual" também não foi vinculada ao trabalho de revisão do Conta Azul de 12/05, por estar fora da janela de comparação (reunião N-1 é a de 13/05).
+- **12/05/2026**: gerou a ação sobre revisão de sistema financeiro para avaliação do fluxo de caixa e a decisão sobre o modelo de remuneração (aguardar mais meses de dados antes de finalizar).
+- **13/05/2026** (1 dia depois): as 25 sugestões vieram todas marcadas como "novas" (0 marcadas para revisão), incluindo itens que na prática são continuação direta do dia anterior — a ação sobre categorização de lançamentos financeiros (evolução da ação sobre revisão de sistema financeiro) e a decisão sobre modelo de pagamento baseado em meritocracia (que contradiz/substitui a decisão sobre o modelo de remuneração, do dia anterior, sem qualquer vínculo sinalizado).
+- **20/05/2026**: a decisão sobre substituição do sistema financeiro atual por planilha também não foi vinculada ao trabalho de revisão de sistema financeiro de 12/05, por estar fora da janela de comparação (reunião N-1 é a de 13/05).
 
 Em paralelo, no bloco de Ações de 12/05, o sistema classificou corretamente um par como "possível duplicidade" (52% de similaridade, conflito de responsável) mesmo comparando textos bem diferentes — mostrando que a lógica de similaridade em si funciona; o problema é o escopo temporal restrito da comparação, não o algoritmo de match.
 
@@ -48,10 +48,10 @@ Hoje as duas parecem fundidas na mesma lógica de comparação N vs. N-1. Devem 
 
 ## Descoberta na investigação do código (27/09)
 
-Antes de implementar, o código atual foi mapeado e testado contra os dados reais de produção (Grupo Erinho). O diagnóstico original deste documento precisa de correção:
+Antes de implementar, o código atual foi mapeado e testado contra os dados reais de produção (cliente piloto). O diagnóstico original deste documento precisa de correção:
 
 - **O escopo já é o projeto inteiro, não N vs. N-1**: `scopeToProject()` (ações e riscos) já busca candidatos em todas as reuniões do projeto, sem limite de tempo — é comportamento intencional desde o início. Decisões e oportunidades (`projectDecisionsQuery`) nunca tiveram limite de reunião. O que falta de fato é só o cruzamento entre projetos diferentes do mesmo cliente.
-- **Os dois pares que motivaram este documento não são um problema de escopo**: testados com os embeddings reais já salvos, "Revisar Conta Azul" (12/05) vs. "Revisar e categorizar lançamentos do extrato" (13/05) deu cosine 0,658, e "Aguardar mais meses..." vs. "Implementação gradual do modelo..." deu 0,612 — ambos abaixo do threshold de revisão (0,70), mesmo comparando contra o projeto inteiro sem limite de tempo. Ampliar o escopo não teria pego nenhum dos dois.
+- **Os dois pares que motivaram este documento não são um problema de escopo**: testados com os embeddings reais já salvos, a ação sobre revisão de sistema financeiro (12/05) vs. a ação sobre categorização de lançamentos financeiros (13/05) deu cosine 0,658, e a decisão sobre o modelo de remuneração (12/05) vs. a decisão sobre modelo de pagamento baseado em meritocracia (13/05) deu 0,612 — ambos abaixo do threshold de revisão (0,70), mesmo comparando contra o projeto inteiro sem limite de tempo. Ampliar o escopo não teria pego nenhum dos dois.
 - **Conclusão**: alargar o cruzamento para todos os projetos do cliente continua válido e resolve o caso de 20/05 (que estava em outro recorte de reunião). Mas os dois exemplos centrais do documento são um problema diferente — detectar que uma decisão nova substitui/contradiz uma antiga sobre o mesmo tema, ou que duas tarefas são a mesma mudando de fonte de dados — que a similaridade textual pura não capta. Isso provavelmente exige um mecanismo à parte (ex: um julgamento mais semântico/contextual sobre o mesmo tópico, não só distância de embedding).
 
 ## Implementação (item 1) — concluída, aguardando validação visual
@@ -63,12 +63,12 @@ Antes de implementar, o código atual foi mapeado e testado contra os dados reai
 - 5 testes novos para `annotateOrigin` + 1 teste estrutural pré-existente corrigido; suíte completa: 311 pass, 0 fail, build limpo.
 - Estado atual: o trabalho foi separado da branch `feat/unified-erp-taxonomy-and-entity-timer` e está na branch local `feat/dedup-cliente-cronologia`, com 4 commits sobre a main (cruzamento entre projetos, trava de cronologia, relatório de duplicidade, normalização de responsável). Cada commit passa typecheck, testes e build sozinho; o HEAD tem 366 testes. Ainda sem push e sem PR.
 
-## Investigação 2 — dados reais (reuniões 05/06 e 10/06, Grupo Erinho)
+## Investigação 2 — dados reais (reuniões 05/06 e 10/06, cliente piloto)
 
 A reunião de 05/06 foi processada depois da de 10/06. Isso expôs três pontos, todos confirmados com dados de produção, sem alteração de código:
 
 - **Cronologia não é considerada.** O widget "Evolução desde a última reunião" não escolhe reunião nenhuma: é montado a partir do resultado do match da própria reunião. Os candidatos são ordenados só por score, sem olhar a data da reunião de origem. `previousMeetingId` nunca é passado pelos dois pontos de entrada, então a tabela `meeting_evolution` fica sempre com `null`. O "Atualizar existente" sobrescreve prazo, responsável, prioridade (e o título, nas decisões) sem comparar as datas das reuniões. Efeito: uma reunião antiga processada tarde pode substituir, em silêncio, dados de um registro mais novo.
-- **Responsável mal normalizado.** `normalizeOwner()` usa só o primeiro token. "Speaker 1" e "Speaker 2" viram ambos `speaker` (falso negativo: conflito real escondido). "Ada" e "Adam" divergem, embora na transcrição sejam a mesma pessoa (falso positivo). "Equipe operacional/Erinho" vira `equipe` e conflita com "Erinho" (falso positivo).
+- **Responsável mal normalizado.** `normalizeOwner()` usa só o primeiro token. "Speaker 1" e "Speaker 2" viram ambos `speaker` (falso negativo: conflito real escondido). Duas grafias do mesmo participante divergem, embora na transcrição sejam a mesma pessoa (falso positivo). "Equipe operacional/cliente piloto" vira `equipe` e conflita com "cliente piloto" (falso positivo).
 - **Consolidação interna não é bug.** As duas ações de carteira assinada têm cosine 0,553, abaixo do limiar de 0,60, e similaridade lexical de 0,283. O reforço por núcleo lexical/verbo existe só no match histórico, não na consolidação dentro da mesma reunião. Fica no backlog junto com o item 2 (relação semântica entre itens).
 
 **Decisões desta rodada:** (1) impedir que item de reunião mais antiga sobrescreva registro de reunião mais nova; (2) botão de relatório de duplicidade em texto puro; (3) normalização de responsável por conjunto de nomes, tratando rótulos genéricos como desconhecidos e usando alias por cliente para variações de grafia. **Backlog:** alimentar `previousMeetingId` pela data da reunião; equiparar a consolidação intra-reunião ao match histórico.
@@ -76,10 +76,10 @@ A reunião de 05/06 foi processada depois da de 10/06. Isso expôs três pontos,
 ## Validação ao vivo (análise de 05/06, somente leitura)
 
 - **Relatório de duplicidade:** a validação achou um bug do B2. O relatório mostrava 85 sugestões no cabeçalho, mas só listava as de decisões, ações, riscos e oportunidades; os itens de contexto ficavam de fora. Corrigido, com 2 testes novos. Resultado: 85 de 85 sugestões listadas, 366 testes, typecheck e build limpos.
-- **Cronologia:** 2 decisões foram marcadas com candidato de reunião posterior (10/06) e "Atualizar existente" desabilitado. "Modelo de comissão de 9%…" teve como melhor candidato "Modelo de comissão definido para equipe" (cosine 0,612). "Organização do pátio e quadro de controle" teve "Desocupar o pátio" (0,483). As duas ficaram com veredito Novo. O bloqueio efetivo, com score de 0,70 ou mais contra item posterior, só foi exercitado nos testes unitários, não com dado real.
-- **Responsável:** nenhum rótulo genérico ("Speaker N", "Equipe operacional/Erinho") gerou conflito. Os vereditos vieram só do score.
+- **Cronologia:** 2 decisões foram marcadas com candidato de reunião posterior (10/06) e "Atualizar existente" desabilitado. A decisão sobre o modelo de remuneração (comissão de 9%) teve como melhor candidato a decisão sobre o modelo de remuneração definido para a equipe (cosine 0,612). A ação sobre organização do pátio e quadro de controle teve como candidato a ação sobre desocupação do pátio (0,483). As duas ficaram com veredito Novo. O bloqueio efetivo, com score de 0,70 ou mais contra item posterior, só foi exercitado nos testes unitários, não com dado real.
+- **Responsável:** nenhum rótulo genérico ("Speaker N", "Equipe operacional/cliente piloto") gerou conflito. Os vereditos vieram só do score.
 - **Limite conhecido:** os itens de contexto (objetivos, problemas, prioridades etc.) aparecem sem cosine no relatório, porque o embedding é removido antes de a análise ser devolvida ao cliente.
-- **Evidência para o item 2:** a decisão de comissão de 9% (05/06) e a de "modelo de comissão definido para equipe" (10/06) tratam do mesmo assunto e ficaram em 0,612, abaixo do limiar de revisão de 0,70. É o mesmo padrão dos pares de 12/05 e 13/05 (0,658 e 0,612): mesma frente de trabalho, redação diferente. O próximo passo é o mecanismo de relação semântica, não um ajuste de limiar.
+- **Evidência para o item 2:** a decisão sobre o modelo de remuneração (comissão de 9%, 05/06) e a decisão sobre o modelo de remuneração definido para a equipe (10/06) tratam do mesmo assunto e ficaram em 0,612, abaixo do limiar de revisão de 0,70. É o mesmo padrão dos pares de 12/05 e 13/05 (0,658 e 0,612): mesma frente de trabalho, redação diferente. O próximo passo é o mecanismo de relação semântica, não um ajuste de limiar.
 - **Decisões e pendências:** alias de responsável fica como constante indexada por `client_id` (sem migration por enquanto). Commits prontos na branch local feat/dedup-cliente-cronologia; faltam push e PR.
 
 ## Próximos passos sugeridos
