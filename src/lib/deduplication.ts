@@ -107,6 +107,78 @@ export function normalizeOwner(value: string | null | undefined): string {
   return clean[0] ?? "";
 }
 
+/* ---------------- responsável: conjunto, não string única ---------------- */
+
+/**
+ * Rótulos que a transcrição usa quando não identificou a pessoa — nunca
+ * confirmam nem descartam um conflito, porque não dizem quem é ninguém.
+ * `normalizeOwner` já reduz ao primeiro token, então "Equipe operacional"
+ * e "Responsável técnico" chegam aqui como só "equipe"/"responsavel".
+ */
+const GENERIC_OWNER_LABELS = new Set(["speaker", "equipe", "responsavel", "consultor", "consultoria"]);
+
+/** Separa um campo de texto com múltiplos responsáveis: "/", ",", "&" ou " e ". */
+function splitOwnerNames(value: string): string[] {
+  return value
+    .replace(/\([^)]*\)/g, " ") // remove qualificador entre parênteses ("Adam (consultor)" -> "Adam")
+    .split(/\/|,|&|\se\s/i)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Alias de grafia por cliente — resolvido por tabela explícita, nunca por
+ * distância de edição (aproximação de texto pode juntar pessoas diferentes
+ * que só têm nomes parecidos). Semente temporária enquanto o local
+ * definitivo de armazenamento não é decidido (proposta em aberto — ver
+ * discussão da B3): hoje é só uma constante no código.
+ */
+const OWNER_ALIAS_SEED: Record<string, Record<string, string>> = {
+  "9943b0f4-5220-4297-9f17-7fee64280da5": { ada: "adam" }, // Grupo Erinho — "Ada" e "Adam" são a mesma pessoa.
+};
+
+/** Resolve uma variação de grafia conhecida do responsável, pro cliente informado. */
+export function resolveOwnerAlias(clientId: string | null | undefined, normalizedName: string): string {
+  if (!clientId) return normalizedName;
+  return OWNER_ALIAS_SEED[clientId]?.[normalizedName] ?? normalizedName;
+}
+
+/**
+ * Conjunto de responsáveis conhecidos citados num campo de texto — não um
+ * único nome. Separa multi-responsável, remove qualificadores entre
+ * parênteses, descarta rótulos genéricos (viram DESCONHECIDO — nem
+ * confirmam nem escondem conflito) e resolve alias de grafia por cliente.
+ */
+export function normalizeOwnerSet(
+  value: string | null | undefined,
+  clientId?: string | null,
+): Set<string> {
+  if (!value) return new Set();
+  const names = splitOwnerNames(value)
+    .map((n) => normalizeOwner(n))
+    .filter((n) => n && !GENERIC_OWNER_LABELS.has(n))
+    .map((n) => resolveOwnerAlias(clientId, n));
+  return new Set(names);
+}
+
+/**
+ * Conflito material de responsável: só quando os DOIS lados têm pelo menos
+ * um nome conhecido (rótulo genérico não conta como nome) e os conjuntos
+ * são disjuntos. Desconhecido de qualquer lado não afirma nem nega
+ * conflito — fica em aberto, não bloqueia por falta de informação.
+ */
+export function hasOwnerConflict(
+  incoming: string | null | undefined,
+  existing: string | null | undefined,
+  clientId?: string | null,
+): boolean {
+  const a = normalizeOwnerSet(incoming, clientId);
+  const b = normalizeOwnerSet(existing, clientId);
+  if (a.size === 0 || b.size === 0) return false;
+  for (const name of a) if (b.has(name)) return false;
+  return true;
+}
+
 /**
  * Função central de normalização para comparação. Todo o resto do sistema
  * deve usar esta (ou os helpers acima) — nunca normalizar em componentes.
@@ -473,7 +545,7 @@ export function matchAction(item: IncomingAction, candidates: ActionItem[]): Ded
 
   const rawSignal = detectStatusSignal(`${item.description} ${item.evidence ?? ""}`);
   const conflictLabels = [
-    hasFilledConflict(item.owner_name, best.item.owner_name, normalizeOwner) ? "responsável" : null,
+    hasOwnerConflict(item.owner_name, best.item.owner_name, best.item.client_id) ? "responsável" : null,
     hasFilledConflict(item.deadline, best.item.deadline, normalizeDate) ? "prazo" : null,
     hasFilledConflict(item.priority, best.item.priority) ? "prioridade" : null,
     (best.item.status === "concluída" || best.item.status === "cancelada") && rawSignal !== "reopened"
@@ -569,7 +641,7 @@ export function matchDecision(
     changes.push({ field: "status", label: "Status", from: best.item.status ?? "—", to: item.status });
 
   const conflictLabels = [
-    hasFilledConflict(item.owner, best.item.owner, normalizeOwner) ? "responsável" : null,
+    hasOwnerConflict(item.owner, best.item.owner, best.item.client_id) ? "responsável" : null,
     hasFilledConflict(item.due_date, best.item.due_date, normalizeDate) ? "prazo" : null,
     hasFilledConflict(item.status, best.item.status) ? "status" : null,
     hasMaterialScopeConflict(item.description, best.item.description) ? "escopo textual" : null,
@@ -758,6 +830,10 @@ export type ItemResolution = {
   changes: FieldChange[];
   /** Mudança de estado aprovada junto com a atualização. */
   statusSignal?: StatusSignal;
+  /** Cronologia do candidato encontrado em relação à reunião atual — ver `chronologyOf`. */
+  chronology?: ChronologyStatus;
+  /** Data (ISO, "AAAA-MM-DD") da reunião de origem do candidato, só para exibição. */
+  candidateMeetingDate?: string | null;
 };
 
 /** Sugestão padrão — casos ambíguos NUNCA decidem sozinhos (ficam em revisão). */
@@ -785,6 +861,44 @@ export function needsHumanReview(match: DedupeMatch<unknown>): boolean {
   return match.type === "POSSIBLE_DUPLICATE";
 }
 
+/* ---------------- cronologia ---------------- */
+
+export type ChronologyStatus = "current_or_earlier" | "posterior" | "unknown";
+
+/**
+ * Compara a data da reunião de origem de um candidato com a da reunião
+ * atual — datas são strings "AAAA-MM-DD", comparáveis lexicograficamente.
+ * Data igual não conta como posterior. Qualquer data ausente vira
+ * "unknown" (nunca bloqueia sozinha — a ausência de dado não é motivo pra
+ * travar uma atualização legítima).
+ */
+export function chronologyOf(
+  currentMeetingDate: string | null | undefined,
+  candidateMeetingDate: string | null | undefined,
+): ChronologyStatus {
+  if (!currentMeetingDate || !candidateMeetingDate) return "unknown";
+  return candidateMeetingDate > currentMeetingDate ? "posterior" : "current_or_earlier";
+}
+
+/**
+ * Aplica a trava de cronologia a uma resolução já calculada: um candidato
+ * de reunião posterior nunca pode ser alvo de "Atualizar existente" — o
+ * veredito e a confiança são preservados (auditoria), só o modo de
+ * resolução é rebaixado para "create" quando estava em "update".
+ */
+export function applyChronologyGuard(
+  resolution: ItemResolution,
+  chronology: ChronologyStatus,
+  candidateMeetingDate?: string | null,
+): ItemResolution {
+  return {
+    ...resolution,
+    mode: chronology === "posterior" && resolution.mode === "update" ? "create" : resolution.mode,
+    chronology,
+    candidateMeetingDate: candidateMeetingDate ?? null,
+  };
+}
+
 /* ---------------- escopo de comparação ---------------- */
 
 /**
@@ -801,6 +915,177 @@ export function scopeToProject<T extends { meeting_id?: string | null }>(
   if (ids.size === 0) return candidates;
   const scoped = candidates.filter((c) => !c.meeting_id || ids.has(c.meeting_id));
   return scoped.length ? scoped : candidates;
+}
+
+/**
+ * Anota o motivo de um match com a origem, quando o candidato encontrado
+ * vier de um projeto diferente do projeto atual (comparação antiduplicidade
+ * agora cruza todos os projetos do cliente, não só o projeto/reunião atual).
+ * Não altera type/confidence/changes — só acrescenta contexto ao texto.
+ */
+export function annotateOrigin<T>(
+  match: DedupeMatch<T>,
+  itemProjectId: string | null | undefined,
+  currentProjectId: string | null | undefined,
+  projectNameById: Map<string, string>,
+): DedupeMatch<T> {
+  if (match.type === "NEW") return match;
+  if (!itemProjectId || itemProjectId === currentProjectId) return match;
+  const name = projectNameById.get(itemProjectId);
+  const origin = name ? `Vem do projeto "${name}".` : "Vem de outro projeto do cliente.";
+  return { ...match, reason: `${match.reason} ${origin}` };
+}
+
+/* ---------------- relatório de duplicidade (auditoria) ---------------- */
+
+export type RankedCandidate<T> = {
+  item: T;
+  /** Mesmo score usado pelo matching real (lexical ou combinado) — determina a ordem. */
+  score: number;
+  /** Só a componente semântica, isolada — null quando algum dos dois lados não tem embedding. */
+  cosine: number | null;
+};
+
+/**
+ * Ranking dos N melhores candidatos por score (não só o primeiro, como
+ * `pickBest`) — usado para auditoria: mostrar por que um item saiu "NEW"
+ * também exige ver o que quase bateu e não bateu.
+ */
+export function rankCandidates<T>(
+  candidates: T[],
+  incomingText: string,
+  getText: (item: T) => string,
+  incomingEmbedding?: number[] | null,
+  getEmbedding?: (item: T) => number[] | null | undefined,
+  limit = 3,
+): RankedCandidate<T>[] {
+  const ranked = candidates.map((item) => {
+    const text = getText(item);
+    const embedding = getEmbedding?.(item);
+    const hasBothEmbeddings = !!incomingEmbedding && !!embedding;
+    const score = getEmbedding
+      ? combinedSimilarity(incomingText, text, incomingEmbedding, embedding)
+      : similarity(incomingText, text);
+    const cosine = hasBothEmbeddings ? cosineSimilarity(incomingEmbedding, embedding) : null;
+    return { item, score, cosine };
+  });
+  ranked.sort((a, b) => b.score - a.score);
+  return ranked.slice(0, Math.max(0, limit));
+}
+
+export type DuplicateReportCandidate = {
+  text: string;
+  projectName: string | null;
+  meetingId: string | null;
+  meetingDate: string | null;
+  status: string | null;
+  owner: string | null;
+  cosine: number | null;
+};
+
+export type DuplicateReportSuggestion = {
+  category: string;
+  text: string;
+  classification?: string | null;
+  ownerName: string | null;
+  deadline: string | null;
+  verdict: DedupeVerdict;
+  confidence: number;
+  /** true quando o candidato escolhido (targetId) veio de reunião posterior à atual — ver B1. */
+  posterior: boolean;
+  /** Melhores candidatos do cliente inteiro contra este item, mesmo quando o veredito é NEW — pra auditoria. */
+  candidates: DuplicateReportCandidate[];
+};
+
+export type DuplicateReportConsolidation = {
+  category: string;
+  canonicalText: string;
+  mergedTexts: string[];
+};
+
+export type DuplicateReportCounts = {
+  total: number;
+  new: number;
+  updated: number;
+  review: number;
+  ignored: number;
+};
+
+export type DuplicateReportInput = {
+  clientName: string;
+  projectName: string;
+  meetingId: string;
+  meetingDate: string;
+  counts: DuplicateReportCounts;
+  consolidations: DuplicateReportConsolidation[];
+  suggestions: DuplicateReportSuggestion[];
+};
+
+const VERDICT_REPORT_LABEL: Record<DedupeVerdict, string> = {
+  NEW: "Novo",
+  EXISTING: "Já existe (idêntico)",
+  UPDATE_EXISTING: "Atualização",
+  POSSIBLE_DUPLICATE: "Possível duplicidade",
+};
+
+/**
+ * Relatório de duplicidade em markdown puro (sem embeddings) — pra copiar e
+ * auditar fora da tela: por que cada sugestão saiu do jeito que saiu, e
+ * contra o quê ela foi comparada. Função pura: recebe só dados já
+ * carregados pelo diálogo, não acessa rede nem banco.
+ */
+export function formatDuplicateReport(input: DuplicateReportInput): string {
+  const lines: string[] = [];
+  lines.push("# Relatório de duplicidade — Reunião Inteligente");
+  lines.push("");
+  lines.push(`- Cliente: ${input.clientName}`);
+  lines.push(`- Projeto: ${input.projectName}`);
+  lines.push(`- Reunião: ${input.meetingDate} (id: ${input.meetingId})`);
+  lines.push(
+    `- Contadores: ${input.counts.total} total · ${input.counts.new} novo(s) · ${input.counts.updated} atualização(ões) · ${input.counts.review} para revisar · ${input.counts.ignored} ignorado(s)`,
+  );
+  lines.push("");
+
+  if (input.consolidations.length > 0) {
+    lines.push("## Consolidações internas (mesma reunião)");
+    lines.push("");
+    for (const c of input.consolidations) {
+      lines.push(`- [${c.category}] "${c.canonicalText}" ← ${c.mergedTexts.map((t) => `"${t}"`).join(", ")}`);
+    }
+    lines.push("");
+  }
+
+  lines.push("## Sugestões");
+  lines.push("");
+  for (const s of input.suggestions) {
+    lines.push(`### [${s.category}] ${s.text}`);
+    const meta: string[] = [
+      `Veredito: ${VERDICT_REPORT_LABEL[s.verdict]} (${Math.round(s.confidence * 100)}%)`,
+    ];
+    if (s.classification) meta.push(`Classificação: ${s.classification}`);
+    if (s.ownerName) meta.push(`Responsável proposto: ${s.ownerName}`);
+    if (s.deadline) meta.push(`Prazo proposto: ${s.deadline}`);
+    if (s.posterior) meta.push("⚠ Candidato de reunião posterior — não oferecido para atualizar");
+    lines.push(meta.join(" · "));
+    if (s.candidates.length === 0) {
+      lines.push("- Nenhum candidato no histórico do cliente.");
+    } else {
+      for (const c of s.candidates) {
+        const parts = [
+          `"${c.text}"`,
+          c.projectName ? `projeto: ${c.projectName}` : "projeto: —",
+          c.meetingDate ? `reunião: ${c.meetingDate}${c.meetingId ? ` (${c.meetingId})` : ""}` : "reunião: —",
+          `status: ${c.status ?? "—"}`,
+          `responsável: ${c.owner ?? "—"}`,
+          `cosine: ${c.cosine === null ? "—" : c.cosine.toFixed(3)}`,
+        ];
+        lines.push(`- ${parts.join(" · ")}`);
+      }
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n").trim() + "\n";
 }
 
 /* ---------------- serviço central ---------------- */

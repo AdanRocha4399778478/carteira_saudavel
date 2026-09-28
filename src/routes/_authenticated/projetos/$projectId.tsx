@@ -30,6 +30,7 @@ import { ProjectDeleteDialog } from "@/components/painel/ProjectDeleteDialog";
 import { useAccess } from "@/lib/auth/access";
 import {
   clientActionsQuery,
+  clientMeetingsQuery,
   clientOpportunitiesQuery,
   clientRisksQuery,
   profilesQuery,
@@ -40,6 +41,8 @@ import {
   CONTEXT_LIST_LABEL,
   DECISION_STATUS_LABEL,
   PROJECT_STATUS_LABEL,
+  clientDecisionsQuery,
+  clientProjectNamesQuery,
   ensureProjectContext,
   emptyContextLists,
   projectContextQuery,
@@ -177,6 +180,10 @@ function ProjectDetailPage() {
   const actions = useQuery(clientActionsQuery(clientId));
   const risks = useQuery(clientRisksQuery(clientId));
   const opportunities = useQuery(clientOpportunitiesQuery(clientId));
+  /** Universo completo do cliente pra checagem antiduplicidade da Reunião Inteligente — não só o projeto atual. */
+  const allClientDecisions = useQuery(clientDecisionsQuery(clientId));
+  const clientMeetings = useQuery(clientMeetingsQuery(clientId));
+  const clientProjectNames = useQuery(clientProjectNamesQuery(clientId));
   const evolution = useQuery(projectEvolutionQuery(projectId));
 
   const [editOpen, setEditOpen] = useState(false);
@@ -861,6 +868,10 @@ function ProjectDetailPage() {
         actions={actions.data ?? []}
         risks={risks.data ?? []}
         decisions={decisions.data ?? []}
+        allDecisions={allClientDecisions.data ?? []}
+        clientMeetings={clientMeetings.data ?? []}
+        clientProjects={clientProjectNames.data ?? []}
+        {...(client.data?.company_name ? { clientName: client.data.company_name } : {})}
         opportunities={(opportunities.data ?? []).filter((o) => o.client_id === p.client_id)}
         projectMeetingIds={(meetings.data ?? []).map((m) => m.id)}
       />

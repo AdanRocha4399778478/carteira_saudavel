@@ -5,6 +5,7 @@ import { logDbError, recalculateClient } from "./api";
 import { analyzeMeetingWithAI } from "./intelligent-meeting.functions";
 import {
   buildIdempotencyKey,
+  chronologyOf,
   matchContextItem,
   type ItemResolution,
 } from "./deduplication";
@@ -869,6 +870,13 @@ export type ApplyResult = {
   skipped: number;
   /** true quando esta mesma análise já havia sido aplicada. */
   alreadyApplied: boolean;
+  /**
+   * "Atualizar existente" recusado porque o alvo veio de uma reunião
+   * posterior à atual (defesa em profundidade — a UI já desabilita essa
+   * opção, mas o backend nunca confia só nisso). Nem cria, nem atualiza:
+   * o item fica de fora desta aplicação.
+   */
+  blockedByChronology: number;
 };
 
 const emptyApplyResult = (): ApplyResult => ({
@@ -880,7 +888,16 @@ const emptyApplyResult = (): ApplyResult => ({
   updated: 0,
   skipped: 0,
   alreadyApplied: false,
+  blockedByChronology: 0,
 });
+
+/** Data da reunião de origem de um registro já existente — pra checagem de cronologia. */
+async function meetingDateOf(meetingId: string | null | undefined): Promise<string | null> {
+  if (!meetingId) return null;
+  const res = await supabase.from("meetings").select("meeting_date").eq("id", meetingId).maybeSingle();
+  if (res.error || !res.data) return null;
+  return (res.data as { meeting_date: string | null }).meeting_date ?? null;
+}
 
 /** Resolução efetiva: o que o consultor escolheu, ou "criar" por omissão. */
 function resolutionOf(item: { resolution?: ItemResolution }): ItemResolution {
@@ -1087,6 +1104,13 @@ export async function applyApprovedAnalysis(params: {
         .select("*")
         .eq("id", res.targetId)
         .maybeSingle();
+      // Defesa em profundidade: nunca sobrescreve um registro de reunião posterior,
+      // mesmo que o modo "update" tenha chegado até aqui (ex.: aplicar sugestões seguras).
+      const candidateMeetingId = (previous.data as { meeting_id?: string | null } | null)?.meeting_id;
+      if (chronologyOf(meeting.meeting_date, await meetingDateOf(candidateMeetingId)) === "posterior") {
+        result.blockedByChronology += 1;
+        continue;
+      }
       const patch: Record<string, unknown> = { title: d.title };
       if (d.description) patch["description"] = d.description;
       if (d.reason) patch["reason"] = d.reason;
@@ -1193,6 +1217,11 @@ export async function applyApprovedAnalysis(params: {
         .select("*")
         .eq("id", res.targetId)
         .maybeSingle();
+      const candidateMeetingId = (previous.data as { meeting_id?: string | null } | null)?.meeting_id;
+      if (chronologyOf(meeting.meeting_date, await meetingDateOf(candidateMeetingId)) === "posterior") {
+        result.blockedByChronology += 1;
+        continue;
+      }
       const patch: Record<string, unknown> = {};
       // Conclusão/retomada muda o estado da MESMA ação — nunca cria outra.
       if (res.statusSignal === "resolved") patch["status"] = "concluída";
@@ -1288,6 +1317,11 @@ export async function applyApprovedAnalysis(params: {
 
     if (res.mode === "update" && res.targetId) {
       const previous = await supabase.from("risks").select("*").eq("id", res.targetId).maybeSingle();
+      const candidateMeetingId = (previous.data as { meeting_id?: string | null } | null)?.meeting_id;
+      if (chronologyOf(meeting.meeting_date, await meetingDateOf(candidateMeetingId)) === "posterior") {
+        result.blockedByChronology += 1;
+        continue;
+      }
       // Risco resolvido apenas muda de estado; reaparecimento reativa o MESMO risco.
       const patch: Record<string, unknown> = { active: res.statusSignal !== "resolved" };
       if (r.level) patch["level"] = r.level;
@@ -1374,6 +1408,11 @@ export async function applyApprovedAnalysis(params: {
         .select("*")
         .eq("id", res.targetId)
         .maybeSingle();
+      const candidateMeetingId = (previous.data as { meeting_id?: string | null } | null)?.meeting_id;
+      if (chronologyOf(meeting.meeting_date, await meetingDateOf(candidateMeetingId)) === "posterior") {
+        result.blockedByChronology += 1;
+        continue;
+      }
       const patch: Record<string, unknown> = {};
       if (o.expected_benefit) patch["expected_benefit"] = o.expected_benefit;
       if (o.embedding) patch["embedding"] = o.embedding;

@@ -30,6 +30,7 @@ import {
 } from "@/lib/domain";
 import {
   CONTEXT_LIST_LABEL,
+  type ContextItem,
   type ContextListKey,
   type Decision,
   type Project,
@@ -54,15 +55,23 @@ import {
   type SemanticConsolidation,
 } from "@/lib/meeting-analysis";
 import {
+  annotateOrigin,
+  applyChronologyGuard,
+  chronologyOf,
   defaultResolution,
+  formatDuplicateReport,
   matchAction,
   matchContextItem,
   matchDecision,
   matchOpportunity,
   matchRisk,
+  rankCandidates,
   scopeToProject,
   VERDICT_LABEL,
+  type ChronologyStatus,
   type DedupeMatch,
+  type DuplicateReportCandidate,
+  type DuplicateReportSuggestion,
   type ItemResolution,
   type ResolutionMode,
 } from "@/lib/deduplication";
@@ -158,10 +167,19 @@ function buildRow<T, K extends string | number>(
   item: T,
   match: DedupeMatch<unknown>,
   override: ResolutionMode | undefined,
+  chronology?: { currentMeetingDate: string | null | undefined; candidateMeetingDate: string | null | undefined },
 ): DedupeRow<T, K> {
   const base = defaultResolution(match);
-  const mode = override ?? base.mode;
-  return { key, item, match, mode, resolution: { ...base, mode } };
+  const guarded = chronology
+    ? applyChronologyGuard(
+        base,
+        chronologyOf(chronology.currentMeetingDate, chronology.candidateMeetingDate),
+        chronology.candidateMeetingDate,
+      )
+    : base;
+  // Posterior nunca vira "update", nem por override manual (o botão já vem desabilitado na UI).
+  const mode = override && !(override === "update" && guarded.chronology === "posterior") ? override : guarded.mode;
+  return { key, item, match, mode, resolution: { ...guarded, mode } };
 }
 
 /** Converte linhas de dedupe (já com key/match/mode) no formato que review-blocks.ts entende. */
@@ -221,6 +239,10 @@ export function MeetingAnalysisDialog({
   actions,
   risks,
   decisions,
+  allDecisions,
+  clientMeetings = [],
+  clientProjects = [],
+  clientName,
   opportunities = [],
   initialAnalysis = null,
   initialTranscript,
@@ -235,7 +257,16 @@ export function MeetingAnalysisDialog({
   context: ProjectContext | null;
   actions: ActionItem[];
   risks: RiskItem[];
+  /** Decisões do projeto atual — usadas na pauta e na aba Decisões (fora deste diálogo). */
   decisions: Decision[];
+  /** Todas as decisões do cliente (qualquer projeto) — universo da checagem antiduplicidade. Cai para `decisions` quando ausente. */
+  allDecisions?: Decision[];
+  /** Todas as reuniões do cliente (qualquer projeto) — usadas só pra identificar de qual projeto veio um item comparado. */
+  clientMeetings?: Meeting[];
+  /** Nome dos projetos do cliente — usado junto com `clientMeetings` pra rotular a origem de um item comparado de outro projeto. */
+  clientProjects?: { id: string; name: string }[];
+  /** Nome do cliente — só para o cabeçalho do relatório de duplicidade copiável. */
+  clientName?: string;
   /** Oportunidades do cliente — escopo da checagem antiduplicidade. */
   opportunities?: OpportunityItem[];
   /** Reuniões do projeto — restringe a busca de duplicidade ao escopo do projeto. */
@@ -327,6 +358,47 @@ export function MeetingAnalysisDialog({
     () => scopeToProject(risks.filter((r) => r.client_id === meeting?.client_id), projectMeetingIds),
     [risks, meeting?.client_id, projectMeetingIds],
   );
+
+  /**
+   * Escopo antiduplicidade: TODO o histórico do cliente, em qualquer
+   * projeto — não só o projeto/reunião atual. Comparar só com a reunião
+   * anterior deixava passar itens que evoluíam de reuniões mais antigas ou
+   * de outros projetos do mesmo cliente. A lógica de similaridade em si
+   * (matchAction/matchDecision/matchRisk) não muda, só o universo comparado.
+   */
+  const dedupeActions = useMemo(
+    () => actions.filter((a) => a.client_id === meeting?.client_id),
+    [actions, meeting?.client_id],
+  );
+  const dedupeRisks = useMemo(
+    () => risks.filter((r) => r.client_id === meeting?.client_id),
+    [risks, meeting?.client_id],
+  );
+  const dedupeDecisions = allDecisions ?? decisions;
+
+  /** meeting_id → project_id, pra descobrir de qual projeto veio uma ação/risco/oportunidade comparado. */
+  const projectIdByMeetingId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of clientMeetings) if (m.project_id) map.set(m.id, m.project_id);
+    return map;
+  }, [clientMeetings]);
+  /** meeting_id → meeting_date, pra travar "Atualizar existente" quando o candidato vem de reunião posterior. */
+  const meetingDateByMeetingId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of clientMeetings) if (m.meeting_date) map.set(m.id, m.meeting_date);
+    return map;
+  }, [clientMeetings]);
+  const projectNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of clientProjects) map.set(p.id, p.name);
+    return map;
+  }, [clientProjects]);
+
+  const withOrigin = <T,>(
+    match: DedupeMatch<T>,
+    itemProjectId: string | null | undefined,
+  ): DedupeMatch<T> => annotateOrigin(match, itemProjectId, project?.id, projectNameById);
+
   const overdueActions = useMemo(() => meetingActions.filter(isOverdue), [meetingActions]);
   const openActions = useMemo(
     () => meetingActions.filter((a) => a.status !== "concluída"),
@@ -366,79 +438,126 @@ export function MeetingAnalysisDialog({
     [contextDiff, contextSel],
   );
 
+  const originForMeetingId = (meetingId: string | null | undefined): string | null =>
+    meetingId ? (projectIdByMeetingId.get(meetingId) ?? null) : null;
+  const dateForMeetingId = (meetingId: string | null | undefined): string | null =>
+    meetingId ? (meetingDateByMeetingId.get(meetingId) ?? null) : null;
+  const chronologyFor = (candidateMeetingId: string | null | undefined) => ({
+    currentMeetingDate: meeting?.meeting_date,
+    candidateMeetingDate: dateForMeetingId(candidateMeetingId),
+  });
+
   const decisionRows: DedupeRow<MeetingAnalysis["decisions"][number], number>[] = useMemo(
     () =>
-      (analysis?.decisions ?? []).map((item, i) =>
-        buildRow(
+      (analysis?.decisions ?? []).map((item, i) => {
+        const match = matchDecision(
+          {
+            title: item.title,
+            description: item.description,
+            reason: item.reason,
+            owner: item.owner,
+            due_date: item.due_date,
+            status: item.status,
+            embedding: item.embedding ?? null,
+          },
+          dedupeDecisions,
+        );
+        return buildRow(
           i,
           item,
-          matchDecision(
-            {
-              title: item.title,
-              description: item.description,
-              reason: item.reason,
-              owner: item.owner,
-              due_date: item.due_date,
-              status: item.status,
-              embedding: item.embedding ?? null,
-            },
-            decisions,
-          ),
+          withOrigin(match, match.existing?.project_id ?? null),
           decisionSel[i],
-        ),
-      ),
-    [analysis, decisions, decisionSel],
+          chronologyFor(match.existing?.meeting_id),
+        );
+      }),
+    [analysis, dedupeDecisions, decisionSel, project?.id, projectNameById, meeting?.meeting_date, meetingDateByMeetingId],
   );
 
   const actionRows: DedupeRow<MeetingAnalysis["actions"][number], number>[] = useMemo(
     () =>
-      (analysis?.actions ?? []).map((item, i) =>
-        buildRow(
+      (analysis?.actions ?? []).map((item, i) => {
+        const match = matchAction(
+          {
+            description: item.description,
+            owner_name: item.owner_name,
+            deadline: item.deadline,
+            priority: item.priority,
+            embedding: item.embedding ?? null,
+          },
+          dedupeActions,
+        );
+        return buildRow(
           i,
           item,
-          matchAction(
-            {
-              description: item.description,
-              owner_name: item.owner_name,
-              deadline: item.deadline,
-              priority: item.priority,
-              embedding: item.embedding ?? null,
-            },
-            meetingActions,
-          ),
+          withOrigin(match, originForMeetingId(match.existing?.meeting_id)),
           actionSel[i],
-        ),
-      ),
-    [analysis, meetingActions, actionSel],
+          chronologyFor(match.existing?.meeting_id),
+        );
+      }),
+    [
+      analysis,
+      dedupeActions,
+      actionSel,
+      project?.id,
+      projectIdByMeetingId,
+      projectNameById,
+      meeting?.meeting_date,
+      meetingDateByMeetingId,
+    ],
   );
 
   const riskRows: DedupeRow<MeetingAnalysis["risks"][number], number>[] = useMemo(
     () =>
-      (analysis?.risks ?? []).map((item, i) =>
-        buildRow(
+      (analysis?.risks ?? []).map((item, i) => {
+        const match = matchRisk(
+          { description: item.description, level: item.level, embedding: item.embedding ?? null },
+          dedupeRisks,
+        );
+        return buildRow(
           i,
           item,
-          matchRisk({ description: item.description, level: item.level, embedding: item.embedding ?? null }, scopedRisks),
+          withOrigin(match, originForMeetingId(match.existing?.meeting_id)),
           riskSel[i],
-        ),
-      ),
-    [analysis, scopedRisks, riskSel],
+          chronologyFor(match.existing?.meeting_id),
+        );
+      }),
+    [
+      analysis,
+      dedupeRisks,
+      riskSel,
+      project?.id,
+      projectIdByMeetingId,
+      projectNameById,
+      meeting?.meeting_date,
+      meetingDateByMeetingId,
+    ],
   );
 
   const oppRows: DedupeRow<MeetingAnalysis["opportunities"][number], number>[] = useMemo(
     () =>
-      (analysis?.opportunities ?? []).map((item, i) =>
-        buildRow(
+      (analysis?.opportunities ?? []).map((item, i) => {
+        const match = matchOpportunity(
+          { description: item.description, expected_benefit: item.expected_benefit, embedding: item.embedding ?? null },
+          opportunities,
+        );
+        return buildRow(
           i,
           item,
-          matchOpportunity(
-            { description: item.description, expected_benefit: item.expected_benefit, embedding: item.embedding ?? null },
-            opportunities,
-          ),
+          withOrigin(match, originForMeetingId(match.existing?.meeting_id)),
           oppSel[i],
-        ),
-      ),
-    [analysis, opportunities, oppSel],
+          chronologyFor(match.existing?.meeting_id),
+        );
+      }),
+    [
+      analysis,
+      opportunities,
+      oppSel,
+      project?.id,
+      projectIdByMeetingId,
+      projectNameById,
+      meeting?.meeting_date,
+      meetingDateByMeetingId,
+    ],
   );
 
   /* ---------------- GATE 10A — revisão em blocos ---------------- */
@@ -463,6 +582,225 @@ export function MeetingAnalysisDialog({
     [contextItemsByGroup, decisionItems, actionItems, riskItems, oppItems],
   );
   const overallCounts = useMemo(() => countReviewBlock(allReviewItems), [allReviewItems]);
+
+  /* ---------------- relatório de duplicidade (copiável) ---------------- */
+
+  const duplicateReportText = useMemo(() => {
+    if (!analysis || !meeting) return "";
+
+    const projectNameOf = (projectId: string | null | undefined): string | null =>
+      projectId ? (projectNameById.get(projectId) ?? null) : null;
+
+    const contextCandidates = (
+      ranked: { item: ContextItem; cosine: number | null }[],
+    ): DuplicateReportCandidate[] =>
+      ranked.map((r) => ({
+        text: r.item.text,
+        projectName: project?.name ?? null,
+        meetingId: r.item.source_meeting_id ?? null,
+        meetingDate: dateForMeetingId(r.item.source_meeting_id),
+        status: null,
+        owner: null,
+        cosine: r.cosine,
+      }));
+
+    const decisionCandidates = (
+      ranked: { item: Decision; cosine: number | null }[],
+    ): DuplicateReportCandidate[] =>
+      ranked.map((r) => ({
+        text: r.item.title,
+        projectName: projectNameOf(r.item.project_id),
+        meetingId: r.item.meeting_id ?? null,
+        meetingDate: dateForMeetingId(r.item.meeting_id),
+        status: r.item.status ?? null,
+        owner: r.item.owner ?? null,
+        cosine: r.cosine,
+      }));
+
+    const actionCandidates = (
+      ranked: { item: ActionItem; cosine: number | null }[],
+    ): DuplicateReportCandidate[] =>
+      ranked.map((r) => ({
+        text: r.item.description,
+        projectName: projectNameOf(originForMeetingId(r.item.meeting_id)),
+        meetingId: r.item.meeting_id ?? null,
+        meetingDate: dateForMeetingId(r.item.meeting_id),
+        status: r.item.status ?? null,
+        owner: r.item.owner_name ?? null,
+        cosine: r.cosine,
+      }));
+
+    const riskCandidates = (
+      ranked: { item: RiskItem; cosine: number | null }[],
+    ): DuplicateReportCandidate[] =>
+      ranked.map((r) => ({
+        text: r.item.description,
+        projectName: projectNameOf(originForMeetingId(r.item.meeting_id)),
+        meetingId: r.item.meeting_id ?? null,
+        meetingDate: dateForMeetingId(r.item.meeting_id),
+        status: r.item.active ? "ativo" : "resolvido",
+        owner: null,
+        cosine: r.cosine,
+      }));
+
+    const oppCandidates = (
+      ranked: { item: OpportunityItem; cosine: number | null }[],
+    ): DuplicateReportCandidate[] =>
+      ranked.map((r) => ({
+        text: r.item.description,
+        projectName: projectNameOf(originForMeetingId(r.item.meeting_id)),
+        meetingId: r.item.meeting_id ?? null,
+        meetingDate: dateForMeetingId(r.item.meeting_id),
+        status: r.item.status ?? null,
+        owner: null,
+        cosine: r.cosine,
+      }));
+
+    const suggestions: DuplicateReportSuggestion[] = [
+      ...contextRows.flatMap((group) =>
+        group.rows.map((row) => ({
+          category: group.list,
+          text: (row.item as { text: string }).text,
+          classification: CLASSIFICATION_LABEL[(row.item as { classification?: string }).classification ?? ""] ??
+            (row.item as { classification?: string }).classification ??
+            null,
+          ownerName: null,
+          deadline: null,
+          verdict: row.resolution.verdict,
+          confidence: row.resolution.confidence,
+          posterior: row.resolution.chronology === "posterior",
+          candidates: contextCandidates(
+            rankCandidates(
+              group.current,
+              (row.item as { text: string }).text,
+              (c) => c.text,
+              (row.item as { embedding?: number[] | null }).embedding ?? null,
+              (c) => c.embedding,
+            ),
+          ),
+        })),
+      ),
+      ...(analysis.decisions ?? []).map((item, i) => ({
+        category: "decisions",
+        text: item.title,
+        classification: CLASSIFICATION_LABEL[item.classification] ?? item.classification,
+        ownerName: item.owner || null,
+        deadline: item.due_date || null,
+        verdict: decisionRows[i]!.resolution.verdict,
+        confidence: decisionRows[i]!.resolution.confidence,
+        posterior: decisionRows[i]!.resolution.chronology === "posterior",
+        candidates: decisionCandidates(
+          rankCandidates(dedupeDecisions, item.title, (d) => d.title, item.embedding ?? null, (d) => d.embedding),
+        ),
+      })),
+      ...(analysis.actions ?? []).map((item, i) => ({
+        category: "actions",
+        text: item.description,
+        classification: CLASSIFICATION_LABEL[item.classification] ?? item.classification,
+        ownerName: item.owner_name || null,
+        deadline: item.deadline || null,
+        verdict: actionRows[i]!.resolution.verdict,
+        confidence: actionRows[i]!.resolution.confidence,
+        posterior: actionRows[i]!.resolution.chronology === "posterior",
+        candidates: actionCandidates(
+          rankCandidates(
+            dedupeActions,
+            item.description,
+            (a) => a.description,
+            item.embedding ?? null,
+            (a) => a.embedding,
+          ),
+        ),
+      })),
+      ...(analysis.risks ?? []).map((item, i) => ({
+        category: "risks",
+        text: item.description,
+        classification: CLASSIFICATION_LABEL[item.classification] ?? item.classification,
+        ownerName: null,
+        deadline: null,
+        verdict: riskRows[i]!.resolution.verdict,
+        confidence: riskRows[i]!.resolution.confidence,
+        posterior: riskRows[i]!.resolution.chronology === "posterior",
+        candidates: riskCandidates(
+          rankCandidates(
+            dedupeRisks,
+            item.description,
+            (r) => r.description,
+            item.embedding ?? null,
+            (r) => r.embedding,
+          ),
+        ),
+      })),
+      ...(analysis.opportunities ?? []).map((item, i) => ({
+        category: "opportunities",
+        text: item.description,
+        classification: CLASSIFICATION_LABEL[item.classification] ?? item.classification,
+        ownerName: null,
+        deadline: null,
+        verdict: oppRows[i]!.resolution.verdict,
+        confidence: oppRows[i]!.resolution.confidence,
+        posterior: oppRows[i]!.resolution.chronology === "posterior",
+        candidates: oppCandidates(
+          rankCandidates(
+            opportunities,
+            item.description,
+            (o) => o.description,
+            item.embedding ?? null,
+            (o) => o.embedding,
+          ),
+        ),
+      })),
+    ];
+
+    return formatDuplicateReport({
+      clientName: clientName ?? "—",
+      projectName: project?.name ?? "—",
+      meetingId: meeting.id,
+      meetingDate: meeting.meeting_date,
+      counts: {
+        total: overallCounts.total,
+        new: overallCounts.newCount,
+        updated: overallCounts.updateCount,
+        review: overallCounts.reviewCount,
+        ignored: overallCounts.ignoredCount,
+      },
+      consolidations: (analysis.semantic_consolidation?.groups ?? []).map((g) => ({
+        category: g.category ?? "",
+        canonicalText: g.canonicalText ?? "",
+        mergedTexts: g.mergedTexts ?? [],
+      })),
+      suggestions,
+    });
+  }, [
+    analysis,
+    meeting,
+    project,
+    clientName,
+    contextRows,
+    decisionRows,
+    actionRows,
+    riskRows,
+    oppRows,
+    dedupeDecisions,
+    dedupeActions,
+    dedupeRisks,
+    opportunities,
+    overallCounts,
+    projectNameById,
+    projectIdByMeetingId,
+    meetingDateByMeetingId,
+  ]);
+
+  const copyDuplicateReport = () => {
+    if (!duplicateReportText) {
+      toast.error("Nenhuma análise carregada ainda.");
+      return;
+    }
+    void navigator.clipboard
+      .writeText(duplicateReportText)
+      .then(() => toast.success("Relatório de duplicidade copiado."))
+      .catch(() => toast.error("Não foi possível copiar — copie manualmente pelo console."));
+  };
 
   /** Expand/recolher por bloco — o default (aberto se precisa revisão) é fixado uma vez por análise carregada. */
   const [blockOpen, setBlockOpen] = useState<Record<string, boolean>>({});
@@ -939,6 +1277,7 @@ export function MeetingAnalysisDialog({
                 <ReviewSummaryCard
                   counts={overallCounts}
                   onApplySafe={applyAllSafe}
+                  onCopyDuplicateReport={copyDuplicateReport}
                   blocksTotal={blockStatuses.length}
                   blocksReviewed={blockStatuses.filter((s) => s === "approved" || s === "ignored").length}
                   executionQuality={analysis?.execution_quality}
@@ -1299,26 +1638,36 @@ function ResolutionControls({
   mode: ResolutionMode;
   onChange: (mode: ResolutionMode) => void;
 }) {
-  const canUpdate = !!resolution.targetId;
+  const isPosterior = resolution.chronology === "posterior";
+  const canUpdate = !!resolution.targetId && !isPosterior;
   const options: { value: ResolutionMode; label: string; disabled?: boolean }[] = [
     { value: "create", label: "Criar novo" },
     { value: "update", label: "Atualizar existente", disabled: !canUpdate },
     { value: "skip", label: "Ignorar" },
   ];
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
-      {options.map((o) => (
-        <Button
-          key={o.value}
-          type="button"
-          size="sm"
-          variant={mode === o.value ? "default" : "outline"}
-          disabled={o.disabled}
-          onClick={() => onChange(o.value)}
-        >
-          {o.label}
-        </Button>
-      ))}
+    <div className="mt-2 flex flex-col gap-1.5">
+      {isPosterior && (
+        <p className="text-xs text-attention">
+          Item de reunião posterior
+          {resolution.candidateMeetingDate ? ` (${formatDate(resolution.candidateMeetingDate)})` : ""} —
+          "Atualizar existente" desabilitado.
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {options.map((o) => (
+          <Button
+            key={o.value}
+            type="button"
+            size="sm"
+            variant={mode === o.value ? "default" : "outline"}
+            disabled={o.disabled}
+            onClick={() => onChange(o.value)}
+          >
+            {o.label}
+          </Button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1384,6 +1733,7 @@ function ReviewRow({
 function ReviewSummaryCard({
   counts,
   onApplySafe,
+  onCopyDuplicateReport,
   blocksTotal,
   blocksReviewed,
   executionQuality,
@@ -1391,6 +1741,8 @@ function ReviewSummaryCard({
 }: {
   counts: ReviewBlockCounts;
   onApplySafe: () => void;
+  /** Copia o relatório de duplicidade (markdown puro) pra área de transferência. */
+  onCopyDuplicateReport: () => void;
   /** Progresso da REVISÃO por blocos (GATE 10D) — não é classificação do dedupe. */
   blocksTotal: number;
   blocksReviewed: number;
@@ -1412,9 +1764,14 @@ function ReviewSummaryCard({
     <section className="rounded-lg border bg-muted/20 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">Revisão da análise</h3>
-        <Button type="button" size="sm" variant="outline" className="gap-2" onClick={onApplySafe}>
-          <ShieldCheck className="size-4" aria-hidden /> Aplicar sugestões seguras
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" variant="outline" className="gap-2" onClick={onCopyDuplicateReport}>
+            <Copy className="size-4" aria-hidden /> Copiar relatório de duplicidade
+          </Button>
+          <Button type="button" size="sm" variant="outline" className="gap-2" onClick={onApplySafe}>
+            <ShieldCheck className="size-4" aria-hidden /> Aplicar sugestões seguras
+          </Button>
+        </div>
       </div>
       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-5">
         {stats.map((s) => (

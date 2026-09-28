@@ -119,6 +119,8 @@ export type Client = {
 export type Meeting = {
   id: string;
   client_id: string;
+  /** Projeto ao qual esta reunião está vinculada — null quando ainda não associada. */
+  project_id: string | null;
   meeting_date: string;
   meeting_type: string | null;
   participants: string[];
@@ -269,6 +271,7 @@ export function normalizeMeeting(row: Record<string, unknown>): Meeting {
   return {
     id: String(row["id"] ?? ""),
     client_id: String(row["client_id"] ?? ""),
+    project_id: safeText(row["project_id"]),
     meeting_date: isValidDateString(rawDate) ? String(rawDate).slice(0, 10) : "",
     meeting_type: safeText(row["meeting_type"]),
     participants: safeParticipants(row["participants"]),

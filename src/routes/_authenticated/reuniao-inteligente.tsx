@@ -12,6 +12,7 @@ import { routeErrorComponent } from "@/components/painel/RouteError";
 import { supabase } from "@/lib/supabase/client";
 import {
   actionsQuery,
+  clientMeetingsQuery,
   clientsQuery,
   logDbError,
   opportunitiesQuery,
@@ -21,6 +22,7 @@ import {
 import { MEETING_TYPES, normalizeMeeting, type Meeting } from "@/lib/domain";
 import {
   classifyProjectMatch,
+  clientDecisionsQuery,
   decisionsQuery,
   ensureProjectContext,
   getOrCreateProject,
@@ -193,6 +195,15 @@ function SmartMeetingPage() {
   const [context, setContext] = useState<ProjectContext | null>(null);
 
   const decisions = useQuery({ ...decisionsQuery(project?.id), enabled: !!project?.id });
+  /** Universo completo do cliente pra checagem antiduplicidade — não só o projeto identificado. */
+  const allClientDecisions = useQuery({
+    ...clientDecisionsQuery(meeting?.client_id ?? ""),
+    enabled: !!meeting?.client_id,
+  });
+  const clientMeetings = useQuery({
+    ...clientMeetingsQuery(meeting?.client_id ?? ""),
+    enabled: !!meeting?.client_id,
+  });
 
   /**
    * Impressão digital da transcrição: permite avisar sobre reenvio do mesmo
@@ -890,6 +901,15 @@ function SmartMeetingPage() {
         actions={(actions.data ?? []).filter((a) => a.client_id === meeting?.client_id)}
         risks={(risks.data ?? []).filter((r) => r.client_id === meeting?.client_id)}
         decisions={decisions.data ?? []}
+        allDecisions={allClientDecisions.data ?? []}
+        clientMeetings={clientMeetings.data ?? []}
+        clientProjects={(projects.data ?? [])
+          .filter((pr) => pr.client_id === meeting?.client_id)
+          .map((pr) => ({ id: pr.id, name: pr.name }))}
+        {...(() => {
+          const name = (clients.data ?? []).find((c) => c.id === meeting?.client_id)?.company_name;
+          return name ? { clientName: name } : {};
+        })()}
         opportunities={(opportunities.data ?? []).filter((o) => o.client_id === meeting?.client_id)}
         initialAnalysis={analysis}
         initialTranscript={`${sourceLabel(effectiveSource)}\n\n${transcript}`}
