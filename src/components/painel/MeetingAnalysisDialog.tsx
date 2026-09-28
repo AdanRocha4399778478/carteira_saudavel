@@ -252,9 +252,17 @@ export function MeetingAnalysisDialog({
   projectMeetingIds,
   closeOnApproved = false,
   onApplied,
+  onPersistDraftMeeting,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  /**
+   * No fluxo de Reunião Inteligente, `meeting` pode ser um rascunho em
+   * memória (`id: ""`) que ainda não existe no banco — todo o dedupe abaixo
+   * só depende de `client_id`/`meeting_date`, então funciona igual. A
+   * gravação real só acontece em `onPersistDraftMeeting`, no momento da
+   * aprovação (ver comentário na definição do prop).
+   */
   meeting: Meeting | null;
   project: Project | null;
   context: ProjectContext | null;
@@ -281,6 +289,13 @@ export function MeetingAnalysisDialog({
   closeOnApproved?: boolean;
   /** Notifica a tela hospedeira após a aprovação (navegação, limpeza etc.). */
   onApplied?: () => void;
+  /**
+   * Presente só quando `meeting` é um rascunho (`id: ""`): grava a reunião de
+   * verdade e devolve a linha real, chamado no início da aprovação — nunca
+   * antes. Ausente para o fluxo antigo (reunião já existente vinda de
+   * $projectId.tsx), que continua gravando de imediato como sempre gravou.
+   */
+  onPersistDraftMeeting?: () => Promise<Meeting>;
 }) {
   const qc = useQueryClient();
   const [step, setStep] = useState<Step>("entrada");
@@ -311,7 +326,7 @@ export function MeetingAnalysisDialog({
     if (closeTimer.current) clearTimeout(closeTimer.current);
   }, []);
 
-  const saved = useQuery({ ...meetingAnalysisQuery(meeting?.id ?? ""), enabled: open && !!meeting });
+  const saved = useQuery({ ...meetingAnalysisQuery(meeting?.id ?? ""), enabled: open && !!meeting?.id });
 
 
   useEffect(() => {
@@ -1053,6 +1068,13 @@ export function MeetingAnalysisDialog({
       if (!project) throw new Error("Vincule a reunião a um projeto antes de aplicar a análise.");
       setApproveError(null);
 
+      /**
+       * Rascunho (id vazio): só grava a reunião de verdade agora, não antes.
+       * Fechar o diálogo sem aprovar nunca deixa linha nenhuma em `meetings`.
+       */
+      const persistedMeeting = meeting.id ? meeting : await onPersistDraftMeeting?.();
+      if (!persistedMeeting) throw new Error("Não foi possível gravar a reunião antes de aprovar.");
+
       const contextItems = contextRows.flatMap((group) =>
         group.rows.map((r) => ({
           list: r.item.list as ContextListKey,
@@ -1101,7 +1123,7 @@ export function MeetingAnalysisDialog({
       };
 
       const applied = await applyApprovedAnalysis({
-        meeting,
+        meeting: persistedMeeting,
         projectId: project.id,
         context,
         selection,
@@ -1109,9 +1131,9 @@ export function MeetingAnalysisDialog({
         evolution: evolutionItems,
       });
       await saveAnalysisDraft({
-        meetingId: meeting.id,
+        meetingId: persistedMeeting.id,
         projectId: project.id,
-        clientId: meeting.client_id,
+        clientId: persistedMeeting.client_id,
         transcript,
         analysis,
         agenda,
