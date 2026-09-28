@@ -103,4 +103,59 @@ describe("mitigação — número divergente em decisão nunca é UPDATE_EXISTIN
     );
     expect(match.reason).not.toContain("valor numérico");
   });
+
+  test("controle — data mencionada em prosa de forma diferente NÃO é tratada como valor divergente (só % e moeda contam)", () => {
+    const contrato = decision("Renovar contrato com fornecedor", {
+      description: "Renovar o contrato 12345/2026 com o fornecedor até 01/11/2026.",
+      owner: "Marcos",
+      due_date: "2026-11-01",
+    });
+    const match = matchDecision(
+      {
+        title: "Renovar contrato com fornecedor",
+        description: "Renovar o contrato 12345/2026 com o fornecedor, que vence dia 20 deste mês.",
+        due_date: "2026-11-01",
+        owner: "Marcos",
+      },
+      [contrato],
+    );
+    expect(match.reason).not.toContain("valor numérico");
+  });
+
+  test("controle — número de contrato/CNPJ reformulado só por pontuação (12345 → 12.345) NÃO é tratado como valor divergente", () => {
+    const contrato = decision("Renovar contrato com fornecedor", {
+      description: "Renovar o contrato 12345/2026 com o fornecedor até 01/11/2026.",
+      owner: "Marcos",
+      due_date: "2026-11-01",
+    });
+    const match = matchDecision(
+      {
+        title: "Renovar contrato com fornecedor",
+        description: "Renovar o contrato 12.345/2026 com o fornecedor até 01/11/2026.",
+        due_date: "2026-11-01",
+        owner: "Marcos",
+      },
+      [contrato],
+    );
+    expect(match.reason).not.toContain("valor numérico");
+  });
+
+  test("moeda divergente (R$ 12.000,00 × R$ 18.000,00) também é pega, não só percentual", () => {
+    const licenciamento = decision("Fechar contrato de licenciamento", {
+      description: "Valor do contrato de licenciamento é R$ 12.000,00 por ano.",
+      owner: "Marcos",
+      due_date: "2026-11-01",
+    });
+    const match = matchDecision(
+      {
+        title: "Fechar contrato de licenciamento",
+        description: "Valor do contrato de licenciamento é R$ 18.000,00 por ano.",
+        due_date: "2026-11-01",
+        owner: "Marcos",
+      },
+      [licenciamento],
+    );
+    expect(match.type).toBe("POSSIBLE_DUPLICATE");
+    expect(match.reason).toContain("valor numérico");
+  });
 });

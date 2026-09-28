@@ -446,10 +446,19 @@ function hasMaterialScopeConflict(
   );
 }
 
-/** Números (percentuais, monetários, quantidades) presentes no texto livre. */
+/**
+ * Só percentual e moeda — nunca uma sequência numérica solta. Uma data em
+ * prosa ("vence dia 20"), um número de contrato ou um CNPJ reformulado
+ * ("12345" → "12.345", mesma coisa, pontuação diferente) capturariam como
+ * "número divergente" sem ser NUNCA um valor de negócio — testado e
+ * descartado antes desta versão. Quantidade solta ("20 unidades") fica de
+ * fora por design: o custo de falso positivo em data/documento é maior que
+ * o benefício de cobrir quantidade aqui.
+ */
 function extractNumbers(text: string): Set<string> {
-  const matches = text.match(/\d+(?:[.,]\d+)?%?/g) ?? [];
-  return new Set(matches.map((m) => m.replace(/\s+/g, "")));
+  const percent = text.match(/\d+(?:[.,]\d+)?\s*%/g) ?? [];
+  const currency = text.match(/(?:R\$|US\$|\$|€)\s*\d+(?:[.,]\d+)*/g) ?? [];
+  return new Set([...percent, ...currency].map((m) => m.replace(/\s+/g, "").toUpperCase()));
 }
 
 /**
