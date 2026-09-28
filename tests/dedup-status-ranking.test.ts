@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   annotateOrigin,
+  defaultResolution,
   matchAction,
   matchOpportunity,
   matchRisk,
@@ -52,7 +53,7 @@ const REF_VEC = [1, 0];
 describe("Frente 1 — ranking status-aware (ações/riscos/oportunidades)", () => {
   test("ação aberta com score menor vence concluída com score maior DENTRO da margem (0,05)", () => {
     const match = matchAction(
-      { description: "Revisar contrato de fornecimento", embedding: vecWithCosine(0.8) },
+      { description: "Revisar contrato de fornecimento", embedding: REF_VEC },
       [
         action("Assunto totalmente não relacionado ao texto novo", {
           id: "done-1",
@@ -74,12 +75,12 @@ describe("Frente 1 — ranking status-aware (ações/riscos/oportunidades)", () 
 
   test("ação concluída vence quando o score está FORA da margem", () => {
     const match = matchAction(
-      { description: "Revisar contrato de fornecimento", embedding: vecWithCosine(0.95) },
+      { description: "Revisar contrato de fornecimento", embedding: REF_VEC },
       [
         action("Assunto totalmente não relacionado ao texto novo", {
           id: "done-1",
           status: "concluída",
-          embedding: vecWithCosine(0.95),
+          embedding: vecWithCosine(0.94),
         }),
         action("Outro assunto sem relação nenhuma com a entrada", {
           id: "open-1",
@@ -95,8 +96,8 @@ describe("Frente 1 — ranking status-aware (ações/riscos/oportunidades)", () 
 
   test("ação cancelada gera historyFlag 'previously_discarded'", () => {
     const match = matchAction(
-      { description: "Revisar contrato de fornecimento", embedding: vecWithCosine(0.96) },
-      [action("Assunto sem relação nenhuma", { id: "cancel-1", status: "cancelada", embedding: vecWithCosine(0.96) })],
+      { description: "Revisar contrato de fornecimento", embedding: REF_VEC },
+      [action("Assunto sem relação nenhuma", { id: "cancel-1", status: "cancelada", embedding: vecWithCosine(0.8) })],
     );
     expect(match.existingStatusClass).toBe("dismissed");
     expect(match.historyFlag).toBe("previously_discarded");
@@ -123,6 +124,40 @@ describe("Frente 1 — ranking status-aware (ações/riscos/oportunidades)", () 
       [opportunity("Expandir contrato para novo módulo financeiro", { id: "discarded-1", status: "descartada" })],
     );
     expect(discarded.historyFlag).toBe("previously_discarded");
+  });
+
+  // matchAction tem uma escalada própria para POSSIBLE_DUPLICATE quando o
+  // vencedor já está concluído/cancelado (conflito material de "status"),
+  // então já não caía em "update" silencioso mesmo antes desta Frente — mas
+  // matchOpportunity não tem esse mecanismo, e é onde a lacuna era real.
+  test("historyFlag 'recurrence' nunca decide 'update' sozinho — defaultResolution cai para 'skip'", () => {
+    const match = matchOpportunity(
+      { description: "Expandir contrato para novo módulo financeiro", embedding: REF_VEC },
+      [opportunity("Assunto sem relação nenhuma com a entrada", { id: "done-1", status: "fechada", embedding: vecWithCosine(0.92) })],
+    );
+    expect(match.type).toBe("UPDATE_EXISTING");
+    expect(match.historyFlag).toBe("recurrence");
+    // Sem a trava, o default seria "update" (reabrir uma oportunidade já fechada em silêncio).
+    expect(defaultResolution(match).mode).toBe("skip");
+  });
+
+  test("historyFlag 'previously_discarded' também força 'skip', mesmo em verdict UPDATE_EXISTING", () => {
+    const match = matchOpportunity(
+      { description: "Expandir contrato para novo módulo financeiro", embedding: REF_VEC },
+      [opportunity("Assunto sem relação nenhuma", { id: "discard-1", status: "descartada", embedding: vecWithCosine(0.92) })],
+    );
+    expect(match.type).toBe("UPDATE_EXISTING");
+    expect(match.historyFlag).toBe("previously_discarded");
+    expect(defaultResolution(match).mode).toBe("skip");
+  });
+
+  test("sem historyFlag (item aberto), UPDATE_EXISTING continua com default 'update' — sem regressão", () => {
+    const match = matchOpportunity(
+      { description: "Expandir contrato para novo módulo financeiro", embedding: REF_VEC },
+      [opportunity("Assunto sem relação nenhuma", { id: "open-1", status: "aberta", embedding: vecWithCosine(0.92) })],
+    );
+    expect(match.historyFlag).toBeNull();
+    expect(defaultResolution(match).mode).toBe("update");
   });
 
   test("item em outro projeto do mesmo cliente: matchedProjectId aponta para a origem", () => {

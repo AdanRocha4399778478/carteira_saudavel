@@ -974,8 +974,13 @@ export type ItemResolution = {
 /** Sugestão padrão — casos ambíguos NUNCA decidem sozinhos (ficam em revisão). */
 export function defaultResolution(match: DedupeMatch<unknown>): ItemResolution {
   // POSSIBLE_DUPLICATE nunca decide sozinho: fica retido até o consultor escolher.
+  // Um vencedor concluído/cancelado (historyFlag) é a mesma situação: o
+  // ranking status-aware pode trazer um item fechado como melhor match, e
+  // aplicar "update" nele silenciosamente reabriria algo encerrado — ou,
+  // se EXISTING, "skip" esconderia uma recorrência genuína sem avisar.
+  // Trata igual a POSSIBLE_DUPLICATE: nunca create/update sozinho.
   const mode: ResolutionMode =
-    match.type === "EXISTING" || match.type === "POSSIBLE_DUPLICATE"
+    match.type === "EXISTING" || match.type === "POSSIBLE_DUPLICATE" || !!match.historyFlag
       ? "skip"
       : match.type === "UPDATE_EXISTING"
         ? "update"

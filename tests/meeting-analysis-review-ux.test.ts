@@ -27,9 +27,13 @@ describe("GATE 10A — nenhuma alteração em thresholds/dedupe/backend", () => 
     expect(dialogSource).not.toMatch(/THRESHOLD/i);
   });
 
-  test("src/lib/deduplication.ts não foi tocado por este GATE — defaultResolution continua com a mesma regra", () => {
+  test("defaultResolution: mudança deliberada (Frente 1) — historyFlag também nunca decide create/update sozinho", () => {
+    // Atualizado conscientemente nesta Frente: um vencedor concluído/cancelado
+    // (historyFlag) entrou na mesma regra do POSSIBLE_DUPLICATE — nunca
+    // silenciosamente "update" num item fechado, nem "skip" escondendo uma
+    // recorrência sem avisar. Ver defaultResolution em src/lib/deduplication.ts.
     expect(dedupeSource).toContain(
-      '  const mode: ResolutionMode =\n    match.type === "EXISTING" || match.type === "POSSIBLE_DUPLICATE"\n      ? "skip"\n      : match.type === "UPDATE_EXISTING"\n        ? "update"\n        : "create";',
+      '  const mode: ResolutionMode =\n    match.type === "EXISTING" || match.type === "POSSIBLE_DUPLICATE" || !!match.historyFlag\n      ? "skip"\n      : match.type === "UPDATE_EXISTING"\n        ? "update"\n        : "create";',
     );
   });
 

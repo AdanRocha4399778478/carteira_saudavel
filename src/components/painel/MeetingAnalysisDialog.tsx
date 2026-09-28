@@ -192,6 +192,7 @@ function toReviewItems<K extends string | number>(
     verdict: r.match.type,
     mode: r.mode,
     hasOverride: sel[r.key] !== undefined,
+    historyFlag: r.match.historyFlag ?? null,
   }));
 }
 

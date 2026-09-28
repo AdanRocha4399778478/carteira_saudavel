@@ -1,4 +1,4 @@
-import type { DedupeVerdict, ResolutionMode } from "@/lib/deduplication";
+import type { DedupeVerdict, HistoryFlag, ResolutionMode } from "@/lib/deduplication";
 
 /* ------------------------------------------------------------------ *
  * GATE 10A — helpers puros da revisão em blocos da Reunião Inteligente.
@@ -18,6 +18,8 @@ export type ReviewBlockItem<K extends string | number = string | number> = {
   mode: ResolutionMode;
   /** true quando o consultor já fez uma escolha explícita para este item. */
   hasOverride: boolean;
+  /** Ver HistoryFlag em deduplication.ts — vencedor concluído/cancelado. */
+  historyFlag?: HistoryFlag;
 };
 
 export type ReviewBlockCounts = {
@@ -32,10 +34,15 @@ export type ReviewBlockCounts = {
 
 /**
  * POSSIBLE_DUPLICATE nunca decide sozinho: some enquanto o consultor não fizer
- * uma escolha explícita para aquele item específico.
+ * uma escolha explícita para aquele item específico. Um `historyFlag` (o
+ * vencedor do match está concluído ou cancelado/descartado) é tratado no
+ * mesmo espírito — o ranking status-aware pode trazer um item fechado como
+ * melhor match, e isso também precisa de decisão explícita, nunca silenciosa.
  */
-export function needsReview(item: Pick<ReviewBlockItem, "verdict" | "hasOverride">): boolean {
-  return item.verdict === "POSSIBLE_DUPLICATE" && !item.hasOverride;
+export function needsReview(
+  item: Pick<ReviewBlockItem, "verdict" | "hasOverride" | "historyFlag">,
+): boolean {
+  return (item.verdict === "POSSIBLE_DUPLICATE" || !!item.historyFlag) && !item.hasOverride;
 }
 
 /** Verdicts cuja resolução default é inequívoca — nunca inclui POSSIBLE_DUPLICATE. */
@@ -87,7 +94,8 @@ export function formatBlockSummary(counts: ReviewBlockCounts): string {
 /**
  * "Aplicar sugestões seguras" / "Aprovar bloco": aplica a resolução default a
  * todo item cujo verdict é inequívoco (NEW/UPDATE_EXISTING/EXISTING) e que o
- * consultor ainda não decidiu manualmente. Nunca toca em POSSIBLE_DUPLICATE
+ * consultor ainda não decidiu manualmente. Nunca toca em POSSIBLE_DUPLICATE,
+ * em item com `historyFlag` (vencedor concluído/cancelado — ver `needsReview`)
  * nem em item com override — devolve só o patch para itens realmente afetados.
  */
 export function applySafeResolutions<K extends string | number>(
@@ -97,6 +105,7 @@ export function applySafeResolutions<K extends string | number>(
   for (const item of items) {
     if (item.hasOverride) continue;
     if (!isSafeVerdict(item.verdict)) continue;
+    if (item.historyFlag) continue;
     patch[item.key] = defaultModeForVerdict(item.verdict);
   }
   return patch;
