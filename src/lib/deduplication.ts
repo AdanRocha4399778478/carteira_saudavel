@@ -44,6 +44,24 @@ export const VERDICT_LABEL: Record<DedupeVerdict, string> = {
 /** Sinal de mudança de estado detectado no texto da nova menção. */
 export type StatusSignal = "resolved" | "reopened" | null;
 
+/**
+ * Classe de status do item ENCONTRADO no match, usada para o ranking
+ * status-aware (ver `OPEN_TIE_MARGIN` abaixo) e para `HistoryFlag`.
+ * "dismissed" cobre ações canceladas e oportunidades descartadas; riscos
+ * não têm um estado distinto de "descartado" (só `active`), então um
+ * risco inativo é classificado como "done".
+ */
+export type ItemStatusClass = "open" | "done" | "dismissed";
+
+/**
+ * Sinal ortogonal ao veredito: o vencedor do match é o mesmo item, mas
+ * já concluído (`recurrence`) ou já cancelado/descartado
+ * (`previously_discarded`). Não substitui `type` — só informa a UI.
+ * Nenhum dado real em produção tem hoje um item nesses status (todas as
+ * 42 ações são "não iniciada"), então na prática esta flag é sempre
+ * `null` até o primeiro caso real acontecer — ver docs/requisito-*.
+ */
+export type HistoryFlag = "recurrence" | "previously_discarded" | null;
 
 export type FieldChange = { field: string; label: string; from: string; to: string };
 
@@ -57,6 +75,12 @@ export type DedupeMatch<T> = {
   changes: FieldChange[];
   /** "resolvido"/"voltou a acontecer" detectado na nova menção. */
   statusSignal?: StatusSignal;
+  /** Projeto de origem do item encontrado — preenchido por `annotateOrigin`. */
+  matchedProjectId?: string | null;
+  /** Classe de status do item encontrado — null quando não há match. */
+  existingStatusClass?: ItemStatusClass | null;
+  /** Ver `HistoryFlag`. Ortogonal a `type`; não muda o comportamento padrão. */
+  historyFlag?: HistoryFlag;
 };
 
 
@@ -472,6 +496,84 @@ function pickBestHistorical<T>(
   return best && best.score > 0 ? best : null;
 }
 
+/**
+ * Margem de empate a favor de um candidato ABERTO no ranking de
+ * ações/riscos/oportunidades (ver `pickBestPreferOpen`/
+ * `pickBestHistoricalPreferOpen`). Valor inicial sem calibração com dado
+ * real — nenhum item concluído/cancelado competiu com um aberto em
+ * produção até agora (todas as 42 ações reais são "não iniciada").
+ * Ajuste quando houver um caso real para medir contra.
+ */
+const OPEN_TIE_MARGIN = 0.05;
+
+/**
+ * Como `pickBest`, mas ranqueia por score entre TODOS os status (não só
+ * abertos) e, se o candidato aberto de maior score estiver a até
+ * `OPEN_TIE_MARGIN` do melhor score geral, ele vence mesmo que outro
+ * status tenha pontuado mais alto — evitar duplicar um item aberto é
+ * pior do que deixar passar uma recorrência. Usada só por
+ * matchAction/matchRisk/matchOpportunity; matchDecision e
+ * matchContextItem continuam em `pickBest`/`pickBestHistorical`, sem
+ * noção de status.
+ */
+function pickBestPreferOpen<T>(
+  candidates: T[],
+  text: string,
+  get: (item: T) => string,
+  isOpen: (item: T) => boolean,
+  embedding?: number[] | null,
+  getEmbedding?: (item: T) => number[] | null | undefined,
+): { item: T; score: number } | null {
+  let best: { item: T; score: number } | null = null;
+  let bestOpen: { item: T; score: number } | null = null;
+  for (const item of candidates) {
+    const score = getEmbedding
+      ? combinedSimilarity(text, get(item), embedding, getEmbedding(item))
+      : similarity(text, get(item));
+    if (!best || score > best.score) best = { item, score };
+    if (isOpen(item) && (!bestOpen || score > bestOpen.score)) bestOpen = { item, score };
+  }
+  if (!best || best.score <= 0) return null;
+  if (bestOpen && bestOpen !== best && bestOpen.score >= best.score - OPEN_TIE_MARGIN) return bestOpen;
+  return best;
+}
+
+/** Como `pickBestPreferOpen`, mas com a lógica de relação de `pickBestHistorical` (usada por `matchAction`). */
+function pickBestHistoricalPreferOpen<T>(
+  candidates: T[],
+  incomingText: string,
+  incomingContext: string,
+  getText: (item: T) => string,
+  getContext: (item: T) => string,
+  isOpen: (item: T) => boolean,
+  embedding?: number[] | null,
+  getEmbedding?: (item: T) => number[] | null | undefined,
+): { item: T; score: number; relation: DeliverableRelation } | null {
+  let best: { item: T; score: number; relation: DeliverableRelation } | null = null;
+  let bestOpen: { item: T; score: number; relation: DeliverableRelation } | null = null;
+  for (const candidate of candidates) {
+    const candidateText = getText(candidate);
+    const candidateEmbedding = getEmbedding?.(candidate);
+    const rawScore = Math.max(
+      combinedSimilarity(incomingText, candidateText, embedding, candidateEmbedding),
+      combinedSimilarity(incomingContext, getContext(candidate), embedding, candidateEmbedding),
+    );
+    const relation = deliverableRelation(incomingText, candidateText);
+    const score =
+      relation === "same"
+        ? Math.max(rawScore, DEDUPE_THRESHOLDS.high)
+        : relation === "related"
+          ? Math.max(rawScore, DEDUPE_THRESHOLDS.review)
+          : rawScore;
+    if (!best || score > best.score) best = { item: candidate, score, relation };
+    if (isOpen(candidate) && (!bestOpen || score > bestOpen.score))
+      bestOpen = { item: candidate, score, relation };
+  }
+  if (!best || best.score <= 0) return null;
+  if (bestOpen && bestOpen !== best && bestOpen.score >= best.score - OPEN_TIE_MARGIN) return bestOpen;
+  return best;
+}
+
 function verdictFromScore(score: number): DedupeVerdict {
   if (score >= DEDUPE_THRESHOLDS.exact) return "EXISTING";
   if (score >= DEDUPE_THRESHOLDS.high) return "UPDATE_EXISTING";
@@ -499,15 +601,26 @@ export type IncomingAction = {
  * Um novo prazo, responsável ou prioridade NUNCA gera ação nova —
  * vira atualização do registro existente.
  */
+function actionStatusClass(a: ActionItem): ItemStatusClass {
+  if (a.status === "concluída") return "done";
+  if (a.status === "cancelada") return "dismissed";
+  return "open";
+}
+
+function historyFlagOf(statusClass: ItemStatusClass): HistoryFlag {
+  if (statusClass === "done") return "recurrence";
+  if (statusClass === "dismissed") return "previously_discarded";
+  return null;
+}
+
 export function matchAction(item: IncomingAction, candidates: ActionItem[]): DedupeMatch<ActionItem> {
-  const open = candidates.filter((a) => a.status !== "concluída" && a.status !== "cancelada");
-  const pool = open.length ? open : candidates;
-  const best = pickBestHistorical(
-    pool,
+  const best = pickBestHistoricalPreferOpen(
+    candidates,
     item.description,
     item.description,
     (a) => a.description,
     (a) => a.description,
+    (a) => actionStatusClass(a) === "open",
     item.embedding,
     (a) => a.embedding,
   );
@@ -581,6 +694,7 @@ export function matchAction(item: IncomingAction, candidates: ActionItem[]): Ded
     });
   }
 
+  const existingStatusClass = type === "NEW" ? null : actionStatusClass(best.item);
   return {
     type,
     confidence: score,
@@ -588,6 +702,8 @@ export function matchAction(item: IncomingAction, candidates: ActionItem[]): Ded
     existing_id: best.item.id,
     existing_label: best.item.description,
     statusSignal,
+    existingStatusClass,
+    historyFlag: existingStatusClass ? historyFlagOf(existingStatusClass) : null,
     reason:
       type === "NEW"
         ? "Nenhuma ação aberta semelhante neste cliente."
@@ -675,12 +791,17 @@ export function matchDecision(
 export type IncomingRisk = { description: string; level?: string; embedding?: number[] | null };
 
 /** Escopo: riscos do mesmo cliente/projeto — ativos primeiro. */
+/** Riscos não têm um estado "descartado" distinto — só `active`; inativo é tratado como "done" (resolvido). */
+function riskStatusClass(r: RiskItem): ItemStatusClass {
+  return r.active ? "open" : "done";
+}
+
 export function matchRisk(item: IncomingRisk, candidates: RiskItem[]): DedupeMatch<RiskItem> {
-  const active = candidates.filter((r) => r.active);
-  const best = pickBest(
-    active.length ? active : candidates,
+  const best = pickBestPreferOpen(
+    candidates,
     item.description,
     (r) => r.description,
+    (r) => r.active,
     item.embedding,
     (r) => r.embedding,
   );
@@ -720,6 +841,7 @@ export function matchRisk(item: IncomingRisk, candidates: RiskItem[]): DedupeMat
     });
   }
 
+  const existingStatusClass = type === "NEW" ? null : riskStatusClass(best.item);
   return {
     type,
     confidence: best.score,
@@ -727,6 +849,8 @@ export function matchRisk(item: IncomingRisk, candidates: RiskItem[]): DedupeMat
     existing_id: best.item.id,
     existing_label: best.item.description,
     statusSignal,
+    existingStatusClass,
+    historyFlag: existingStatusClass ? historyFlagOf(existingStatusClass) : null,
     reason:
       type === "NEW"
         ? "Nenhum risco semelhante neste escopo."
@@ -743,26 +867,35 @@ export type IncomingOpportunity = {
 };
 
 /** Escopo: oportunidades abertas do mesmo cliente. */
+function opportunityStatusClass(o: OpportunityItem): ItemStatusClass {
+  if (o.status === "fechada") return "done";
+  if (o.status === "descartada") return "dismissed";
+  return "open";
+}
+
 export function matchOpportunity(
   item: IncomingOpportunity,
   candidates: OpportunityItem[],
 ): DedupeMatch<OpportunityItem> {
-  const open = candidates.filter((o) => o.status !== "fechada" && o.status !== "descartada");
-  const best = pickBest(
-    open.length ? open : candidates,
+  const best = pickBestPreferOpen(
+    candidates,
     item.description,
     (o) => o.description,
+    (o) => opportunityStatusClass(o) === "open",
     item.embedding,
     (o) => o.embedding,
   );
   if (!best) return noMatch<OpportunityItem>();
   const type = verdictFromScore(best.score);
+  const existingStatusClass = type === "NEW" ? null : opportunityStatusClass(best.item);
   return {
     type,
     confidence: best.score,
     existing: best.item,
     existing_id: best.item.id,
     existing_label: best.item.description,
+    existingStatusClass,
+    historyFlag: existingStatusClass ? historyFlagOf(existingStatusClass) : null,
     reason:
       type === "NEW"
         ? "Nenhuma oportunidade aberta semelhante."
@@ -834,13 +967,20 @@ export type ItemResolution = {
   chronology?: ChronologyStatus;
   /** Data (ISO, "AAAA-MM-DD") da reunião de origem do candidato, só para exibição. */
   candidateMeetingDate?: string | null;
+  /** Ver `HistoryFlag` em deduplication.ts — repassado do match, só para exibição. */
+  historyFlag?: HistoryFlag;
 };
 
 /** Sugestão padrão — casos ambíguos NUNCA decidem sozinhos (ficam em revisão). */
 export function defaultResolution(match: DedupeMatch<unknown>): ItemResolution {
   // POSSIBLE_DUPLICATE nunca decide sozinho: fica retido até o consultor escolher.
+  // Um vencedor concluído/cancelado (historyFlag) é a mesma situação: o
+  // ranking status-aware pode trazer um item fechado como melhor match, e
+  // aplicar "update" nele silenciosamente reabriria algo encerrado — ou,
+  // se EXISTING, "skip" esconderia uma recorrência genuína sem avisar.
+  // Trata igual a POSSIBLE_DUPLICATE: nunca create/update sozinho.
   const mode: ResolutionMode =
-    match.type === "EXISTING" || match.type === "POSSIBLE_DUPLICATE"
+    match.type === "EXISTING" || match.type === "POSSIBLE_DUPLICATE" || !!match.historyFlag
       ? "skip"
       : match.type === "UPDATE_EXISTING"
         ? "update"
@@ -853,6 +993,7 @@ export function defaultResolution(match: DedupeMatch<unknown>): ItemResolution {
     reason: match.reason,
     changes: match.changes,
     statusSignal: match.statusSignal ?? null,
+    historyFlag: match.historyFlag ?? null,
   };
 }
 
@@ -930,10 +1071,11 @@ export function annotateOrigin<T>(
   projectNameById: Map<string, string>,
 ): DedupeMatch<T> {
   if (match.type === "NEW") return match;
-  if (!itemProjectId || itemProjectId === currentProjectId) return match;
+  const withProjectId: DedupeMatch<T> = { ...match, matchedProjectId: itemProjectId ?? null };
+  if (!itemProjectId || itemProjectId === currentProjectId) return withProjectId;
   const name = projectNameById.get(itemProjectId);
   const origin = name ? `Vem do projeto "${name}".` : "Vem de outro projeto do cliente.";
-  return { ...match, reason: `${match.reason} ${origin}` };
+  return { ...withProjectId, reason: `${match.reason} ${origin}` };
 }
 
 /* ---------------- relatório de duplicidade (auditoria) ---------------- */

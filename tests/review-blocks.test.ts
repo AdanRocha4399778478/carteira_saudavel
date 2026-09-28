@@ -19,8 +19,9 @@ function item(
   verdict: ReviewBlockItem["verdict"],
   mode: ReviewBlockItem["mode"],
   hasOverride = false,
+  historyFlag: ReviewBlockItem["historyFlag"] = null,
 ): ReviewBlockItem<number> {
-  return { key, verdict, mode, hasOverride };
+  return { key, verdict, mode, hasOverride, historyFlag };
 }
 
 describe("GATE 10A — review-blocks: classificação de verdict", () => {
@@ -46,6 +47,13 @@ describe("GATE 10A — review-blocks: classificação de verdict", () => {
     expect(needsReview(item(0, "NEW", "create", false))).toBe(false);
     expect(needsReview(item(0, "UPDATE_EXISTING", "update", false))).toBe(false);
     expect(needsReview(item(0, "EXISTING", "skip", false))).toBe(false);
+  });
+
+  test("item com historyFlag (vencedor concluído/cancelado) conta como 'requer revisão', no mesmo espírito do POSSIBLE_DUPLICATE", () => {
+    expect(needsReview(item(0, "UPDATE_EXISTING", "skip", false, "recurrence"))).toBe(true);
+    expect(needsReview(item(0, "EXISTING", "skip", false, "previously_discarded"))).toBe(true);
+    // Override manual do consultor ainda sobrepõe, igual ao POSSIBLE_DUPLICATE.
+    expect(needsReview(item(0, "UPDATE_EXISTING", "update", true, "recurrence"))).toBe(false);
   });
 });
 
@@ -118,6 +126,19 @@ describe("GATE 10A — Aplicar sugestões seguras / Aprovar bloco (applySafeReso
     // Só o item seguro (NEW) recebe patch; o possível duplicado fica de fora.
     expect(patch).toEqual({ 1: "create" });
     expect(patch).not.toHaveProperty("0");
+  });
+
+  test("nunca autoaprova item com historyFlag, mesmo com verdict seguro (UPDATE_EXISTING/EXISTING)", () => {
+    const items: ReviewBlockItem<number>[] = [
+      item(0, "UPDATE_EXISTING", "skip", false, "recurrence"),
+      item(1, "EXISTING", "skip", false, "previously_discarded"),
+      item(2, "NEW", "create", false),
+    ];
+    const patch = applySafeResolutions(items);
+    // Só o item sem historyFlag (NEW) recebe patch.
+    expect(patch).toEqual({ 2: "create" });
+    expect(patch).not.toHaveProperty("0");
+    expect(patch).not.toHaveProperty("1");
   });
 
   test("itens já seguros mas com override diferente do default continuam preservados", () => {

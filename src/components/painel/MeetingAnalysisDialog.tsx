@@ -192,6 +192,7 @@ function toReviewItems<K extends string | number>(
     verdict: r.match.type,
     mode: r.mode,
     hasOverride: sel[r.key] !== undefined,
+    historyFlag: r.match.historyFlag ?? null,
   }));
 }
 
@@ -1652,6 +1653,13 @@ function ResolutionControls({
           Item de reunião posterior
           {resolution.candidateMeetingDate ? ` (${formatDate(resolution.candidateMeetingDate)})` : ""} —
           "Atualizar existente" desabilitado.
+        </p>
+      )}
+      {resolution.historyFlag && (
+        <p className="text-xs text-muted-foreground">
+          {resolution.historyFlag === "recurrence" ? "Já concluído anteriormente" : "Cancelado/descartado anteriormente"}
+          {resolution.candidateMeetingDate ? ` (${formatDate(resolution.candidateMeetingDate)})` : ""} — confirme antes de{" "}
+          {resolution.historyFlag === "recurrence" ? "reabrir" : "recriar"}.
         </p>
       )}
       <div className="flex flex-wrap items-center gap-1.5">
