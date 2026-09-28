@@ -16,7 +16,6 @@ import {
   clientsQuery,
   logDbError,
   opportunitiesQuery,
-  recalculateClient,
   risksQuery,
 } from "@/lib/api";
 import { MEETING_TYPES, normalizeMeeting, type Meeting } from "@/lib/domain";
@@ -182,7 +181,6 @@ function SmartMeetingPage() {
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDesc, setNewProjectDesc] = useState("");
   const [confirmSimilar, setConfirmSimilar] = useState(false);
-  const [duplicate, setDuplicate] = useState(false);
 
   const [meetingDate, setMeetingDate] = useState("");
   const [meetingType, setMeetingType] = useState<string>(MEETING_TYPES[0] ?? "");
@@ -193,6 +191,20 @@ function SmartMeetingPage() {
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [context, setContext] = useState<ProjectContext | null>(null);
+  /**
+   * Dados para gravar a reunião de verdade — só usados dentro de
+   * `persistDraftMeeting`, chamada pelo diálogo no momento da aprovação.
+   * Enquanto isso, `meeting` acima é só um rascunho em memória (`id: ""`).
+   */
+  const [draftInfo, setDraftInfo] = useState<{
+    clientId: string;
+    projectId: string;
+    meetingDate: string;
+    meetingType: string;
+    participants: string[];
+    transcriptHash: string;
+    transcriptKey: string;
+  } | null>(null);
 
   const decisions = useQuery({ ...decisionsQuery(project?.id), enabled: !!project?.id });
   /** Universo completo do cliente pra checagem antiduplicidade — não só o projeto identificado. */
@@ -375,6 +387,14 @@ function SmartMeetingPage() {
 
   /* ---------------- 3. vínculo + reunião ---------------- */
 
+  /**
+   * Monta o preview em memória — nada é gravado em `meetings` aqui. A
+   * gravação de verdade só acontece em `persistDraftMeeting`, chamada pelo
+   * diálogo no início da aprovação. Fechar o diálogo sem aprovar não deixa
+   * nenhuma linha para trás (era a causa da reunião "capenga": preview
+   * gravava a reunião de imediato, e satisfação/valor/próxima ação e as
+   * decisões/ações ficavam vazias se a aprovação nunca era concluída).
+   */
   const createAndReview = useMutation({
     mutationFn: async (force: boolean) => {
       if (!clientId) throw new Error("Selecione o cliente da reunião.");
@@ -398,71 +418,91 @@ function SmartMeetingPage() {
         });
         if (created.reused) toast.info("Projeto existente reaproveitado — nenhuma duplicata criada.");
         target = created.project;
+        void qc.invalidateQueries({ queryKey: ["projects"] });
       }
 
       /**
        * A gravação da reunião é idempotente: a mesma transcrição, para o mesmo
        * cliente, reaproveita a reunião já criada em vez de duplicar. Só um
-       * "processar mesmo assim" explícito gera uma segunda reunião.
+       * "processar mesmo assim" explícito gera uma segunda reunião. O hash e a
+       * chave são fixados agora e reusados tal qual no momento da aprovação.
        */
       const hash = await transcriptHash(transcript);
-      const rpc = await supabase.rpc("get_or_create_smart_meeting", {
-        p_client_id: clientId,
-        p_project_id: target.id,
-        p_transcript_hash: hash,
-        p_transcript_key: transcriptKey(hash, force),
-        p_meeting_date: meetingDate || new Date().toISOString().slice(0, 10),
-        p_meeting_type: meetingType || "",
-        p_participants: participants
+      const info = {
+        clientId,
+        projectId: target.id,
+        meetingDate: meetingDate || new Date().toISOString().slice(0, 10),
+        meetingType: meetingType || "",
+        participants: participants
           .split(",")
           .map((p) => p.trim())
           .filter(Boolean),
-        p_executive_summary: analysis.meeting.executive_summary || "",
-      });
-      if (rpc.error) {
-        logDbError("meetings", "get_or_create_smart_meeting", rpc.error);
-        throw new Error(rpc.error.message);
-      }
-      const { meeting_id: meetingId, reused } = rpc.data as unknown as {
-        meeting_id: string;
-        reused: boolean;
+        transcriptHash: hash,
+        transcriptKey: transcriptKey(hash, force),
       };
-
-      const row = await supabase.from("meetings").select("*").eq("id", meetingId).single();
-      if (row.error) {
-        logDbError("meetings", "select-created", row.error);
-        throw new Error(row.error.message);
-      }
-
-      // A reunião passa a ser a mais recente do cliente: atualiza data da
-      // última reunião e recalcula risco/status usados na Visão Geral.
-      await recalculateClient(clientId);
 
       const ctx = await ensureProjectContext(target.id);
-      return {
-        meeting: normalizeMeeting(row.data as Record<string, unknown>),
-        project: target,
-        context: ctx,
-        reused,
-      };
+      return { project: target, context: ctx, info };
     },
-    onSuccess: ({ meeting: m, project: p, context: c, reused }) => {
+    onSuccess: ({ project: p, context: c, info }) => {
       setErrors([]);
-      setMeeting(m);
       setProject(p);
       setContext(c);
-      setDuplicate(reused);
-      if (reused)
-        toast.warning(
-          "Esta transcrição já havia sido processada — reaproveitando a reunião existente.",
-        );
+      setDraftInfo(info);
+      setMeeting(
+        normalizeMeeting({
+          client_id: info.clientId,
+          project_id: info.projectId,
+          meeting_date: info.meetingDate,
+          meeting_type: info.meetingType,
+          participants: info.participants,
+          executive_summary: analysis?.meeting.executive_summary ?? "",
+        }),
+      );
       setReviewOpen(true);
-      for (const key of [["projects"], ["meetings"], ["clients"]]) {
-        void qc.invalidateQueries({ queryKey: key });
-      }
     },
     onError: (e: Error) => setErrors([e.message]),
   });
+
+  /**
+   * Chamada pelo diálogo no início da aprovação (nunca antes): grava a
+   * reunião de verdade via a mesma RPC idempotente de sempre, e só então o
+   * diálogo prossegue para gravar decisões/ações sobre o `meeting.id` real.
+   */
+  async function persistDraftMeeting(): Promise<Meeting> {
+    if (!draftInfo) throw new Error("Rascunho da reunião não encontrado — reabra o preview.");
+    const rpc = await supabase.rpc("get_or_create_smart_meeting", {
+      p_client_id: draftInfo.clientId,
+      p_project_id: draftInfo.projectId,
+      p_transcript_hash: draftInfo.transcriptHash,
+      p_transcript_key: draftInfo.transcriptKey,
+      p_meeting_date: draftInfo.meetingDate,
+      p_meeting_type: draftInfo.meetingType,
+      p_participants: draftInfo.participants,
+      p_executive_summary: analysis?.meeting.executive_summary || "",
+    });
+    if (rpc.error) {
+      logDbError("meetings", "get_or_create_smart_meeting", rpc.error);
+      throw new Error(rpc.error.message);
+    }
+    const { meeting_id: meetingId, reused } = rpc.data as unknown as {
+      meeting_id: string;
+      reused: boolean;
+    };
+
+    const row = await supabase.from("meetings").select("*").eq("id", meetingId).single();
+    if (row.error) {
+      logDbError("meetings", "select-created", row.error);
+      throw new Error(row.error.message);
+    }
+    if (reused)
+      toast.warning("Esta transcrição já havia sido processada — reaproveitando a reunião existente.");
+
+    const persisted = normalizeMeeting(row.data as Record<string, unknown>);
+    setMeeting(persisted);
+    for (const key of [["meetings"], ["clients"]]) void qc.invalidateQueries({ queryKey: key });
+    return persisted;
+  }
 
 
   const busy = extractPdf.isPending || runAnalysis.isPending || createAndReview.isPending;
@@ -821,7 +861,7 @@ function SmartMeetingPage() {
               </div>
             ) : null}
 
-            {alreadyProcessed.data && !duplicate ? (
+            {alreadyProcessed.data ? (
               <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
                 <p className="font-medium">Esta transcrição parece já ter sido processada.</p>
                 <p className="text-muted-foreground">
@@ -847,29 +887,6 @@ function SmartMeetingPage() {
                     onClick={() => createAndReview.mutate(true)}
                   >
                     Processar mesmo assim
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-
-            {duplicate && meeting && project ? (
-              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-                <p className="font-medium">Transcrição já processada</p>
-                <p className="text-muted-foreground">
-                  Uma reunião com exatamente este conteúdo já existe neste cliente. Nenhuma
-                  duplicata foi criada — o preview abriu sobre a reunião existente.
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" onClick={() => setReviewOpen(true)}>
-                    Abrir preview da reunião existente
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={busy}
-                    onClick={() => createAndReview.mutate(true)}
-                  >
-                    Processar mesmo assim (é outra reunião)
                   </Button>
                 </div>
               </div>
@@ -914,6 +931,7 @@ function SmartMeetingPage() {
         initialAnalysis={analysis}
         initialTranscript={`${sourceLabel(effectiveSource)}\n\n${transcript}`}
         closeOnApproved
+        onPersistDraftMeeting={persistDraftMeeting}
         onApplied={() => {
           // Sempre termina no projeto atualizado — seja ele reaproveitado,
           // recém-criado ou o mesmo de onde o fluxo foi iniciado.
