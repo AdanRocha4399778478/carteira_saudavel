@@ -1654,6 +1654,13 @@ function ResolutionControls({
           "Atualizar existente" desabilitado.
         </p>
       )}
+      {resolution.historyFlag && (
+        <p className="text-xs text-muted-foreground">
+          {resolution.historyFlag === "recurrence" ? "Já concluído anteriormente" : "Cancelado/descartado anteriormente"}
+          {resolution.candidateMeetingDate ? ` (${formatDate(resolution.candidateMeetingDate)})` : ""} — confirme antes de{" "}
+          {resolution.historyFlag === "recurrence" ? "reabrir" : "recriar"}.
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-1.5">
         {options.map((o) => (
           <Button

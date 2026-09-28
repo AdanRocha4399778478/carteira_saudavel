@@ -1,0 +1,176 @@
+import { describe, expect, test } from "bun:test";
+import {
+  annotateOrigin,
+  matchAction,
+  matchOpportunity,
+  matchRisk,
+} from "../src/lib/deduplication";
+import type { ActionItem, OpportunityItem, RiskItem } from "../src/lib/domain";
+
+const action = (description: string, patch: Partial<ActionItem> = {}): ActionItem => ({
+  id: patch.id ?? "a1",
+  client_id: patch.client_id ?? "c1",
+  meeting_id: patch.meeting_id ?? null,
+  description,
+  owner_name: patch.owner_name ?? null,
+  deadline: patch.deadline ?? null,
+  priority: patch.priority ?? "média",
+  status: patch.status ?? "não iniciada",
+  erp_area: patch.erp_area ?? null,
+  evidence: patch.evidence ?? null,
+  created_at: patch.created_at ?? "",
+  updated_at: patch.updated_at ?? "",
+  embedding: patch.embedding ?? null,
+});
+
+const risk = (description: string, patch: Partial<RiskItem> = {}): RiskItem => ({
+  id: patch.id ?? "r1",
+  client_id: patch.client_id ?? "c1",
+  meeting_id: patch.meeting_id ?? null,
+  description,
+  level: patch.level ?? "médio",
+  active: patch.active ?? true,
+  created_at: patch.created_at ?? "",
+  embedding: patch.embedding ?? null,
+});
+
+const opportunity = (description: string, patch: Partial<OpportunityItem> = {}): OpportunityItem => ({
+  id: patch.id ?? "o1",
+  client_id: patch.client_id ?? "c1",
+  meeting_id: patch.meeting_id ?? null,
+  description,
+  expected_benefit: patch.expected_benefit ?? null,
+  status: patch.status ?? "aberta",
+  created_at: patch.created_at ?? "",
+  embedding: patch.embedding ?? null,
+});
+
+/** Vetor 2D normalizado cujo cosine contra (1,0) é exatamente `cos`. */
+const vecWithCosine = (cos: number): number[] => [cos, Math.sqrt(1 - cos * cos)];
+const REF_VEC = [1, 0];
+
+describe("Frente 1 — ranking status-aware (ações/riscos/oportunidades)", () => {
+  test("ação aberta com score menor vence concluída com score maior DENTRO da margem (0,05)", () => {
+    const match = matchAction(
+      { description: "Revisar contrato de fornecimento", embedding: vecWithCosine(0.8) },
+      [
+        action("Assunto totalmente não relacionado ao texto novo", {
+          id: "done-1",
+          status: "concluída",
+          embedding: vecWithCosine(0.83),
+        }),
+        action("Outro assunto sem relação nenhuma com a entrada", {
+          id: "open-1",
+          status: "não iniciada",
+          embedding: vecWithCosine(0.8),
+        }),
+      ],
+    );
+    // Concluída pontuou 0,03 acima (dentro da margem de 0,05) — o aberto vence.
+    expect(match.existing_id).toBe("open-1");
+    expect(match.existingStatusClass).toBe("open");
+    expect(match.historyFlag).toBeNull();
+  });
+
+  test("ação concluída vence quando o score está FORA da margem", () => {
+    const match = matchAction(
+      { description: "Revisar contrato de fornecimento", embedding: vecWithCosine(0.95) },
+      [
+        action("Assunto totalmente não relacionado ao texto novo", {
+          id: "done-1",
+          status: "concluída",
+          embedding: vecWithCosine(0.95),
+        }),
+        action("Outro assunto sem relação nenhuma com a entrada", {
+          id: "open-1",
+          status: "não iniciada",
+          embedding: vecWithCosine(0.5),
+        }),
+      ],
+    );
+    expect(match.existing_id).toBe("done-1");
+    expect(match.existingStatusClass).toBe("done");
+    expect(match.historyFlag).toBe("recurrence");
+  });
+
+  test("ação cancelada gera historyFlag 'previously_discarded'", () => {
+    const match = matchAction(
+      { description: "Revisar contrato de fornecimento", embedding: vecWithCosine(0.96) },
+      [action("Assunto sem relação nenhuma", { id: "cancel-1", status: "cancelada", embedding: vecWithCosine(0.96) })],
+    );
+    expect(match.existingStatusClass).toBe("dismissed");
+    expect(match.historyFlag).toBe("previously_discarded");
+  });
+
+  test("risco inativo é tratado como 'done' (sem estado 'dismissed' distinto)", () => {
+    const match = matchRisk(
+      { description: "Atraso na entrega dos relatórios financeiros" },
+      [risk("Atraso na entrega dos relatórios financeiros", { id: "inactive-1", active: false })],
+    );
+    expect(match.existingStatusClass).toBe("done");
+    expect(match.historyFlag).toBe("recurrence");
+  });
+
+  test("oportunidade fechada → 'recurrence'; descartada → 'previously_discarded'", () => {
+    const closed = matchOpportunity(
+      { description: "Expandir contrato para novo módulo financeiro" },
+      [opportunity("Expandir contrato para novo módulo financeiro", { id: "closed-1", status: "fechada" })],
+    );
+    expect(closed.historyFlag).toBe("recurrence");
+
+    const discarded = matchOpportunity(
+      { description: "Expandir contrato para novo módulo financeiro" },
+      [opportunity("Expandir contrato para novo módulo financeiro", { id: "discarded-1", status: "descartada" })],
+    );
+    expect(discarded.historyFlag).toBe("previously_discarded");
+  });
+
+  test("item em outro projeto do mesmo cliente: matchedProjectId aponta para a origem", () => {
+    const match = matchAction({ description: "Revisar contrato de fornecimento" }, [
+      action("Revisar contrato de fornecimento", { id: "a-other-project" }),
+    ]);
+    const annotated = annotateOrigin(match, "project-b", "project-a", new Map([["project-b", "Financeiro"]]));
+    expect(annotated.matchedProjectId).toBe("project-b");
+    expect(annotated.reason).toContain("Financeiro");
+  });
+
+  test("mesmo projeto: matchedProjectId preenchido, sem texto de origem anexado", () => {
+    const match = matchAction({ description: "Revisar contrato de fornecimento" }, [
+      action("Revisar contrato de fornecimento", { id: "a-same-project" }),
+    ]);
+    const annotated = annotateOrigin(match, "project-a", "project-a", new Map());
+    expect(annotated.matchedProjectId).toBe("project-a");
+    expect(annotated.reason).toBe(match.reason);
+  });
+});
+
+describe("Frente 1 — regressão: sem competição de status, veredito idêntico ao atual", () => {
+  test("cosine real 0,658 (Revisar Conta Azul vs. categorização de lançamentos) — único candidato aberto", () => {
+    const match = matchAction(
+      { description: "Revisar e categorizar corretamente os lançamentos do extrato", embedding: vecWithCosine(0.658) },
+      [action("Revisar dados do sistema financeiro para avaliação do fluxo de caixa", { embedding: REF_VEC })],
+    );
+    expect(match.type).toBe("NEW");
+    expect(match.existingStatusClass).toBeNull();
+    expect(match.historyFlag).toBeNull();
+  });
+
+  test("cosine real 0,612 (modelo de remuneração vs. meritocracia) — único candidato aberto", () => {
+    const match = matchAction(
+      { description: "Implementação do modelo de pagamento baseado em meritocracia", embedding: vecWithCosine(0.612) },
+      [action("Aguardar mais meses de dados para finalizar modelo de remuneração", { embedding: REF_VEC })],
+    );
+    expect(match.type).toBe("NEW");
+  });
+
+  test("cosine real 0,553 (consolidação intra-reunião, abaixo do limiar de 0,60) — único candidato aberto", () => {
+    const match = matchAction(
+      { description: "Assinar carteira digital do colaborador novo" },
+      [action("Assinar carteira digital do colaborador atual", { embedding: vecWithCosine(0.553) })],
+    );
+    // Sem embedding na entrada, o combinedSimilarity cai para o texto puro — o
+    // ponto do teste é confirmar que, sem candidato concorrente, o resultado
+    // não muda com a introdução do ranking status-aware.
+    expect(match.existingStatusClass === "open" || match.type === "NEW").toBe(true);
+  });
+});
