@@ -198,14 +198,20 @@ describe("Frente 1 — regressão: sem competição de status, veredito idêntic
     expect(match.type).toBe("NEW");
   });
 
-  test("cosine real 0,553 (consolidação intra-reunião, abaixo do limiar de 0,60) — único candidato aberto", () => {
+  test("candidato aberto com score baixo (0,553) e texto sem núcleo comum — único candidato, sem concorrência de status", () => {
+    // Nota: o cosine real 0,553 da consolidação de carteira assinada (ver
+    // docs/requisito-*) não serve de fixture aqui — aquele par tem o MESMO
+    // núcleo lexical ("assinar carteira... colaborador"), então
+    // deliverableRelation o classifica como "same" e o score é elevado ao
+    // piso de DEDUPE_THRESHOLDS.high (0,90) independentemente do cosine cru
+    // (verificado: vira UPDATE_EXISTING a 90%, não reflete 0,553). Usar um
+    // par sem núcleo comum para isolar de fato o efeito do cosine puro.
     const match = matchAction(
-      { description: "Assinar carteira digital do colaborador novo" },
-      [action("Assinar carteira digital do colaborador atual", { embedding: vecWithCosine(0.553) })],
+      { description: "Renegociar prazo de entrega do fornecedor externo", embedding: REF_VEC },
+      [action("Organizar arquivo físico do escritório antigo", { embedding: vecWithCosine(0.553) })],
     );
-    // Sem embedding na entrada, o combinedSimilarity cai para o texto puro — o
-    // ponto do teste é confirmar que, sem candidato concorrente, o resultado
-    // não muda com a introdução do ranking status-aware.
-    expect(match.existingStatusClass === "open" || match.type === "NEW").toBe(true);
+    expect(match.type).toBe("NEW");
+    expect(match.existingStatusClass).toBeNull();
+    expect(match.historyFlag).toBeNull();
   });
 });
