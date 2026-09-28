@@ -160,6 +160,8 @@ type DedupeRow<T, K extends string | number = string | number> = {
   match: DedupeMatch<unknown>;
   mode: ResolutionMode;
   resolution: ItemResolution;
+  /** true quando o consultor já escolheu explicitamente um modo para este item. */
+  hasOverride: boolean;
 };
 
 function buildRow<T, K extends string | number>(
@@ -179,7 +181,7 @@ function buildRow<T, K extends string | number>(
     : base;
   // Posterior nunca vira "update", nem por override manual (o botão já vem desabilitado na UI).
   const mode = override && !(override === "update" && guarded.chronology === "posterior") ? override : guarded.mode;
-  return { key, item, match, mode, resolution: { ...guarded, mode } };
+  return { key, item, match, mode, resolution: { ...guarded, mode }, hasOverride: override !== undefined };
 }
 
 /** Converte linhas de dedupe (já com key/match/mode) no formato que review-blocks.ts entende. */
@@ -1605,16 +1607,23 @@ export function MeetingAnalysisDialog({
               </Button>
               <Button
                 type="button"
-                disabled={approve.isPending || approved}
+                disabled={approve.isPending || approved || overallCounts.reviewCount > 0}
                 className="gap-2"
                 onClick={submitApproval}
+                title={
+                  overallCounts.reviewCount > 0
+                    ? "Escolha uma opção para cada item em revisão antes de aprovar."
+                    : undefined
+                }
               >
                 {approve.isPending && <Loader2 className="size-4 animate-spin" aria-hidden />}
                 {approve.isPending
                   ? "Salvando…"
-                  : approveError
-                    ? "Tentar novamente"
-                    : "Aprovar e atualizar projeto"}
+                  : overallCounts.reviewCount > 0
+                    ? `Revise ${overallCounts.reviewCount} ${overallCounts.reviewCount === 1 ? "item" : "itens"} antes de aprovar`
+                    : approveError
+                      ? "Tentar novamente"
+                      : "Aprovar e atualizar projeto"}
               </Button>
             </>
           )}
@@ -1633,14 +1642,20 @@ export function MeetingAnalysisDialog({
 function ResolutionControls({
   resolution,
   mode,
+  hasOverride,
   onChange,
 }: {
   resolution: ItemResolution;
   mode: ResolutionMode;
+  /** false = ainda não há escolha explícita do consultor para este item. */
+  hasOverride: boolean;
   onChange: (mode: ResolutionMode) => void;
 }) {
   const isPosterior = resolution.chronology === "posterior";
   const canUpdate = !!resolution.targetId && !isPosterior;
+  // Possível duplicidade nasce sem modo escolhido — nenhum botão pode parecer
+  // selecionado até o consultor decidir, senão "Ignorar" some em silêncio.
+  const unresolved = resolution.verdict === "POSSIBLE_DUPLICATE" && !hasOverride;
   const options: { value: ResolutionMode; label: string; disabled?: boolean }[] = [
     { value: "create", label: "Criar novo" },
     { value: "update", label: "Atualizar existente", disabled: !canUpdate },
@@ -1662,13 +1677,16 @@ function ResolutionControls({
           {resolution.historyFlag === "recurrence" ? "reabrir" : "recriar"}.
         </p>
       )}
+      {unresolved && (
+        <p className="text-xs font-medium text-destructive">Escolha uma opção antes de aprovar.</p>
+      )}
       <div className="flex flex-wrap items-center gap-1.5">
         {options.map((o) => (
           <Button
             key={o.value}
             type="button"
             size="sm"
-            variant={mode === o.value ? "default" : "outline"}
+            variant={!unresolved && mode === o.value ? "default" : "outline"}
             disabled={o.disabled}
             onClick={() => onChange(o.value)}
           >
@@ -1705,7 +1723,7 @@ function ReviewRow({
   primary: string;
   secondary: string;
   classification: string;
-  row: { match: DedupeMatch<unknown>; mode: ResolutionMode; resolution: ItemResolution };
+  row: { match: DedupeMatch<unknown>; mode: ResolutionMode; resolution: ItemResolution; hasOverride: boolean };
   onChange: (mode: ResolutionMode) => void;
 }) {
   return (
@@ -1726,7 +1744,12 @@ function ReviewRow({
               ))}
             </ul>
           )}
-          <ResolutionControls resolution={row.resolution} mode={row.mode} onChange={onChange} />
+          <ResolutionControls
+            resolution={row.resolution}
+            mode={row.mode}
+            hasOverride={row.hasOverride}
+            onChange={onChange}
+          />
         </div>
         <span className="flex shrink-0 flex-col items-end gap-1">
           <ClassificationBadge value={classification} />
