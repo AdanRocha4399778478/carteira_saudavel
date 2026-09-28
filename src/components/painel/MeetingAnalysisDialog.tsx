@@ -55,6 +55,8 @@ import {
 } from "@/lib/meeting-analysis";
 import {
   annotateOrigin,
+  applyChronologyGuard,
+  chronologyOf,
   defaultResolution,
   matchAction,
   matchContextItem,
@@ -63,6 +65,7 @@ import {
   matchRisk,
   scopeToProject,
   VERDICT_LABEL,
+  type ChronologyStatus,
   type DedupeMatch,
   type ItemResolution,
   type ResolutionMode,
@@ -159,10 +162,19 @@ function buildRow<T, K extends string | number>(
   item: T,
   match: DedupeMatch<unknown>,
   override: ResolutionMode | undefined,
+  chronology?: { currentMeetingDate: string | null | undefined; candidateMeetingDate: string | null | undefined },
 ): DedupeRow<T, K> {
   const base = defaultResolution(match);
-  const mode = override ?? base.mode;
-  return { key, item, match, mode, resolution: { ...base, mode } };
+  const guarded = chronology
+    ? applyChronologyGuard(
+        base,
+        chronologyOf(chronology.currentMeetingDate, chronology.candidateMeetingDate),
+        chronology.candidateMeetingDate,
+      )
+    : base;
+  // Posterior nunca vira "update", nem por override manual (o botão já vem desabilitado na UI).
+  const mode = override && !(override === "update" && guarded.chronology === "posterior") ? override : guarded.mode;
+  return { key, item, match, mode, resolution: { ...guarded, mode } };
 }
 
 /** Converte linhas de dedupe (já com key/match/mode) no formato que review-blocks.ts entende. */
@@ -362,6 +374,12 @@ export function MeetingAnalysisDialog({
     for (const m of clientMeetings) if (m.project_id) map.set(m.id, m.project_id);
     return map;
   }, [clientMeetings]);
+  /** meeting_id → meeting_date, pra travar "Atualizar existente" quando o candidato vem de reunião posterior. */
+  const meetingDateByMeetingId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of clientMeetings) if (m.meeting_date) map.set(m.id, m.meeting_date);
+    return map;
+  }, [clientMeetings]);
   const projectNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const p of clientProjects) map.set(p.id, p.name);
@@ -414,6 +432,12 @@ export function MeetingAnalysisDialog({
 
   const originForMeetingId = (meetingId: string | null | undefined): string | null =>
     meetingId ? (projectIdByMeetingId.get(meetingId) ?? null) : null;
+  const dateForMeetingId = (meetingId: string | null | undefined): string | null =>
+    meetingId ? (meetingDateByMeetingId.get(meetingId) ?? null) : null;
+  const chronologyFor = (candidateMeetingId: string | null | undefined) => ({
+    currentMeetingDate: meeting?.meeting_date,
+    candidateMeetingDate: dateForMeetingId(candidateMeetingId),
+  });
 
   const decisionRows: DedupeRow<MeetingAnalysis["decisions"][number], number>[] = useMemo(
     () =>
@@ -435,9 +459,10 @@ export function MeetingAnalysisDialog({
           item,
           withOrigin(match, match.existing?.project_id ?? null),
           decisionSel[i],
+          chronologyFor(match.existing?.meeting_id),
         );
       }),
-    [analysis, dedupeDecisions, decisionSel, project?.id, projectNameById],
+    [analysis, dedupeDecisions, decisionSel, project?.id, projectNameById, meeting?.meeting_date, meetingDateByMeetingId],
   );
 
   const actionRows: DedupeRow<MeetingAnalysis["actions"][number], number>[] = useMemo(
@@ -458,9 +483,19 @@ export function MeetingAnalysisDialog({
           item,
           withOrigin(match, originForMeetingId(match.existing?.meeting_id)),
           actionSel[i],
+          chronologyFor(match.existing?.meeting_id),
         );
       }),
-    [analysis, dedupeActions, actionSel, project?.id, projectIdByMeetingId, projectNameById],
+    [
+      analysis,
+      dedupeActions,
+      actionSel,
+      project?.id,
+      projectIdByMeetingId,
+      projectNameById,
+      meeting?.meeting_date,
+      meetingDateByMeetingId,
+    ],
   );
 
   const riskRows: DedupeRow<MeetingAnalysis["risks"][number], number>[] = useMemo(
@@ -475,9 +510,19 @@ export function MeetingAnalysisDialog({
           item,
           withOrigin(match, originForMeetingId(match.existing?.meeting_id)),
           riskSel[i],
+          chronologyFor(match.existing?.meeting_id),
         );
       }),
-    [analysis, dedupeRisks, riskSel, project?.id, projectIdByMeetingId, projectNameById],
+    [
+      analysis,
+      dedupeRisks,
+      riskSel,
+      project?.id,
+      projectIdByMeetingId,
+      projectNameById,
+      meeting?.meeting_date,
+      meetingDateByMeetingId,
+    ],
   );
 
   const oppRows: DedupeRow<MeetingAnalysis["opportunities"][number], number>[] = useMemo(
@@ -492,9 +537,19 @@ export function MeetingAnalysisDialog({
           item,
           withOrigin(match, originForMeetingId(match.existing?.meeting_id)),
           oppSel[i],
+          chronologyFor(match.existing?.meeting_id),
         );
       }),
-    [analysis, opportunities, oppSel, project?.id, projectIdByMeetingId, projectNameById],
+    [
+      analysis,
+      opportunities,
+      oppSel,
+      project?.id,
+      projectIdByMeetingId,
+      projectNameById,
+      meeting?.meeting_date,
+      meetingDateByMeetingId,
+    ],
   );
 
   /* ---------------- GATE 10A — revisão em blocos ---------------- */
@@ -1355,26 +1410,36 @@ function ResolutionControls({
   mode: ResolutionMode;
   onChange: (mode: ResolutionMode) => void;
 }) {
-  const canUpdate = !!resolution.targetId;
+  const isPosterior = resolution.chronology === "posterior";
+  const canUpdate = !!resolution.targetId && !isPosterior;
   const options: { value: ResolutionMode; label: string; disabled?: boolean }[] = [
     { value: "create", label: "Criar novo" },
     { value: "update", label: "Atualizar existente", disabled: !canUpdate },
     { value: "skip", label: "Ignorar" },
   ];
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
-      {options.map((o) => (
-        <Button
-          key={o.value}
-          type="button"
-          size="sm"
-          variant={mode === o.value ? "default" : "outline"}
-          disabled={o.disabled}
-          onClick={() => onChange(o.value)}
-        >
-          {o.label}
-        </Button>
-      ))}
+    <div className="mt-2 flex flex-col gap-1.5">
+      {isPosterior && (
+        <p className="text-xs text-attention">
+          Item de reunião posterior
+          {resolution.candidateMeetingDate ? ` (${formatDate(resolution.candidateMeetingDate)})` : ""} —
+          "Atualizar existente" desabilitado.
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {options.map((o) => (
+          <Button
+            key={o.value}
+            type="button"
+            size="sm"
+            variant={mode === o.value ? "default" : "outline"}
+            disabled={o.disabled}
+            onClick={() => onChange(o.value)}
+          >
+            {o.label}
+          </Button>
+        ))}
+      </div>
     </div>
   );
 }

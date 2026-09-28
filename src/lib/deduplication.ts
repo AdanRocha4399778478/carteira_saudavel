@@ -758,6 +758,10 @@ export type ItemResolution = {
   changes: FieldChange[];
   /** Mudança de estado aprovada junto com a atualização. */
   statusSignal?: StatusSignal;
+  /** Cronologia do candidato encontrado em relação à reunião atual — ver `chronologyOf`. */
+  chronology?: ChronologyStatus;
+  /** Data (ISO, "AAAA-MM-DD") da reunião de origem do candidato, só para exibição. */
+  candidateMeetingDate?: string | null;
 };
 
 /** Sugestão padrão — casos ambíguos NUNCA decidem sozinhos (ficam em revisão). */
@@ -783,6 +787,44 @@ export function defaultResolution(match: DedupeMatch<unknown>): ItemResolution {
 /** Itens em faixa intermediária precisam de confirmação explícita. */
 export function needsHumanReview(match: DedupeMatch<unknown>): boolean {
   return match.type === "POSSIBLE_DUPLICATE";
+}
+
+/* ---------------- cronologia ---------------- */
+
+export type ChronologyStatus = "current_or_earlier" | "posterior" | "unknown";
+
+/**
+ * Compara a data da reunião de origem de um candidato com a da reunião
+ * atual — datas são strings "AAAA-MM-DD", comparáveis lexicograficamente.
+ * Data igual não conta como posterior. Qualquer data ausente vira
+ * "unknown" (nunca bloqueia sozinha — a ausência de dado não é motivo pra
+ * travar uma atualização legítima).
+ */
+export function chronologyOf(
+  currentMeetingDate: string | null | undefined,
+  candidateMeetingDate: string | null | undefined,
+): ChronologyStatus {
+  if (!currentMeetingDate || !candidateMeetingDate) return "unknown";
+  return candidateMeetingDate > currentMeetingDate ? "posterior" : "current_or_earlier";
+}
+
+/**
+ * Aplica a trava de cronologia a uma resolução já calculada: um candidato
+ * de reunião posterior nunca pode ser alvo de "Atualizar existente" — o
+ * veredito e a confiança são preservados (auditoria), só o modo de
+ * resolução é rebaixado para "create" quando estava em "update".
+ */
+export function applyChronologyGuard(
+  resolution: ItemResolution,
+  chronology: ChronologyStatus,
+  candidateMeetingDate?: string | null,
+): ItemResolution {
+  return {
+    ...resolution,
+    mode: chronology === "posterior" && resolution.mode === "update" ? "create" : resolution.mode,
+    chronology,
+    candidateMeetingDate: candidateMeetingDate ?? null,
+  };
 }
 
 /* ---------------- escopo de comparação ---------------- */
