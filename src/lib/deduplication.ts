@@ -446,6 +446,42 @@ function hasMaterialScopeConflict(
   );
 }
 
+/**
+ * Só percentual e moeda — nunca uma sequência numérica solta. Uma data em
+ * prosa ("vence dia 20"), um número de contrato ou um CNPJ reformulado
+ * ("12345" → "12.345", mesma coisa, pontuação diferente) capturariam como
+ * "número divergente" sem ser NUNCA um valor de negócio — testado e
+ * descartado antes desta versão. Quantidade solta ("20 unidades") fica de
+ * fora por design: o custo de falso positivo em data/documento é maior que
+ * o benefício de cobrir quantidade aqui.
+ */
+function extractNumbers(text: string): Set<string> {
+  const percent = text.match(/\d+(?:[.,]\d+)?\s*%/g) ?? [];
+  const currency = text.match(/(?:R\$|US\$|\$|€)\s*\d+(?:[.,]\d+)*/g) ?? [];
+  return new Set([...percent, ...currency].map((m) => m.replace(/\s+/g, "").toUpperCase()));
+}
+
+/**
+ * Mitigação mínima e isolada: um título quase idêntico ("Reajuste da tabela
+ * de preços") pode esconder um valor numérico completamente diferente
+ * (5% × 8%) que nenhum outro campo estruturado captura. Sem isso,
+ * `matchDecision` classificaria o par como UPDATE_EXISTING/EXISTING com
+ * `changes: []` — passa pelo gate de POSSIBLE_DUPLICATE e por
+ * `isSafeVerdict`, ou seja, "Aplicar sugestões seguras" sobrescreveria o
+ * valor antigo sem o consultor nunca ver o item. Não compara/exibe QUAL
+ * número mudou (isso é o PR de comparação campo a campo) — só impede que o
+ * par seja tratado como seguro quando os números batem no título mas não no
+ * texto livre.
+ */
+function hasDivergentNumbers(incoming: string, existing: string): boolean {
+  const a = extractNumbers(incoming);
+  const b = extractNumbers(existing);
+  if (a.size === 0 || b.size === 0) return false;
+  const onlyInA = [...a].some((n) => !b.has(n));
+  const onlyInB = [...b].some((n) => !a.has(n));
+  return onlyInA && onlyInB;
+}
+
 
 
 
@@ -761,6 +797,12 @@ export function matchDecision(
     hasFilledConflict(item.due_date, best.item.due_date, normalizeDate) ? "prazo" : null,
     hasFilledConflict(item.status, best.item.status) ? "status" : null,
     hasMaterialScopeConflict(item.description, best.item.description) ? "escopo textual" : null,
+    hasDivergentNumbers(
+      incomingContext,
+      `${best.item.title} ${best.item.description ?? ""} ${best.item.reason ?? ""}`,
+    )
+      ? "valor numérico"
+      : null,
   ].filter((label): label is string => !!label);
   const materialConflict = conflictLabels.length > 0;
   let type = verdictFromScore(best.score);
