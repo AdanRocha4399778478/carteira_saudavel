@@ -803,6 +803,25 @@ export function scopeToProject<T extends { meeting_id?: string | null }>(
   return scoped.length ? scoped : candidates;
 }
 
+/**
+ * Anota o motivo de um match com a origem, quando o candidato encontrado
+ * vier de um projeto diferente do projeto atual (comparação antiduplicidade
+ * agora cruza todos os projetos do cliente, não só o projeto/reunião atual).
+ * Não altera type/confidence/changes — só acrescenta contexto ao texto.
+ */
+export function annotateOrigin<T>(
+  match: DedupeMatch<T>,
+  itemProjectId: string | null | undefined,
+  currentProjectId: string | null | undefined,
+  projectNameById: Map<string, string>,
+): DedupeMatch<T> {
+  if (match.type === "NEW") return match;
+  if (!itemProjectId || itemProjectId === currentProjectId) return match;
+  const name = projectNameById.get(itemProjectId);
+  const origin = name ? `Vem do projeto "${name}".` : "Vem de outro projeto do cliente.";
+  return { ...match, reason: `${match.reason} ${origin}` };
+}
+
 /* ---------------- serviço central ---------------- */
 
 export type DedupeEntityType = "action" | "risk" | "decision" | "opportunity" | "context_item";

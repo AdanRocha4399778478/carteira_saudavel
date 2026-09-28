@@ -274,6 +274,39 @@ export const decisionsQuery = (projectId?: string) =>
     },
   });
 
+/**
+ * Todas as decisões do cliente, em qualquer projeto — usado como universo de
+ * comparação antiduplicidade da Reunião Inteligente (não substitui
+ * `decisionsQuery(projectId)`, que continua escopado ao projeto atual pra
+ * exibição na aba Decisões e no cálculo de pauta).
+ */
+export const clientDecisionsQuery = (clientId: string) =>
+  queryOptions({
+    queryKey: ["decisions", "client", clientId],
+    enabled: !!clientId,
+    queryFn: async () =>
+      unwrap<Decision[]>(
+        "decisions",
+        await supabase
+          .from("decisions")
+          .select("*")
+          .eq("client_id", clientId)
+          .order("created_at", { ascending: false }),
+      ),
+  });
+
+/** Nome dos projetos do cliente — só o suficiente pra rotular a origem de um item comparado. */
+export const clientProjectNamesQuery = (clientId: string) =>
+  queryOptions({
+    queryKey: ["projects", "client-names", clientId],
+    enabled: !!clientId,
+    queryFn: async (): Promise<{ id: string; name: string }[]> =>
+      unwrap<{ id: string; name: string }[]>(
+        "projects",
+        await supabase.from("projects").select("id, name").eq("client_id", clientId),
+      ),
+  });
+
 /** Reuniões do projeto (histórico) — nunca é sobrescrito pelo contexto. */
 export const projectMeetingsQuery = (projectId: string) =>
   queryOptions({

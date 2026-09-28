@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  annotateOrigin,
   combinedSimilarity,
   DEDUPE_THRESHOLDS,
   defaultResolution,
@@ -301,6 +302,62 @@ describe("GATE 12C — dedupe semântico contra histórico", () => {
 
       const resolution = defaultResolution(match);
       expect(resolution.targetId).toBe("acao-conflitante");
+    });
+  });
+
+  describe("annotateOrigin — comparação antiduplicidade agora cruza projetos do mesmo cliente", () => {
+    const names = new Map([["proj-financeiro", "Financeiro"]]);
+
+    test("match NEW nunca é anotado, mesmo com projeto diferente informado", () => {
+      const match = matchAction(
+        { description: "Consultar linha de crédito de capital de giro" },
+        [action("Avaliar taxas de aplicação financeira do caixa")],
+      );
+      expect(match.type).toBe("NEW");
+      const annotated = annotateOrigin(match, "proj-financeiro", "proj-operacoes", names);
+      expect(annotated.reason).toBe(match.reason);
+    });
+
+    test("candidato do MESMO projeto não recebe anotação", () => {
+      const match = matchAction(
+        { description: "Montar balanço patrimonial detalhado" },
+        [action("Elaboração do balanço patrimonial")],
+      );
+      expect(match.type).toBe("UPDATE_EXISTING");
+      const annotated = annotateOrigin(match, "proj-operacoes", "proj-operacoes", names);
+      expect(annotated.reason).toBe(match.reason);
+    });
+
+    test("candidato de OUTRO projeto com nome conhecido: anota o nome do projeto", () => {
+      const match = matchAction(
+        { description: "Montar balanço patrimonial detalhado" },
+        [action("Elaboração do balanço patrimonial")],
+      );
+      expect(match.type).toBe("UPDATE_EXISTING");
+      const annotated = annotateOrigin(match, "proj-financeiro", "proj-operacoes", names);
+      expect(annotated.reason).toContain('Vem do projeto "Financeiro".');
+      // Não deve alterar o veredito nem o restante do match.
+      expect(annotated.type).toBe(match.type);
+      expect(annotated.confidence).toBe(match.confidence);
+      expect(annotated.changes).toBe(match.changes);
+    });
+
+    test("candidato de outro projeto sem nome no mapa: anota rótulo genérico", () => {
+      const match = matchAction(
+        { description: "Montar balanço patrimonial detalhado" },
+        [action("Elaboração do balanço patrimonial")],
+      );
+      const annotated = annotateOrigin(match, "proj-desconhecido", "proj-operacoes", names);
+      expect(annotated.reason).toContain("Vem de outro projeto do cliente.");
+    });
+
+    test("itemProjectId ausente (null/undefined) não é anotado", () => {
+      const match = matchAction(
+        { description: "Montar balanço patrimonial detalhado" },
+        [action("Elaboração do balanço patrimonial")],
+      );
+      expect(annotateOrigin(match, null, "proj-operacoes", names).reason).toBe(match.reason);
+      expect(annotateOrigin(match, undefined, "proj-operacoes", names).reason).toBe(match.reason);
     });
   });
 });

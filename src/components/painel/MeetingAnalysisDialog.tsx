@@ -54,6 +54,7 @@ import {
   type SemanticConsolidation,
 } from "@/lib/meeting-analysis";
 import {
+  annotateOrigin,
   defaultResolution,
   matchAction,
   matchContextItem,
@@ -221,6 +222,9 @@ export function MeetingAnalysisDialog({
   actions,
   risks,
   decisions,
+  allDecisions,
+  clientMeetings = [],
+  clientProjects = [],
   opportunities = [],
   initialAnalysis = null,
   initialTranscript,
@@ -235,7 +239,14 @@ export function MeetingAnalysisDialog({
   context: ProjectContext | null;
   actions: ActionItem[];
   risks: RiskItem[];
+  /** Decisões do projeto atual — usadas na pauta e na aba Decisões (fora deste diálogo). */
   decisions: Decision[];
+  /** Todas as decisões do cliente (qualquer projeto) — universo da checagem antiduplicidade. Cai para `decisions` quando ausente. */
+  allDecisions?: Decision[];
+  /** Todas as reuniões do cliente (qualquer projeto) — usadas só pra identificar de qual projeto veio um item comparado. */
+  clientMeetings?: Meeting[];
+  /** Nome dos projetos do cliente — usado junto com `clientMeetings` pra rotular a origem de um item comparado de outro projeto. */
+  clientProjects?: { id: string; name: string }[];
   /** Oportunidades do cliente — escopo da checagem antiduplicidade. */
   opportunities?: OpportunityItem[];
   /** Reuniões do projeto — restringe a busca de duplicidade ao escopo do projeto. */
@@ -327,6 +338,41 @@ export function MeetingAnalysisDialog({
     () => scopeToProject(risks.filter((r) => r.client_id === meeting?.client_id), projectMeetingIds),
     [risks, meeting?.client_id, projectMeetingIds],
   );
+
+  /**
+   * Escopo antiduplicidade: TODO o histórico do cliente, em qualquer
+   * projeto — não só o projeto/reunião atual. Comparar só com a reunião
+   * anterior deixava passar itens que evoluíam de reuniões mais antigas ou
+   * de outros projetos do mesmo cliente. A lógica de similaridade em si
+   * (matchAction/matchDecision/matchRisk) não muda, só o universo comparado.
+   */
+  const dedupeActions = useMemo(
+    () => actions.filter((a) => a.client_id === meeting?.client_id),
+    [actions, meeting?.client_id],
+  );
+  const dedupeRisks = useMemo(
+    () => risks.filter((r) => r.client_id === meeting?.client_id),
+    [risks, meeting?.client_id],
+  );
+  const dedupeDecisions = allDecisions ?? decisions;
+
+  /** meeting_id → project_id, pra descobrir de qual projeto veio uma ação/risco/oportunidade comparado. */
+  const projectIdByMeetingId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of clientMeetings) if (m.project_id) map.set(m.id, m.project_id);
+    return map;
+  }, [clientMeetings]);
+  const projectNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of clientProjects) map.set(p.id, p.name);
+    return map;
+  }, [clientProjects]);
+
+  const withOrigin = <T,>(
+    match: DedupeMatch<T>,
+    itemProjectId: string | null | undefined,
+  ): DedupeMatch<T> => annotateOrigin(match, itemProjectId, project?.id, projectNameById);
+
   const overdueActions = useMemo(() => meetingActions.filter(isOverdue), [meetingActions]);
   const openActions = useMemo(
     () => meetingActions.filter((a) => a.status !== "concluída"),
@@ -366,79 +412,89 @@ export function MeetingAnalysisDialog({
     [contextDiff, contextSel],
   );
 
+  const originForMeetingId = (meetingId: string | null | undefined): string | null =>
+    meetingId ? (projectIdByMeetingId.get(meetingId) ?? null) : null;
+
   const decisionRows: DedupeRow<MeetingAnalysis["decisions"][number], number>[] = useMemo(
     () =>
-      (analysis?.decisions ?? []).map((item, i) =>
-        buildRow(
+      (analysis?.decisions ?? []).map((item, i) => {
+        const match = matchDecision(
+          {
+            title: item.title,
+            description: item.description,
+            reason: item.reason,
+            owner: item.owner,
+            due_date: item.due_date,
+            status: item.status,
+            embedding: item.embedding ?? null,
+          },
+          dedupeDecisions,
+        );
+        return buildRow(
           i,
           item,
-          matchDecision(
-            {
-              title: item.title,
-              description: item.description,
-              reason: item.reason,
-              owner: item.owner,
-              due_date: item.due_date,
-              status: item.status,
-              embedding: item.embedding ?? null,
-            },
-            decisions,
-          ),
+          withOrigin(match, match.existing?.project_id ?? null),
           decisionSel[i],
-        ),
-      ),
-    [analysis, decisions, decisionSel],
+        );
+      }),
+    [analysis, dedupeDecisions, decisionSel, project?.id, projectNameById],
   );
 
   const actionRows: DedupeRow<MeetingAnalysis["actions"][number], number>[] = useMemo(
     () =>
-      (analysis?.actions ?? []).map((item, i) =>
-        buildRow(
+      (analysis?.actions ?? []).map((item, i) => {
+        const match = matchAction(
+          {
+            description: item.description,
+            owner_name: item.owner_name,
+            deadline: item.deadline,
+            priority: item.priority,
+            embedding: item.embedding ?? null,
+          },
+          dedupeActions,
+        );
+        return buildRow(
           i,
           item,
-          matchAction(
-            {
-              description: item.description,
-              owner_name: item.owner_name,
-              deadline: item.deadline,
-              priority: item.priority,
-              embedding: item.embedding ?? null,
-            },
-            meetingActions,
-          ),
+          withOrigin(match, originForMeetingId(match.existing?.meeting_id)),
           actionSel[i],
-        ),
-      ),
-    [analysis, meetingActions, actionSel],
+        );
+      }),
+    [analysis, dedupeActions, actionSel, project?.id, projectIdByMeetingId, projectNameById],
   );
 
   const riskRows: DedupeRow<MeetingAnalysis["risks"][number], number>[] = useMemo(
     () =>
-      (analysis?.risks ?? []).map((item, i) =>
-        buildRow(
+      (analysis?.risks ?? []).map((item, i) => {
+        const match = matchRisk(
+          { description: item.description, level: item.level, embedding: item.embedding ?? null },
+          dedupeRisks,
+        );
+        return buildRow(
           i,
           item,
-          matchRisk({ description: item.description, level: item.level, embedding: item.embedding ?? null }, scopedRisks),
+          withOrigin(match, originForMeetingId(match.existing?.meeting_id)),
           riskSel[i],
-        ),
-      ),
-    [analysis, scopedRisks, riskSel],
+        );
+      }),
+    [analysis, dedupeRisks, riskSel, project?.id, projectIdByMeetingId, projectNameById],
   );
 
   const oppRows: DedupeRow<MeetingAnalysis["opportunities"][number], number>[] = useMemo(
     () =>
-      (analysis?.opportunities ?? []).map((item, i) =>
-        buildRow(
+      (analysis?.opportunities ?? []).map((item, i) => {
+        const match = matchOpportunity(
+          { description: item.description, expected_benefit: item.expected_benefit, embedding: item.embedding ?? null },
+          opportunities,
+        );
+        return buildRow(
           i,
           item,
-          matchOpportunity(
-            { description: item.description, expected_benefit: item.expected_benefit, embedding: item.embedding ?? null },
-            opportunities,
-          ),
+          withOrigin(match, originForMeetingId(match.existing?.meeting_id)),
           oppSel[i],
-        ),
-      ),
-    [analysis, opportunities, oppSel],
+        );
+      }),
+    [analysis, opportunities, oppSel, project?.id, projectIdByMeetingId, projectNameById],
   );
 
   /* ---------------- GATE 10A — revisão em blocos ---------------- */
