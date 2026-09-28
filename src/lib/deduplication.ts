@@ -864,6 +864,158 @@ export function annotateOrigin<T>(
   return { ...match, reason: `${match.reason} ${origin}` };
 }
 
+/* ---------------- relatório de duplicidade (auditoria) ---------------- */
+
+export type RankedCandidate<T> = {
+  item: T;
+  /** Mesmo score usado pelo matching real (lexical ou combinado) — determina a ordem. */
+  score: number;
+  /** Só a componente semântica, isolada — null quando algum dos dois lados não tem embedding. */
+  cosine: number | null;
+};
+
+/**
+ * Ranking dos N melhores candidatos por score (não só o primeiro, como
+ * `pickBest`) — usado para auditoria: mostrar por que um item saiu "NEW"
+ * também exige ver o que quase bateu e não bateu.
+ */
+export function rankCandidates<T>(
+  candidates: T[],
+  incomingText: string,
+  getText: (item: T) => string,
+  incomingEmbedding?: number[] | null,
+  getEmbedding?: (item: T) => number[] | null | undefined,
+  limit = 3,
+): RankedCandidate<T>[] {
+  const ranked = candidates.map((item) => {
+    const text = getText(item);
+    const embedding = getEmbedding?.(item);
+    const hasBothEmbeddings = !!incomingEmbedding && !!embedding;
+    const score = getEmbedding
+      ? combinedSimilarity(incomingText, text, incomingEmbedding, embedding)
+      : similarity(incomingText, text);
+    const cosine = hasBothEmbeddings ? cosineSimilarity(incomingEmbedding, embedding) : null;
+    return { item, score, cosine };
+  });
+  ranked.sort((a, b) => b.score - a.score);
+  return ranked.slice(0, Math.max(0, limit));
+}
+
+export type DuplicateReportCandidate = {
+  text: string;
+  projectName: string | null;
+  meetingId: string | null;
+  meetingDate: string | null;
+  status: string | null;
+  owner: string | null;
+  cosine: number | null;
+};
+
+export type DuplicateReportSuggestion = {
+  category: string;
+  text: string;
+  classification?: string | null;
+  ownerName: string | null;
+  deadline: string | null;
+  verdict: DedupeVerdict;
+  confidence: number;
+  /** true quando o candidato escolhido (targetId) veio de reunião posterior à atual — ver B1. */
+  posterior: boolean;
+  /** Melhores candidatos do cliente inteiro contra este item, mesmo quando o veredito é NEW — pra auditoria. */
+  candidates: DuplicateReportCandidate[];
+};
+
+export type DuplicateReportConsolidation = {
+  category: string;
+  canonicalText: string;
+  mergedTexts: string[];
+};
+
+export type DuplicateReportCounts = {
+  total: number;
+  new: number;
+  updated: number;
+  review: number;
+  ignored: number;
+};
+
+export type DuplicateReportInput = {
+  clientName: string;
+  projectName: string;
+  meetingId: string;
+  meetingDate: string;
+  counts: DuplicateReportCounts;
+  consolidations: DuplicateReportConsolidation[];
+  suggestions: DuplicateReportSuggestion[];
+};
+
+const VERDICT_REPORT_LABEL: Record<DedupeVerdict, string> = {
+  NEW: "Novo",
+  EXISTING: "Já existe (idêntico)",
+  UPDATE_EXISTING: "Atualização",
+  POSSIBLE_DUPLICATE: "Possível duplicidade",
+};
+
+/**
+ * Relatório de duplicidade em markdown puro (sem embeddings) — pra copiar e
+ * auditar fora da tela: por que cada sugestão saiu do jeito que saiu, e
+ * contra o quê ela foi comparada. Função pura: recebe só dados já
+ * carregados pelo diálogo, não acessa rede nem banco.
+ */
+export function formatDuplicateReport(input: DuplicateReportInput): string {
+  const lines: string[] = [];
+  lines.push("# Relatório de duplicidade — Reunião Inteligente");
+  lines.push("");
+  lines.push(`- Cliente: ${input.clientName}`);
+  lines.push(`- Projeto: ${input.projectName}`);
+  lines.push(`- Reunião: ${input.meetingDate} (id: ${input.meetingId})`);
+  lines.push(
+    `- Contadores: ${input.counts.total} total · ${input.counts.new} novo(s) · ${input.counts.updated} atualização(ões) · ${input.counts.review} para revisar · ${input.counts.ignored} ignorado(s)`,
+  );
+  lines.push("");
+
+  if (input.consolidations.length > 0) {
+    lines.push("## Consolidações internas (mesma reunião)");
+    lines.push("");
+    for (const c of input.consolidations) {
+      lines.push(`- [${c.category}] "${c.canonicalText}" ← ${c.mergedTexts.map((t) => `"${t}"`).join(", ")}`);
+    }
+    lines.push("");
+  }
+
+  lines.push("## Sugestões");
+  lines.push("");
+  for (const s of input.suggestions) {
+    lines.push(`### [${s.category}] ${s.text}`);
+    const meta: string[] = [
+      `Veredito: ${VERDICT_REPORT_LABEL[s.verdict]} (${Math.round(s.confidence * 100)}%)`,
+    ];
+    if (s.classification) meta.push(`Classificação: ${s.classification}`);
+    if (s.ownerName) meta.push(`Responsável proposto: ${s.ownerName}`);
+    if (s.deadline) meta.push(`Prazo proposto: ${s.deadline}`);
+    if (s.posterior) meta.push("⚠ Candidato de reunião posterior — não oferecido para atualizar");
+    lines.push(meta.join(" · "));
+    if (s.candidates.length === 0) {
+      lines.push("- Nenhum candidato no histórico do cliente.");
+    } else {
+      for (const c of s.candidates) {
+        const parts = [
+          `"${c.text}"`,
+          c.projectName ? `projeto: ${c.projectName}` : "projeto: —",
+          c.meetingDate ? `reunião: ${c.meetingDate}${c.meetingId ? ` (${c.meetingId})` : ""}` : "reunião: —",
+          `status: ${c.status ?? "—"}`,
+          `responsável: ${c.owner ?? "—"}`,
+          `cosine: ${c.cosine === null ? "—" : c.cosine.toFixed(3)}`,
+        ];
+        lines.push(`- ${parts.join(" · ")}`);
+      }
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n").trim() + "\n";
+}
+
 /* ---------------- serviço central ---------------- */
 
 export type DedupeEntityType = "action" | "risk" | "decision" | "opportunity" | "context_item";

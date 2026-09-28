@@ -20,7 +20,7 @@ const analysisSource = read("src/lib/meeting-analysis.ts");
 describe("GATE 10A — nenhuma alteração em thresholds/dedupe/backend", () => {
   test("MeetingAnalysisDialog não define nenhuma lógica de dedupe própria — só importa de @/lib/deduplication", () => {
     expect(dialogSource).toContain(
-      'import {\n  annotateOrigin,\n  applyChronologyGuard,\n  chronologyOf,\n  defaultResolution,\n  matchAction,\n  matchContextItem,\n  matchDecision,\n  matchOpportunity,\n  matchRisk,\n  scopeToProject,\n  VERDICT_LABEL,',
+      'import {\n  annotateOrigin,\n  applyChronologyGuard,\n  chronologyOf,\n  defaultResolution,\n  formatDuplicateReport,\n  matchAction,\n  matchContextItem,\n  matchDecision,\n  matchOpportunity,\n  matchRisk,\n  rankCandidates,\n  scopeToProject,\n  VERDICT_LABEL,',
     );
     expect(dialogSource).toContain('from "@/lib/deduplication"');
     // Nenhum threshold ou peso numérico de confiança é definido no componente.

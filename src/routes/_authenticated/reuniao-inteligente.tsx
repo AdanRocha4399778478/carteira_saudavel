@@ -906,6 +906,10 @@ function SmartMeetingPage() {
         clientProjects={(projects.data ?? [])
           .filter((pr) => pr.client_id === meeting?.client_id)
           .map((pr) => ({ id: pr.id, name: pr.name }))}
+        {...(() => {
+          const name = (clients.data ?? []).find((c) => c.id === meeting?.client_id)?.company_name;
+          return name ? { clientName: name } : {};
+        })()}
         opportunities={(opportunities.data ?? []).filter((o) => o.client_id === meeting?.client_id)}
         initialAnalysis={analysis}
         initialTranscript={`${sourceLabel(effectiveSource)}\n\n${transcript}`}

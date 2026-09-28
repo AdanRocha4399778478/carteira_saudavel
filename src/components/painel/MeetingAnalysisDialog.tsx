@@ -30,6 +30,7 @@ import {
 } from "@/lib/domain";
 import {
   CONTEXT_LIST_LABEL,
+  type ContextItem,
   type ContextListKey,
   type Decision,
   type Project,
@@ -58,15 +59,19 @@ import {
   applyChronologyGuard,
   chronologyOf,
   defaultResolution,
+  formatDuplicateReport,
   matchAction,
   matchContextItem,
   matchDecision,
   matchOpportunity,
   matchRisk,
+  rankCandidates,
   scopeToProject,
   VERDICT_LABEL,
   type ChronologyStatus,
   type DedupeMatch,
+  type DuplicateReportCandidate,
+  type DuplicateReportSuggestion,
   type ItemResolution,
   type ResolutionMode,
 } from "@/lib/deduplication";
@@ -237,6 +242,7 @@ export function MeetingAnalysisDialog({
   allDecisions,
   clientMeetings = [],
   clientProjects = [],
+  clientName,
   opportunities = [],
   initialAnalysis = null,
   initialTranscript,
@@ -259,6 +265,8 @@ export function MeetingAnalysisDialog({
   clientMeetings?: Meeting[];
   /** Nome dos projetos do cliente — usado junto com `clientMeetings` pra rotular a origem de um item comparado de outro projeto. */
   clientProjects?: { id: string; name: string }[];
+  /** Nome do cliente — só para o cabeçalho do relatório de duplicidade copiável. */
+  clientName?: string;
   /** Oportunidades do cliente — escopo da checagem antiduplicidade. */
   opportunities?: OpportunityItem[];
   /** Reuniões do projeto — restringe a busca de duplicidade ao escopo do projeto. */
@@ -574,6 +582,225 @@ export function MeetingAnalysisDialog({
     [contextItemsByGroup, decisionItems, actionItems, riskItems, oppItems],
   );
   const overallCounts = useMemo(() => countReviewBlock(allReviewItems), [allReviewItems]);
+
+  /* ---------------- relatório de duplicidade (copiável) ---------------- */
+
+  const duplicateReportText = useMemo(() => {
+    if (!analysis || !meeting) return "";
+
+    const projectNameOf = (projectId: string | null | undefined): string | null =>
+      projectId ? (projectNameById.get(projectId) ?? null) : null;
+
+    const contextCandidates = (
+      ranked: { item: ContextItem; cosine: number | null }[],
+    ): DuplicateReportCandidate[] =>
+      ranked.map((r) => ({
+        text: r.item.text,
+        projectName: project?.name ?? null,
+        meetingId: r.item.source_meeting_id ?? null,
+        meetingDate: dateForMeetingId(r.item.source_meeting_id),
+        status: null,
+        owner: null,
+        cosine: r.cosine,
+      }));
+
+    const decisionCandidates = (
+      ranked: { item: Decision; cosine: number | null }[],
+    ): DuplicateReportCandidate[] =>
+      ranked.map((r) => ({
+        text: r.item.title,
+        projectName: projectNameOf(r.item.project_id),
+        meetingId: r.item.meeting_id ?? null,
+        meetingDate: dateForMeetingId(r.item.meeting_id),
+        status: r.item.status ?? null,
+        owner: r.item.owner ?? null,
+        cosine: r.cosine,
+      }));
+
+    const actionCandidates = (
+      ranked: { item: ActionItem; cosine: number | null }[],
+    ): DuplicateReportCandidate[] =>
+      ranked.map((r) => ({
+        text: r.item.description,
+        projectName: projectNameOf(originForMeetingId(r.item.meeting_id)),
+        meetingId: r.item.meeting_id ?? null,
+        meetingDate: dateForMeetingId(r.item.meeting_id),
+        status: r.item.status ?? null,
+        owner: r.item.owner_name ?? null,
+        cosine: r.cosine,
+      }));
+
+    const riskCandidates = (
+      ranked: { item: RiskItem; cosine: number | null }[],
+    ): DuplicateReportCandidate[] =>
+      ranked.map((r) => ({
+        text: r.item.description,
+        projectName: projectNameOf(originForMeetingId(r.item.meeting_id)),
+        meetingId: r.item.meeting_id ?? null,
+        meetingDate: dateForMeetingId(r.item.meeting_id),
+        status: r.item.active ? "ativo" : "resolvido",
+        owner: null,
+        cosine: r.cosine,
+      }));
+
+    const oppCandidates = (
+      ranked: { item: OpportunityItem; cosine: number | null }[],
+    ): DuplicateReportCandidate[] =>
+      ranked.map((r) => ({
+        text: r.item.description,
+        projectName: projectNameOf(originForMeetingId(r.item.meeting_id)),
+        meetingId: r.item.meeting_id ?? null,
+        meetingDate: dateForMeetingId(r.item.meeting_id),
+        status: r.item.status ?? null,
+        owner: null,
+        cosine: r.cosine,
+      }));
+
+    const suggestions: DuplicateReportSuggestion[] = [
+      ...contextRows.flatMap((group) =>
+        group.rows.map((row) => ({
+          category: group.list,
+          text: (row.item as { text: string }).text,
+          classification: CLASSIFICATION_LABEL[(row.item as { classification?: string }).classification ?? ""] ??
+            (row.item as { classification?: string }).classification ??
+            null,
+          ownerName: null,
+          deadline: null,
+          verdict: row.resolution.verdict,
+          confidence: row.resolution.confidence,
+          posterior: row.resolution.chronology === "posterior",
+          candidates: contextCandidates(
+            rankCandidates(
+              group.current,
+              (row.item as { text: string }).text,
+              (c) => c.text,
+              (row.item as { embedding?: number[] | null }).embedding ?? null,
+              (c) => c.embedding,
+            ),
+          ),
+        })),
+      ),
+      ...(analysis.decisions ?? []).map((item, i) => ({
+        category: "decisions",
+        text: item.title,
+        classification: CLASSIFICATION_LABEL[item.classification] ?? item.classification,
+        ownerName: item.owner || null,
+        deadline: item.due_date || null,
+        verdict: decisionRows[i]!.resolution.verdict,
+        confidence: decisionRows[i]!.resolution.confidence,
+        posterior: decisionRows[i]!.resolution.chronology === "posterior",
+        candidates: decisionCandidates(
+          rankCandidates(dedupeDecisions, item.title, (d) => d.title, item.embedding ?? null, (d) => d.embedding),
+        ),
+      })),
+      ...(analysis.actions ?? []).map((item, i) => ({
+        category: "actions",
+        text: item.description,
+        classification: CLASSIFICATION_LABEL[item.classification] ?? item.classification,
+        ownerName: item.owner_name || null,
+        deadline: item.deadline || null,
+        verdict: actionRows[i]!.resolution.verdict,
+        confidence: actionRows[i]!.resolution.confidence,
+        posterior: actionRows[i]!.resolution.chronology === "posterior",
+        candidates: actionCandidates(
+          rankCandidates(
+            dedupeActions,
+            item.description,
+            (a) => a.description,
+            item.embedding ?? null,
+            (a) => a.embedding,
+          ),
+        ),
+      })),
+      ...(analysis.risks ?? []).map((item, i) => ({
+        category: "risks",
+        text: item.description,
+        classification: CLASSIFICATION_LABEL[item.classification] ?? item.classification,
+        ownerName: null,
+        deadline: null,
+        verdict: riskRows[i]!.resolution.verdict,
+        confidence: riskRows[i]!.resolution.confidence,
+        posterior: riskRows[i]!.resolution.chronology === "posterior",
+        candidates: riskCandidates(
+          rankCandidates(
+            dedupeRisks,
+            item.description,
+            (r) => r.description,
+            item.embedding ?? null,
+            (r) => r.embedding,
+          ),
+        ),
+      })),
+      ...(analysis.opportunities ?? []).map((item, i) => ({
+        category: "opportunities",
+        text: item.description,
+        classification: CLASSIFICATION_LABEL[item.classification] ?? item.classification,
+        ownerName: null,
+        deadline: null,
+        verdict: oppRows[i]!.resolution.verdict,
+        confidence: oppRows[i]!.resolution.confidence,
+        posterior: oppRows[i]!.resolution.chronology === "posterior",
+        candidates: oppCandidates(
+          rankCandidates(
+            opportunities,
+            item.description,
+            (o) => o.description,
+            item.embedding ?? null,
+            (o) => o.embedding,
+          ),
+        ),
+      })),
+    ];
+
+    return formatDuplicateReport({
+      clientName: clientName ?? "—",
+      projectName: project?.name ?? "—",
+      meetingId: meeting.id,
+      meetingDate: meeting.meeting_date,
+      counts: {
+        total: overallCounts.total,
+        new: overallCounts.newCount,
+        updated: overallCounts.updateCount,
+        review: overallCounts.reviewCount,
+        ignored: overallCounts.ignoredCount,
+      },
+      consolidations: (analysis.semantic_consolidation?.groups ?? []).map((g) => ({
+        category: g.category ?? "",
+        canonicalText: g.canonicalText ?? "",
+        mergedTexts: g.mergedTexts ?? [],
+      })),
+      suggestions,
+    });
+  }, [
+    analysis,
+    meeting,
+    project,
+    clientName,
+    contextRows,
+    decisionRows,
+    actionRows,
+    riskRows,
+    oppRows,
+    dedupeDecisions,
+    dedupeActions,
+    dedupeRisks,
+    opportunities,
+    overallCounts,
+    projectNameById,
+    projectIdByMeetingId,
+    meetingDateByMeetingId,
+  ]);
+
+  const copyDuplicateReport = () => {
+    if (!duplicateReportText) {
+      toast.error("Nenhuma análise carregada ainda.");
+      return;
+    }
+    void navigator.clipboard
+      .writeText(duplicateReportText)
+      .then(() => toast.success("Relatório de duplicidade copiado."))
+      .catch(() => toast.error("Não foi possível copiar — copie manualmente pelo console."));
+  };
 
   /** Expand/recolher por bloco — o default (aberto se precisa revisão) é fixado uma vez por análise carregada. */
   const [blockOpen, setBlockOpen] = useState<Record<string, boolean>>({});
@@ -1050,6 +1277,7 @@ export function MeetingAnalysisDialog({
                 <ReviewSummaryCard
                   counts={overallCounts}
                   onApplySafe={applyAllSafe}
+                  onCopyDuplicateReport={copyDuplicateReport}
                   blocksTotal={blockStatuses.length}
                   blocksReviewed={blockStatuses.filter((s) => s === "approved" || s === "ignored").length}
                   executionQuality={analysis?.execution_quality}
@@ -1505,6 +1733,7 @@ function ReviewRow({
 function ReviewSummaryCard({
   counts,
   onApplySafe,
+  onCopyDuplicateReport,
   blocksTotal,
   blocksReviewed,
   executionQuality,
@@ -1512,6 +1741,8 @@ function ReviewSummaryCard({
 }: {
   counts: ReviewBlockCounts;
   onApplySafe: () => void;
+  /** Copia o relatório de duplicidade (markdown puro) pra área de transferência. */
+  onCopyDuplicateReport: () => void;
   /** Progresso da REVISÃO por blocos (GATE 10D) — não é classificação do dedupe. */
   blocksTotal: number;
   blocksReviewed: number;
@@ -1533,9 +1764,14 @@ function ReviewSummaryCard({
     <section className="rounded-lg border bg-muted/20 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">Revisão da análise</h3>
-        <Button type="button" size="sm" variant="outline" className="gap-2" onClick={onApplySafe}>
-          <ShieldCheck className="size-4" aria-hidden /> Aplicar sugestões seguras
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" variant="outline" className="gap-2" onClick={onCopyDuplicateReport}>
+            <Copy className="size-4" aria-hidden /> Copiar relatório de duplicidade
+          </Button>
+          <Button type="button" size="sm" variant="outline" className="gap-2" onClick={onApplySafe}>
+            <ShieldCheck className="size-4" aria-hidden /> Aplicar sugestões seguras
+          </Button>
+        </div>
       </div>
       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-5">
         {stats.map((s) => (
