@@ -107,6 +107,78 @@ export function normalizeOwner(value: string | null | undefined): string {
   return clean[0] ?? "";
 }
 
+/* ---------------- responsável: conjunto, não string única ---------------- */
+
+/**
+ * Rótulos que a transcrição usa quando não identificou a pessoa — nunca
+ * confirmam nem descartam um conflito, porque não dizem quem é ninguém.
+ * `normalizeOwner` já reduz ao primeiro token, então "Equipe operacional"
+ * e "Responsável técnico" chegam aqui como só "equipe"/"responsavel".
+ */
+const GENERIC_OWNER_LABELS = new Set(["speaker", "equipe", "responsavel", "consultor", "consultoria"]);
+
+/** Separa um campo de texto com múltiplos responsáveis: "/", ",", "&" ou " e ". */
+function splitOwnerNames(value: string): string[] {
+  return value
+    .replace(/\([^)]*\)/g, " ") // remove qualificador entre parênteses ("Adam (consultor)" -> "Adam")
+    .split(/\/|,|&|\se\s/i)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Alias de grafia por cliente — resolvido por tabela explícita, nunca por
+ * distância de edição (aproximação de texto pode juntar pessoas diferentes
+ * que só têm nomes parecidos). Semente temporária enquanto o local
+ * definitivo de armazenamento não é decidido (proposta em aberto — ver
+ * discussão da B3): hoje é só uma constante no código.
+ */
+const OWNER_ALIAS_SEED: Record<string, Record<string, string>> = {
+  "9943b0f4-5220-4297-9f17-7fee64280da5": { ada: "adam" }, // Grupo Erinho — "Ada" e "Adam" são a mesma pessoa.
+};
+
+/** Resolve uma variação de grafia conhecida do responsável, pro cliente informado. */
+export function resolveOwnerAlias(clientId: string | null | undefined, normalizedName: string): string {
+  if (!clientId) return normalizedName;
+  return OWNER_ALIAS_SEED[clientId]?.[normalizedName] ?? normalizedName;
+}
+
+/**
+ * Conjunto de responsáveis conhecidos citados num campo de texto — não um
+ * único nome. Separa multi-responsável, remove qualificadores entre
+ * parênteses, descarta rótulos genéricos (viram DESCONHECIDO — nem
+ * confirmam nem escondem conflito) e resolve alias de grafia por cliente.
+ */
+export function normalizeOwnerSet(
+  value: string | null | undefined,
+  clientId?: string | null,
+): Set<string> {
+  if (!value) return new Set();
+  const names = splitOwnerNames(value)
+    .map((n) => normalizeOwner(n))
+    .filter((n) => n && !GENERIC_OWNER_LABELS.has(n))
+    .map((n) => resolveOwnerAlias(clientId, n));
+  return new Set(names);
+}
+
+/**
+ * Conflito material de responsável: só quando os DOIS lados têm pelo menos
+ * um nome conhecido (rótulo genérico não conta como nome) e os conjuntos
+ * são disjuntos. Desconhecido de qualquer lado não afirma nem nega
+ * conflito — fica em aberto, não bloqueia por falta de informação.
+ */
+export function hasOwnerConflict(
+  incoming: string | null | undefined,
+  existing: string | null | undefined,
+  clientId?: string | null,
+): boolean {
+  const a = normalizeOwnerSet(incoming, clientId);
+  const b = normalizeOwnerSet(existing, clientId);
+  if (a.size === 0 || b.size === 0) return false;
+  for (const name of a) if (b.has(name)) return false;
+  return true;
+}
+
 /**
  * Função central de normalização para comparação. Todo o resto do sistema
  * deve usar esta (ou os helpers acima) — nunca normalizar em componentes.
@@ -473,7 +545,7 @@ export function matchAction(item: IncomingAction, candidates: ActionItem[]): Ded
 
   const rawSignal = detectStatusSignal(`${item.description} ${item.evidence ?? ""}`);
   const conflictLabels = [
-    hasFilledConflict(item.owner_name, best.item.owner_name, normalizeOwner) ? "responsável" : null,
+    hasOwnerConflict(item.owner_name, best.item.owner_name, best.item.client_id) ? "responsável" : null,
     hasFilledConflict(item.deadline, best.item.deadline, normalizeDate) ? "prazo" : null,
     hasFilledConflict(item.priority, best.item.priority) ? "prioridade" : null,
     (best.item.status === "concluída" || best.item.status === "cancelada") && rawSignal !== "reopened"
@@ -569,7 +641,7 @@ export function matchDecision(
     changes.push({ field: "status", label: "Status", from: best.item.status ?? "—", to: item.status });
 
   const conflictLabels = [
-    hasFilledConflict(item.owner, best.item.owner, normalizeOwner) ? "responsável" : null,
+    hasOwnerConflict(item.owner, best.item.owner, best.item.client_id) ? "responsável" : null,
     hasFilledConflict(item.due_date, best.item.due_date, normalizeDate) ? "prazo" : null,
     hasFilledConflict(item.status, best.item.status) ? "status" : null,
     hasMaterialScopeConflict(item.description, best.item.description) ? "escopo textual" : null,
