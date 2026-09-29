@@ -15,6 +15,7 @@ dist-ssr
 .tanstack/**
 .nitro
 *.local
+*.local.ts
 
 # Local environment files
 .env
@@ -44,6 +45,6 @@ backup-antes-limpeza-2026-08-19.sql
 backup-completo-antes-limpeza-2026-08-19.sql
 
 .claude/
-Otimização de logo para aplicativo.zip
+Otimizaï¿½ï¿½o de logo para aplicativo.zip
 
 *logo para aplicativo.zip
