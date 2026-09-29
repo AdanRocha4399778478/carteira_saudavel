@@ -24,6 +24,16 @@ export default defineConfig(async ({ command, mode }) => {
     define[`import.meta.env.${key}`] = JSON.stringify(value);
   }
 
+  // VERCEL_ENV ("production" | "preview" | "development") é injetada pela
+  // Vercel automaticamente em todo build, sem configuração no painel — só
+  // não chega ao bundle do cliente por padrão (Vite só embute VITE_*).
+  // Exposta aqui para o cliente recusar o fallback de produção de
+  // public-config.ts quando estiver em Preview sem as env vars corretas.
+  const vercelEnv = process.env["VERCEL_ENV"];
+  if (vercelEnv && !define["import.meta.env.VITE_APP_ENV"]) {
+    define["import.meta.env.VITE_APP_ENV"] = JSON.stringify(vercelEnv);
+  }
+
 
   const isDevBuild = command === "build" && mode === "development";
 
