@@ -83,8 +83,9 @@ describe("GATE 10A — resumo geral (nível 1)", () => {
     expect(dialogSource).toContain("{overallCounts.updateCount}{\" \"}\n                    atualização(ões)");
     expect(dialogSource).toContain("{overallCounts.ignoredCount} ignorado(s)");
     expect(dialogSource).toContain("{overallCounts.reviewCount}{\" \"}\n                    para revisar");
-    // Não bloqueia a aprovação — só avisa quando há itens pendentes.
-    expect(dialogSource).not.toMatch(/disabled=\{[^}]*reviewCount/);
+    // PR 1: além do aviso em texto, o botão principal agora TRAVA com itens pendentes
+    // (ver describe "PR 1" abaixo) — aprovar sem revisar deixava de ser possível.
+    expect(dialogSource).toMatch(/disabled=\{[^}]*reviewCount/);
   });
 });
 
@@ -184,6 +185,42 @@ describe("GATE 10A — revisão individual (nível 3)", () => {
     const contextOpen = dialogSource.indexOf("<ReviewBlock", contextAnchor);
     const contextClose = dialogSource.indexOf("</ReviewBlock>", contextAnchor);
     expect(dialogSource.slice(contextOpen, contextClose)).toContain("<ReviewRow");
+  });
+});
+
+describe("PR 1 — item em revisão nasce sem modo escolhido; aprovar trava com pendências", () => {
+  test("o botão principal desabilita quando há itens em revisão, com o motivo visível", () => {
+    expect(dialogSource).toContain(
+      "disabled={approve.isPending || approved || overallCounts.reviewCount > 0}",
+    );
+    expect(dialogSource).toContain(
+      '"Escolha uma opção para cada item em revisão antes de aprovar."',
+    );
+    expect(dialogSource).toContain("`Revise ${overallCounts.reviewCount}");
+  });
+
+  test("ResolutionControls não marca nenhum botão como selecionado em POSSIBLE_DUPLICATE sem escolha explícita do consultor", () => {
+    expect(dialogSource).toContain(
+      'const unresolved = resolution.verdict === "POSSIBLE_DUPLICATE" && !hasOverride;',
+    );
+    expect(dialogSource).toContain('variant={!unresolved && mode === o.value ? "default" : "outline"}');
+    expect(dialogSource).toContain("Escolha uma opção antes de aprovar.");
+  });
+
+  test("hasOverride viaja de buildRow (override !== undefined) até ResolutionControls, sem novo estado paralelo", () => {
+    expect(dialogSource).toContain(
+      "return { key, item, match, mode, resolution: { ...guarded, mode }, hasOverride: override !== undefined };",
+    );
+    expect(dialogSource).toContain("hasOverride={row.hasOverride}");
+  });
+
+  test("defaultModeForVerdict continua 'skip' para POSSIBLE_DUPLICATE — o PR 1 não mexeu em review-blocks.ts nem em deduplication.ts, só na UI", () => {
+    // Mesma asserção da suíte que já cobre isso — reafirmada aqui porque é a premissa
+    // do PR 1: a UI é que não pode MOSTRAR esse default como se fosse uma escolha,
+    // a regra pura de detecção continua a mesma.
+    expect(dedupeSource).toContain(
+      '  const mode: ResolutionMode =\n    match.type === "EXISTING" || match.type === "POSSIBLE_DUPLICATE" || !!match.historyFlag\n      ? "skip"',
+    );
   });
 });
 
