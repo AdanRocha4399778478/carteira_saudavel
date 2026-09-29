@@ -8,7 +8,9 @@
 -- se alguma policy voltar a ser `USING (true)`, este teste FALHA.
 --
 -- Pré-requisito: os 3 usuários fictícios e os 2 clientes/projetos do seed
--- (ver docs/dev-environment.md ou README) precisam existir no projeto.
+-- (ver docs/dev-environment.md ou README) precisam existir no projeto,
+-- além de pelo menos 1 linha de time_entries e de
+-- orchestrator_recommendations por cliente fictício (achado 2026-09-29).
 --
 -- Todo o arquivo roda dentro de uma transação com ROLLBACK no final — não
 -- deixa nenhum efeito, seguro para rodar quantas vezes quiser.
@@ -48,6 +50,25 @@ BEGIN
     RAISE EXCEPTION 'FALHOU (consultora A / decisões do cliente B): esperado 0, veio %', v_count;
   END IF;
 
+  -- Achado 2026-09-29: time_entries e orchestrator_recommendations ficaram
+  -- fora do escopo do #53 (auditoria via pg_policies em produção). Mesmo
+  -- padrão de isolamento das outras tabelas.
+  SELECT count(*) INTO v_count FROM public.time_entries WHERE client_id = '00000000-0000-0000-0000-0000000c0b01';
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'FALHOU (consultora A / time_entries do cliente B): esperado 0, veio %', v_count;
+  END IF;
+
+  UPDATE public.time_entries SET description = 'tentativa indevida' WHERE client_id = '00000000-0000-0000-0000-0000000c0b01';
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'FALHOU (consultora A / UPDATE em time_entries do cliente B): deveria afetar 0 linhas, afetou %', v_count;
+  END IF;
+
+  SELECT count(*) INTO v_count FROM public.orchestrator_recommendations WHERE client_id = '00000000-0000-0000-0000-0000000c0b01';
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'FALHOU (consultora A / orchestrator_recommendations do cliente B): esperado 0, veio %', v_count;
+  END IF;
+
   -- Tentativa de escrita no cliente do outro consultor não deve afetar nenhuma linha.
   UPDATE public.clients SET notes = 'tentativa indevida' WHERE id = '00000000-0000-0000-0000-0000000c0b01';
   GET DIAGNOSTICS v_count = ROW_COUNT;
@@ -55,7 +76,7 @@ BEGIN
     RAISE EXCEPTION 'FALHOU (consultora A / UPDATE no cliente B): deveria afetar 0 linhas, afetou %', v_count;
   END IF;
 
-  RAISE NOTICE 'OK: consultora A vê só o próprio cliente, sem leitura nem escrita no cliente B.';
+  RAISE NOTICE 'OK: consultora A vê só o próprio cliente, sem leitura nem escrita no cliente B (incluindo time_entries e orchestrator_recommendations).';
 END $$;
 ROLLBACK TO SAVEPOINT antes_consultora_a;
 
@@ -78,13 +99,29 @@ BEGIN
     RAISE EXCEPTION 'FALHOU (consultor B / cliente A por id): deveria ser invisível, mas apareceu';
   END IF;
 
+  SELECT count(*) INTO v_count FROM public.time_entries WHERE client_id = '00000000-0000-0000-0000-0000000c0a01';
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'FALHOU (consultor B / time_entries do cliente A): esperado 0, veio %', v_count;
+  END IF;
+
+  UPDATE public.time_entries SET description = 'tentativa indevida' WHERE client_id = '00000000-0000-0000-0000-0000000c0a01';
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'FALHOU (consultor B / UPDATE em time_entries do cliente A): deveria afetar 0 linhas, afetou %', v_count;
+  END IF;
+
+  SELECT count(*) INTO v_count FROM public.orchestrator_recommendations WHERE client_id = '00000000-0000-0000-0000-0000000c0a01';
+  IF v_count <> 0 THEN
+    RAISE EXCEPTION 'FALHOU (consultor B / orchestrator_recommendations do cliente A): esperado 0, veio %', v_count;
+  END IF;
+
   UPDATE public.clients SET notes = 'tentativa indevida' WHERE id = '00000000-0000-0000-0000-0000000c0a01';
   GET DIAGNOSTICS v_count = ROW_COUNT;
   IF v_count <> 0 THEN
     RAISE EXCEPTION 'FALHOU (consultor B / UPDATE no cliente A): deveria afetar 0 linhas, afetou %', v_count;
   END IF;
 
-  RAISE NOTICE 'OK: consultor B vê só o próprio cliente, sem leitura nem escrita no cliente A.';
+  RAISE NOTICE 'OK: consultor B vê só o próprio cliente, sem leitura nem escrita no cliente A (incluindo time_entries e orchestrator_recommendations).';
 END $$;
 ROLLBACK TO SAVEPOINT antes_consultor_b;
 
