@@ -175,6 +175,7 @@ function SmartMeetingPage() {
   const [source, setSource] = useState<TranscriptSource | null>(null);
   const [showFullTranscript, setShowFullTranscript] = useState(false);
   const [analysis, setAnalysis] = useState<MeetingAnalysis | null>(null);
+  const [rawAiResponse, setRawAiResponse] = useState<string | null>(null);
   const [ident, setIdent] = useState<Identification | null>(null);
   const [clientId, setClientId] = useState(preset.clientId ?? "");
   const [projectId, setProjectId] = useState(preset.projectId ?? "");
@@ -355,12 +356,14 @@ function SmartMeetingPage() {
       return {
         analysis: parsed.analysis,
         identification: normalizeIdentification(payload["identification"]),
+        rawAiResponse: raw.rawAnalysisJson ?? null,
       };
     },
-    onSuccess: ({ analysis: a, identification }) => {
+    onSuccess: ({ analysis: a, identification, rawAiResponse: rawResp }) => {
       setErrors([]);
       setAnalysis(a);
       setIdent(identification);
+      setRawAiResponse(rawResp);
       // Confiança insuficiente não seleciona automaticamente — o consultor decide.
       // Atalho contextual manda: cliente/projeto vindos da tela de origem prevalecem.
       setClientId(
@@ -929,6 +932,7 @@ function SmartMeetingPage() {
         })()}
         opportunities={(opportunities.data ?? []).filter((o) => o.client_id === meeting?.client_id)}
         initialAnalysis={analysis}
+        rawAiResponse={rawAiResponse}
         initialTranscript={`${sourceLabel(effectiveSource)}\n\n${transcript}`}
         closeOnApproved
         onPersistDraftMeeting={persistDraftMeeting}
