@@ -69,6 +69,27 @@ BEGIN
     RAISE EXCEPTION 'FALHOU (consultora A / orchestrator_recommendations do cliente B): esperado 0, veio %', v_count;
   END IF;
 
+  -- Achado 2026-09-29 (auditoria de replay completo do dev): o INSERT de
+  -- orchestrator_recommendations precisa ser bloqueado tanto pelo trigger
+  -- `orchestrator_recommendations_scope` (BEFORE INSERT, chama
+  -- can_access_project) quanto pela policy de RLS — as duas camadas de
+  -- defesa. Um INSERT bem-sucedido aqui é falha, venha de qual camada vier.
+  BEGIN
+    INSERT INTO public.orchestrator_recommendations
+      (project_id, client_id, project_stage, recommended_agent, state_hash)
+    VALUES (
+      '00000000-0000-0000-0000-0000000d0b01',
+      '00000000-0000-0000-0000-0000000c0b01',
+      'SEM_DIRECAO',
+      'DIAGNOSTICO_EXECUTIVO',
+      'teste-regressao-rls'
+    );
+    RAISE EXCEPTION 'FALHOU (consultora A / INSERT em orchestrator_recommendations do cliente B): deveria ter sido bloqueado, mas foi aceito';
+  EXCEPTION
+    WHEN insufficient_privilege THEN
+      NULL; -- esperado: bloqueado pelo trigger de escopo ou pela policy de RLS
+  END;
+
   -- Tentativa de escrita no cliente do outro consultor não deve afetar nenhuma linha.
   UPDATE public.clients SET notes = 'tentativa indevida' WHERE id = '00000000-0000-0000-0000-0000000c0b01';
   GET DIAGNOSTICS v_count = ROW_COUNT;
@@ -114,6 +135,22 @@ BEGIN
   IF v_count <> 0 THEN
     RAISE EXCEPTION 'FALHOU (consultor B / orchestrator_recommendations do cliente A): esperado 0, veio %', v_count;
   END IF;
+
+  BEGIN
+    INSERT INTO public.orchestrator_recommendations
+      (project_id, client_id, project_stage, recommended_agent, state_hash)
+    VALUES (
+      '00000000-0000-0000-0000-0000000d0a01',
+      '00000000-0000-0000-0000-0000000c0a01',
+      'SEM_DIRECAO',
+      'DIAGNOSTICO_EXECUTIVO',
+      'teste-regressao-rls'
+    );
+    RAISE EXCEPTION 'FALHOU (consultor B / INSERT em orchestrator_recommendations do cliente A): deveria ter sido bloqueado, mas foi aceito';
+  EXCEPTION
+    WHEN insufficient_privilege THEN
+      NULL; -- esperado: bloqueado pelo trigger de escopo ou pela policy de RLS
+  END;
 
   UPDATE public.clients SET notes = 'tentativa indevida' WHERE id = '00000000-0000-0000-0000-0000000c0a01';
   GET DIAGNOSTICS v_count = ROW_COUNT;
