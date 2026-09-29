@@ -248,6 +248,7 @@ export function MeetingAnalysisDialog({
   clientName,
   opportunities = [],
   initialAnalysis = null,
+  rawAiResponse = null,
   initialTranscript,
   projectMeetingIds,
   closeOnApproved = false,
@@ -284,6 +285,13 @@ export function MeetingAnalysisDialog({
   projectMeetingIds?: string[];
   /** Análise já gerada pelo fluxo de Reunião Inteligente — abre direto no preview. */
   initialAnalysis?: MeetingAnalysis | null;
+  /**
+   * JSON bruto da resposta da IA (mesclada por chunk, antes da consolidação
+   * semântica e do schema Zod do cliente) — só para auditoria. Salvo junto
+   * com a análise ao aprovar, nunca lido de volta nem usado para renderizar
+   * a revisão.
+   */
+  rawAiResponse?: string | null;
   initialTranscript?: string;
   /** Fecha o diálogo automaticamente após a aprovação bem-sucedida. */
   closeOnApproved?: boolean;
@@ -304,6 +312,9 @@ export function MeetingAnalysisDialog({
   const [errors, setErrors] = useState<string[]>([]);
   const [analysis, setAnalysis] = useState<MeetingAnalysis | null>(null);
   const [agenda, setAgenda] = useState<AnalysisAgenda | null>(null);
+  /** JSON bruto da IA para este ciclo — vem de `rawAiResponse` (fluxo de Reunião
+   * Inteligente) ou da própria mutação `analyze` abaixo (fluxo de $projectId.tsx). */
+  const [rawAiResponseState, setRawAiResponseState] = useState<string | null>(null);
 
   // Escolha explícita do consultor por item (sobrepõe a sugestão do dedupe).
   const [contextSel, setContextSel] = useState<Record<string, ResolutionMode>>({});
@@ -338,6 +349,7 @@ export function MeetingAnalysisDialog({
     submitting.current = false;
     setAnalysis(null);
     setAgenda(null);
+    setRawAiResponseState(null);
     setTranscript(initialTranscript ?? saved.data?.transcript ?? "");
     setRawJson("");
   }, [open, meeting?.id, saved.data?.transcript, initialTranscript]);
@@ -346,6 +358,7 @@ export function MeetingAnalysisDialog({
   useEffect(() => {
     if (!open || !initialAnalysis) return;
     setAnalysis(initialAnalysis);
+    setRawAiResponseState(rawAiResponse ?? null);
     setAgenda(
       buildAgenda({
         suggested: initialAnalysis.agenda_recommendation,
@@ -600,6 +613,24 @@ export function MeetingAnalysisDialog({
     [contextItemsByGroup, decisionItems, actionItems, riskItems, oppItems],
   );
   const overallCounts = useMemo(() => countReviewBlock(allReviewItems), [allReviewItems]);
+
+  /**
+   * Quantas das 12 categorias possíveis (8 listas de contexto + decisões,
+   * ações, riscos, oportunidades) têm pelo menos um item nesta reunião —
+   * visível mesmo quando é zero, pra o consultor nunca confundir "categoria
+   * vazia de verdade" com "categoria escondida por bug" (achado real: caso
+   * Grupo Erinho, issue #56).
+   */
+  const blockCategoryCounts = useMemo(() => {
+    const categories = [
+      ...contextItemsByGroup.map((g) => g.items.length),
+      decisionItems.length,
+      actionItems.length,
+      riskItems.length,
+      oppItems.length,
+    ];
+    return { total: categories.length, withContent: categories.filter((n) => n > 0).length };
+  }, [contextItemsByGroup, decisionItems, actionItems, riskItems, oppItems]);
 
   /* ---------------- relatório de duplicidade (copiável) ---------------- */
 
@@ -1020,13 +1051,15 @@ export function MeetingAnalysisDialog({
         analysis: result.analysis,
         agenda: nextAgenda,
         status: "aguardando_revisao",
+        rawAiResponse: result.rawAiResponse ?? null,
       });
-      return { analysis: result.analysis, agenda: nextAgenda };
+      return { analysis: result.analysis, agenda: nextAgenda, rawAiResponse: result.rawAiResponse ?? null };
     },
-    onSuccess: ({ analysis: a, agenda: g }) => {
+    onSuccess: ({ analysis: a, agenda: g, rawAiResponse: rawResp }) => {
       setErrors([]);
       setAnalysis(a);
       setAgenda(g);
+      setRawAiResponseState(rawResp);
       setContextSel({});
       setDecisionSel({});
       setActionSel({});
@@ -1138,6 +1171,7 @@ export function MeetingAnalysisDialog({
         analysis,
         agenda,
         status: "aprovada",
+        rawAiResponse: rawAiResponseState,
       });
       return applied;
     },
@@ -1277,7 +1311,9 @@ export function MeetingAnalysisDialog({
 
             {step === "revisao" && analysis && (
               <div className="space-y-5">
-                {analysis.meeting.executive_summary && (
+                {(analysis.meeting.executive_summary ||
+                  analysis.meeting.main_topic ||
+                  analysis.meeting.measurable_result) && (
                   <section className="rounded-lg border p-4">
                     <label className="flex items-start gap-3">
                       <Checkbox
@@ -1286,9 +1322,23 @@ export function MeetingAnalysisDialog({
                       />
                       <span className="min-w-0">
                         <span className="block text-sm font-semibold">Resumo executivo</span>
-                        <span className="block text-sm text-muted-foreground">
-                          {analysis.meeting.executive_summary}
-                        </span>
+                        {analysis.meeting.executive_summary && (
+                          <span className="block text-sm text-muted-foreground">
+                            {analysis.meeting.executive_summary}
+                          </span>
+                        )}
+                        {analysis.meeting.main_topic && (
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            <span className="font-medium">Tópico principal:</span>{" "}
+                            {analysis.meeting.main_topic}
+                          </span>
+                        )}
+                        {analysis.meeting.measurable_result && (
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            <span className="font-medium">Resultado mensurável:</span>{" "}
+                            {analysis.meeting.measurable_result}
+                          </span>
+                        )}
                         {meeting?.executive_summary ? (
                           <span className="mt-1 block text-xs text-muted-foreground">
                             A reunião já possui resumo — o texto atual é preservado.
@@ -1305,6 +1355,8 @@ export function MeetingAnalysisDialog({
                   onCopyDuplicateReport={copyDuplicateReport}
                   blocksTotal={blockStatuses.length}
                   blocksReviewed={blockStatuses.filter((s) => s === "approved" || s === "ignored").length}
+                  categoriesWithContent={blockCategoryCounts.withContent}
+                  categoriesTotal={blockCategoryCounts.total}
                   executionQuality={analysis?.execution_quality}
                   semanticConsolidation={analysis?.semantic_consolidation}
                 />
@@ -1379,6 +1431,10 @@ export function MeetingAnalysisDialog({
                         key={r.key}
                         primary={r.item.title}
                         secondary={[r.item.owner, r.item.due_date].filter(Boolean).join(" · ")}
+                        details={[
+                          { label: "Descrição", value: r.item.description },
+                          { label: "Motivo", value: r.item.reason },
+                        ].filter((d) => d.value)}
                         classification={r.item.classification}
                         row={r}
                         onChange={(mode) => setDecisionSel((s) => ({ ...s, [r.key]: mode }))}
@@ -1415,6 +1471,7 @@ export function MeetingAnalysisDialog({
                         secondary={[r.item.owner_name, r.item.deadline, r.item.priority]
                           .filter(Boolean)
                           .join(" · ")}
+                        details={[{ label: "Área ERP", value: r.item.erp_area }].filter((d) => d.value)}
                         classification={r.item.classification}
                         row={r}
                         onChange={(mode) => setActionSel((s) => ({ ...s, [r.key]: mode }))}
@@ -1445,6 +1502,11 @@ export function MeetingAnalysisDialog({
                         secondary={[r.item.level, r.item.impact, r.item.recommendation]
                           .filter(Boolean)
                           .join(" · ")}
+                        details={[
+                          { label: "Título", value: r.item.title },
+                          { label: "Probabilidade", value: r.item.probability },
+                          { label: "Evidência", value: r.item.evidence },
+                        ].filter((d) => d.value)}
                         classification={r.item.classification}
                         row={r}
                         onChange={(mode) => setRiskSel((s) => ({ ...s, [r.key]: mode }))}
@@ -1479,6 +1541,7 @@ export function MeetingAnalysisDialog({
                         key={r.key}
                         primary={r.item.description}
                         secondary={r.item.expected_benefit}
+                        details={[{ label: "Evidência", value: r.item.evidence }].filter((d) => d.value)}
                         classification={r.item.classification}
                         row={r}
                         onChange={(mode) => setOppSel((s) => ({ ...s, [r.key]: mode }))}
@@ -1738,12 +1801,21 @@ function VerdictBadge({ resolution }: { resolution: ItemResolution }) {
 function ReviewRow({
   primary,
   secondary,
+  details,
   classification,
   row,
   onChange,
 }: {
   primary: string;
   secondary: string;
+  /**
+   * Todo campo não vazio do item que não tem um lugar dedicado em `primary`/
+   * `secondary` — ex.: descrição e motivo de uma decisão, evidência de um
+   * risco/oportunidade. Sem isso, esse conteúdo existe no dado (sobreviveu ao
+   * schema) mas nunca aparece na revisão (achado real: caso Grupo Erinho,
+   * 17/06 — issue #56).
+   */
+  details?: { label: string; value: string }[];
   classification: string;
   row: { match: DedupeMatch<unknown>; mode: ResolutionMode; resolution: ItemResolution; hasOverride: boolean };
   onChange: (mode: ResolutionMode) => void;
@@ -1754,6 +1826,15 @@ function ReviewRow({
         <div className="min-w-0 flex-1">
           <p className="text-sm">{primary}</p>
           {secondary && <p className="text-xs text-muted-foreground">{secondary}</p>}
+          {details && details.length > 0 && (
+            <dl className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+              {details.map((d) => (
+                <div key={d.label}>
+                  <span className="font-medium">{d.label}:</span> {d.value}
+                </div>
+              ))}
+            </dl>
+          )}
           {row.resolution.verdict !== "NEW" && (
             <p className="mt-1 text-xs text-muted-foreground">{row.resolution.reason}</p>
           )}
@@ -1789,6 +1870,8 @@ function ReviewSummaryCard({
   onCopyDuplicateReport,
   blocksTotal,
   blocksReviewed,
+  categoriesWithContent,
+  categoriesTotal,
   executionQuality,
   semanticConsolidation,
 }: {
@@ -1799,13 +1882,23 @@ function ReviewSummaryCard({
   /** Progresso da REVISÃO por blocos (GATE 10D) — não é classificação do dedupe. */
   blocksTotal: number;
   blocksReviewed: number;
+  /** Quantas das `categoriesTotal` categorias possíveis têm conteúdo nesta reunião. */
+  categoriesWithContent: number;
+  categoriesTotal: number;
   /** GATE 12 — métricas de action-first/consolidação, calculadas no servidor. */
   executionQuality?: ExecutionQuality;
   /** GATE 12B — métricas de consolidação SEMÂNTICA (embeddings), calculadas no servidor. */
   semanticConsolidation?: SemanticConsolidation;
 }) {
   const [showConsolidationGroups, setShowConsolidationGroups] = useState(false);
-  if (counts.total === 0) return null;
+  const categoriesLine = (
+    <p className="text-xs text-muted-foreground">
+      {categoriesWithContent} de {categoriesTotal} categorias têm conteúdo nesta reunião (decisões, ações,
+      riscos, oportunidades e as listas de contexto) — o que estiver vazio aqui é porque a IA não extraiu
+      nada para essa categoria, não porque ficou escondido.
+    </p>
+  );
+  const isEmpty = counts.total === 0;
   const stats: { label: string; value: number }[] = [
     { label: "Total de sugestões", value: counts.total },
     { label: "Novas", value: counts.newCount },
@@ -1817,28 +1910,37 @@ function ReviewSummaryCard({
     <section className="rounded-lg border bg-muted/20 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">Revisão da análise</h3>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" size="sm" variant="outline" className="gap-2" onClick={onCopyDuplicateReport}>
-            <Copy className="size-4" aria-hidden /> Copiar relatório de duplicidade
-          </Button>
-          <Button type="button" size="sm" variant="outline" className="gap-2" onClick={onApplySafe}>
-            <ShieldCheck className="size-4" aria-hidden /> Aplicar sugestões seguras
-          </Button>
-        </div>
-      </div>
-      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-5">
-        {stats.map((s) => (
-          <div key={s.label}>
-            <dt className="text-xs text-muted-foreground">{s.label}</dt>
-            <dd className="font-semibold">{s.value}</dd>
+        {!isEmpty && (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" variant="outline" className="gap-2" onClick={onCopyDuplicateReport}>
+              <Copy className="size-4" aria-hidden /> Copiar relatório de duplicidade
+            </Button>
+            <Button type="button" size="sm" variant="outline" className="gap-2" onClick={onApplySafe}>
+              <ShieldCheck className="size-4" aria-hidden /> Aplicar sugestões seguras
+            </Button>
           </div>
-        ))}
-      </dl>
-      {blocksTotal > 0 ? (
-        <p className="mt-3 text-xs text-muted-foreground">
-          Progresso da revisão por blocos: {blocksReviewed} de {blocksTotal} revisados
-        </p>
-      ) : null}
+        )}
+      </div>
+      {isEmpty ? (
+        <p className="mt-2 text-sm text-muted-foreground">Nenhuma sugestão nova nesta reunião.</p>
+      ) : (
+        <>
+          <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-5">
+            {stats.map((s) => (
+              <div key={s.label}>
+                <dt className="text-xs text-muted-foreground">{s.label}</dt>
+                <dd className="font-semibold">{s.value}</dd>
+              </div>
+            ))}
+          </dl>
+          {blocksTotal > 0 ? (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Progresso da revisão por blocos: {blocksReviewed} de {blocksTotal} revisados
+            </p>
+          ) : null}
+        </>
+      )}
+      <div className="mt-1">{categoriesLine}</div>
       {executionQuality ? (
         <div className="mt-3 border-t pt-3">
           <p className="text-xs font-semibold">Execução</p>

@@ -431,6 +431,14 @@ export async function runMeetingAnalysis(data: MeetingAnalysisInput) {
     analysis?: Record<string, unknown>;
   };
 
+  // Cópia para auditoria: mergedByKey é mutado em lugar logo abaixo (GATE 12B
+  // escreve embeddings nos próprios itens, e consolidateAnalysisSemantically
+  // roda em cima do mesmo objeto) — precisa ser serializado ANTES disso, ou
+  // vira o mesmo dado já consolidado/reduzido, perdendo o propósito de
+  // auditoria (comparar o que a IA respondeu com o que sobra depois do
+  // schema Zod do cliente e da consolidação semântica).
+  const rawAnalysisJson = JSON.stringify(mergedByKey);
+
   // GATE 12B: consolidate() acima só une blocos por CHAVE EXATA normalizada
   // — não reconhece "sair da antecipação automática" e "reduzir antecipação"
   // como o mesmo assunto (poucas palavras em comum). Por isso os embeddings
@@ -521,5 +529,5 @@ export async function runMeetingAnalysis(data: MeetingAnalysisInput) {
   analysisOut["execution_quality"] = quality;
   analysisOut["semantic_consolidation"] = semantic;
 
-  return { json: JSON.stringify(consolidated), blocks: blocks.length };
+  return { json: JSON.stringify(consolidated), blocks: blocks.length, rawAnalysisJson };
 }

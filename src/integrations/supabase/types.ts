@@ -465,6 +465,7 @@ export type Database = {
           meeting_id: string
           project_id: string | null
           provider: string
+          raw_ai_response: Json | null
           status: string
           transcript: string | null
           updated_at: string
@@ -482,6 +483,7 @@ export type Database = {
           meeting_id: string
           project_id?: string | null
           provider?: string
+          raw_ai_response?: Json | null
           status?: string
           transcript?: string | null
           updated_at?: string
@@ -499,6 +501,7 @@ export type Database = {
           meeting_id?: string
           project_id?: string | null
           provider?: string
+          raw_ai_response?: Json | null
           status?: string
           transcript?: string | null
           updated_at?: string

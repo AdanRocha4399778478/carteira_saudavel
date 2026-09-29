@@ -354,7 +354,7 @@ export const CLASSIFICATION_LABEL: Record<string, string> = {
 };
 
 export type AnalysisParseResult =
-  | { ok: true; analysis: MeetingAnalysis }
+  | { ok: true; analysis: MeetingAnalysis; rawAiResponse?: string | null }
   | { ok: false; errors: string[] };
 
 function formatIssues(error: z.ZodError): string[] {
@@ -523,7 +523,9 @@ const aiProvider: AnalysisProvider = {
     } catch {
       return { ok: false, errors: ["A IA devolveu um resultado inválido. Tente novamente."] };
     }
-    return parseAnalysis((payload as Record<string, unknown>)["analysis"] ?? payload);
+    const parsed = parseAnalysis((payload as Record<string, unknown>)["analysis"] ?? payload);
+    if (!parsed.ok) return parsed;
+    return { ...parsed, rawAiResponse: result.rawAnalysisJson ?? null };
   },
 };
 
@@ -723,6 +725,13 @@ export type MeetingAnalysisRow = {
   approved_at: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * JSON bruto da resposta da IA (mesclada por chunk, antes da consolidação
+   * semântica e do schema Zod do cliente) — só para auditoria manual. Nunca
+   * lido de volta pelo app; existe para comparar, quando necessário, o que a
+   * IA de fato respondeu com o que sobrou depois do parse/consolidação.
+   */
+  raw_ai_response: Record<string, unknown> | null;
 };
 
 export const meetingAnalysisQuery = (meetingId: string) =>
@@ -773,6 +782,8 @@ export async function saveAnalysisDraft(params: {
   status: AnalysisStatus;
   provider?: string;
   errorMessage?: string | null;
+  /** JSON bruto da resposta da IA (string), para auditoria — ver `MeetingAnalysisRow.raw_ai_response`. */
+  rawAiResponse?: string | null;
 }): Promise<MeetingAnalysisRow> {
   const { data: auth } = await supabase.auth.getUser();
   const existing = await supabase
@@ -798,6 +809,9 @@ export async function saveAnalysisDraft(params: {
     ...(params.status === "aprovada"
       ? { approved_by: auth.user?.id ?? null, approved_at: new Date().toISOString() }
       : {}),
+    // Só grava quando fornecido — nunca apaga um valor já salvo numa escrita
+    // anterior (ex.: aprovação depois de um rascunho que já tinha o bruto).
+    ...(params.rawAiResponse ? { raw_ai_response: JSON.parse(params.rawAiResponse) as never } : {}),
   };
 
   const res = existing.data
