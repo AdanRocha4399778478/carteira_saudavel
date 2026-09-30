@@ -63,6 +63,23 @@ const classification = z
   .optional()
   .transform((v) => v ?? "inference");
 
+/** 0-10, ou null quando a IA não tem base pra inferir — nunca força um valor. */
+const score0to10 = z
+  .union([z.number(), z.string(), z.null()])
+  .optional()
+  .transform((v) => {
+    if (v === null || v === undefined || v === "") return null;
+    const n = typeof v === "number" ? v : Number(v);
+    if (!Number.isFinite(n)) return null;
+    return Math.min(10, Math.max(0, Math.round(n * 10) / 10));
+  });
+
+/** Flag booleana de nível-reunião: ausência de evidência vira false, nunca null. */
+const flag = z
+  .union([z.boolean(), z.null()])
+  .optional()
+  .transform((v) => v === true);
+
 
 /**
  * Normalização tolerante das listas de contexto (next_steps, objectives, …).
@@ -127,9 +144,38 @@ const analysisSchema = z.object({
       executive_summary: txt,
       main_topic: txt,
       measurable_result: txt,
+      satisfaction_score: score0to10,
+      value_score: score0to10,
+      next_action: txt,
+      main_priority: txt,
+      main_pain: txt,
+      action_owner: txt,
+      action_deadline: txt,
+      explicit_complaint: flag,
+      continuity_doubt: flag,
+      low_client_adherence: flag,
+      missing_internal_owner: flag,
     })
     .nullish()
-    .transform((v) => v ?? { executive_summary: "", main_topic: "", measurable_result: "" }),
+    .transform(
+      (v) =>
+        v ?? {
+          executive_summary: "",
+          main_topic: "",
+          measurable_result: "",
+          satisfaction_score: null,
+          value_score: null,
+          next_action: "",
+          main_priority: "",
+          main_pain: "",
+          action_owner: "",
+          action_deadline: "",
+          explicit_complaint: false,
+          continuity_doubt: false,
+          low_client_adherence: false,
+          missing_internal_owner: false,
+        },
+    ),
 
   context_updates: z
     .object(
@@ -398,6 +444,17 @@ export const ANALYSIS_TEMPLATE = JSON.stringify(
       executive_summary: "Resumo do que aconteceu na reunião.",
       main_topic: "Ritual comercial",
       measurable_result: "",
+      satisfaction_score: null,
+      value_score: null,
+      next_action: "",
+      main_priority: "",
+      main_pain: "",
+      action_owner: "",
+      action_deadline: "",
+      explicit_complaint: false,
+      continuity_doubt: false,
+      low_client_adherence: false,
+      missing_internal_owner: false,
     },
     context_updates: {
       objectives: [
@@ -837,6 +894,17 @@ export async function saveAnalysisDraft(params: {
 export type ApprovedSelection = {
   meetingSummary: string | null;
   measurableResult: string | null;
+  satisfactionScore: number | null;
+  valueScore: number | null;
+  nextAction: string | null;
+  mainPriority: string | null;
+  mainPain: string | null;
+  actionOwner: string | null;
+  actionDeadline: string | null;
+  explicitComplaint: boolean;
+  continuityDoubt: boolean;
+  lowClientAdherence: boolean;
+  missingInternalOwner: boolean;
   contextItems: {
     list: ContextListKey;
     text: string;
@@ -1487,6 +1555,17 @@ export async function applyApprovedAnalysis(params: {
     executive_summary?: string;
     measurable_result?: string;
     has_measurable_result?: boolean;
+    satisfaction_score?: number;
+    value_score?: number;
+    next_action?: string;
+    main_priority?: string;
+    main_pain?: string;
+    action_owner?: string;
+    action_deadline?: string | null;
+    explicit_complaint?: boolean;
+    continuity_doubt?: boolean;
+    low_client_adherence?: boolean;
+    missing_internal_owner?: boolean;
   } = {};
   if (selection.meetingSummary && !meeting.executive_summary)
     meetingPatch.executive_summary = selection.meetingSummary;
@@ -1494,6 +1573,22 @@ export async function applyApprovedAnalysis(params: {
     meetingPatch.measurable_result = selection.measurableResult;
     meetingPatch.has_measurable_result = true;
   }
+  if (selection.satisfactionScore !== null && meeting.satisfaction_score === null)
+    meetingPatch.satisfaction_score = selection.satisfactionScore;
+  if (selection.valueScore !== null && meeting.value_score === null)
+    meetingPatch.value_score = selection.valueScore;
+  if (selection.nextAction && !meeting.next_action) meetingPatch.next_action = selection.nextAction;
+  if (selection.mainPriority && !meeting.main_priority) meetingPatch.main_priority = selection.mainPriority;
+  if (selection.mainPain && !meeting.main_pain) meetingPatch.main_pain = selection.mainPain;
+  if (selection.actionOwner && !meeting.action_owner) meetingPatch.action_owner = selection.actionOwner;
+  if (selection.actionDeadline && !meeting.action_deadline)
+    meetingPatch.action_deadline = selection.actionDeadline;
+  // Flags: nunca escritas por get_or_create_smart_meeting (nascem false) —
+  // sem estado anterior a proteger, grava direto o que a IA identificou.
+  if (selection.explicitComplaint) meetingPatch.explicit_complaint = true;
+  if (selection.continuityDoubt) meetingPatch.continuity_doubt = true;
+  if (selection.lowClientAdherence) meetingPatch.low_client_adherence = true;
+  if (selection.missingInternalOwner) meetingPatch.missing_internal_owner = true;
   if (Object.keys(meetingPatch).length > 0) {
     const { error } = await supabase.from("meetings").update(meetingPatch).eq("id", meeting.id);
     if (error) {
