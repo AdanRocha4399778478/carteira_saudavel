@@ -1360,6 +1360,83 @@ export function MeetingAnalysisDialog({
                   </section>
                 )}
 
+                {(analysis.meeting.satisfaction_score !== null ||
+                  analysis.meeting.value_score !== null ||
+                  analysis.meeting.next_action ||
+                  analysis.meeting.main_priority ||
+                  analysis.meeting.main_pain ||
+                  analysis.meeting.action_owner ||
+                  analysis.meeting.action_deadline ||
+                  analysis.meeting.explicit_complaint ||
+                  analysis.meeting.continuity_doubt ||
+                  analysis.meeting.low_client_adherence ||
+                  analysis.meeting.missing_internal_owner) && (
+                  <section className="rounded-lg border p-4">
+                    <span className="block text-sm font-semibold">Diagnóstico da reunião</span>
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      {summarySel
+                        ? 'Será gravado junto com o "Resumo executivo" acima.'
+                        : 'Não será gravado — marque "Resumo executivo" acima para incluir.'}
+                    </span>
+                    <div className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+                      {(analysis.meeting.satisfaction_score !== null ||
+                        analysis.meeting.value_score !== null) && (
+                        <span className="block">
+                          <span className="font-medium">Satisfação / Valor:</span>{" "}
+                          {analysis.meeting.satisfaction_score ?? "—"}/10 ·{" "}
+                          {analysis.meeting.value_score ?? "—"}/10
+                        </span>
+                      )}
+                      {analysis.meeting.main_priority && (
+                        <span className="block">
+                          <span className="font-medium">Prioridade:</span>{" "}
+                          {analysis.meeting.main_priority}
+                        </span>
+                      )}
+                      {analysis.meeting.main_pain && (
+                        <span className="block">
+                          <span className="font-medium">Dor principal:</span>{" "}
+                          {analysis.meeting.main_pain}
+                        </span>
+                      )}
+                      {analysis.meeting.next_action && (
+                        <span className="block sm:col-span-2">
+                          <span className="font-medium">Próxima ação:</span>{" "}
+                          {analysis.meeting.next_action}
+                        </span>
+                      )}
+                      {(analysis.meeting.action_owner || analysis.meeting.action_deadline) && (
+                        <span className="block sm:col-span-2">
+                          <span className="font-medium">Responsável / prazo:</span>{" "}
+                          {analysis.meeting.action_owner || "—"}
+                          {analysis.meeting.action_deadline
+                            ? ` · ${formatDate(analysis.meeting.action_deadline)}`
+                            : ""}
+                        </span>
+                      )}
+                    </div>
+                    {(analysis.meeting.explicit_complaint ||
+                      analysis.meeting.continuity_doubt ||
+                      analysis.meeting.low_client_adherence ||
+                      analysis.meeting.missing_internal_owner) && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {analysis.meeting.explicit_complaint && (
+                          <Badge variant="destructive">Reclamação explícita</Badge>
+                        )}
+                        {analysis.meeting.continuity_doubt && (
+                          <Badge variant="destructive">Dúvida de continuidade</Badge>
+                        )}
+                        {analysis.meeting.low_client_adherence && (
+                          <Badge variant="outline">Baixa adesão do cliente</Badge>
+                        )}
+                        {analysis.meeting.missing_internal_owner && (
+                          <Badge variant="outline">Sem responsável interno</Badge>
+                        )}
+                      </div>
+                    )}
+                  </section>
+                )}
+
                 <ReviewSummaryCard
                   counts={overallCounts}
                   onApplySafe={applyAllSafe}
