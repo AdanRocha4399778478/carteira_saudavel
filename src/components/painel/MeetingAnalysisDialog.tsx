@@ -1120,6 +1120,17 @@ export function MeetingAnalysisDialog({
       const selection: ApprovedSelection = {
         meetingSummary: summarySel ? analysis.meeting.executive_summary || null : null,
         measurableResult: summarySel ? analysis.meeting.measurable_result || null : null,
+        satisfactionScore: summarySel ? (analysis.meeting.satisfaction_score ?? null) : null,
+        valueScore: summarySel ? (analysis.meeting.value_score ?? null) : null,
+        nextAction: summarySel ? analysis.meeting.next_action || null : null,
+        mainPriority: summarySel ? analysis.meeting.main_priority || null : null,
+        mainPain: summarySel ? analysis.meeting.main_pain || null : null,
+        actionOwner: summarySel ? analysis.meeting.action_owner || null : null,
+        actionDeadline: summarySel ? analysis.meeting.action_deadline || null : null,
+        explicitComplaint: summarySel ? analysis.meeting.explicit_complaint : false,
+        continuityDoubt: summarySel ? analysis.meeting.continuity_doubt : false,
+        lowClientAdherence: summarySel ? analysis.meeting.low_client_adherence : false,
+        missingInternalOwner: summarySel ? analysis.meeting.missing_internal_owner : false,
         contextItems,
         decisions: decisionRows.map((r) => ({
           title: r.item.title,

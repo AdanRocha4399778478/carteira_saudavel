@@ -117,6 +117,19 @@ Regras:
 - ACTION FIRST: "next_steps" é só para direções estratégicas contínuas, sem uma entrega única e concluível (ex.: "acompanhar a evolução da saúde financeira nos próximos ciclos"). Qualquer item que exija fazer, entregar, verificar, analisar, enviar, negociar, cobrar, configurar, agendar, acompanhar algo pontual, preparar ou implementar algo concreto DEVE virar um item em "actions", nunca ficar só em "next_steps". Não repita o mesmo item nas duas listas.
 - Evite fragmentar o mesmo assunto em vários itens quase idênticos dentro da mesma lista (ex.: "reduzir antecipação" e "sair da antecipação automática" separados) — escreva um único item por assunto, com a formulação mais completa. Isso não impede que o MESMO tema apareça em papéis diferentes (problema, causa, hipótese, decisão, ação) quando cada papel realmente for distinto.
 
+Campos de saúde da conta (dentro de "meeting" — um valor só por reunião, nunca invente quando não houver base):
+- satisfaction_score: número de 0 a 10 baseado no tom e engajamento do cliente NESTA REUNIÃO COM A CONSULTORIA especificamente (entusiasmo, colaboração, abertura, energia na conversa com o consultor) — NÃO é uma avaliação do estado geral do negócio do cliente. Um cliente pode estar vivendo uma dificuldade real no negócio (financeiro apertado, operação bagunçada, estresse) e ainda assim ter uma reunião produtiva e engajada com a consultoria — isso deve pontuar ALTO, porque é sobre a relação com a consultoria, não sobre a saúde do negócio dele. O oposto também vale: não rebaixe a nota só porque o cliente relatou problemas que a consultoria foi contratada para resolver. Use null se a reunião não der nenhuma base pra isso (ex.: reunião puramente técnica, sem indício de como o cliente reagiu à consultoria).
+- value_score: número de 0 a 10 baseado em quanto valor perceptível a consultoria gerou NESTA reunião especificamente (resultado concreto, decisão importante destravada, problema resolvido) — não é sobre o valor do contrato. Use null se não houver base.
+- next_action: a próxima ação mais importante e concreta combinada na reunião, em uma frase (pode repetir conteúdo já presente em "actions" — aqui é só a mais prioritária, resumida). "" se nenhuma ação clara foi definida.
+- main_priority: a prioridade principal do cliente identificada nesta reunião, em uma frase. "" se não ficou claro.
+- main_pain: a principal dor ou dificuldade do cliente expressa nesta reunião, em uma frase. "" se não foi mencionada.
+- action_owner: nome de quem ficou responsável pela ação mais prioritária (next_action). "" se não foi dito.
+- action_deadline: prazo combinado para a ação mais prioritária, sempre em "AAAA-MM-DD". Quando houver data explícita, use-a diretamente. Quando só houver referência relativa ("fim da semana", "daqui a X dias", "próxima semana"), CALCULE a data absoluta a partir da data real desta reunião (a mesma que você preencheu em identification.meeting_date — nunca a data de hoje do sistema) e confira a aritmética com cuidado antes de responder (ex.: "fim da semana" contado a partir de uma terça-feira cai poucos dias depois, não uma semana inteira depois). "" se não houver prazo algum.
+- explicit_complaint: true SOMENTE se o cliente reclamou explicitamente do TRABALHO DA CONSULTORIA ou da PARCERIA em si (ex.: insatisfação com o ritmo das entregas, com uma entrega específica, com a comunicação do consultor, ameaça de descontinuar o serviço). Reclamação sobre o PRÓPRIO NEGÓCIO do cliente — ferramentas, funcionários, financeiro, operação — NÃO conta, mesmo que seja uma reclamação forte e explícita: é exatamente o tipo de problema que a consultoria foi contratada para resolver, não uma reclamação sobre a consultoria. false caso contrário.
+- continuity_doubt: true SOMENTE se o cliente expressou dúvida sobre continuar o contrato/serviço. false caso contrário.
+- low_client_adherence: true SOMENTE se ficou evidente que o cliente não está seguindo o que foi combinado em reuniões anteriores. false caso contrário.
+- missing_internal_owner: true SOMENTE se ficou evidente que o cliente não tem uma pessoa interna responsável por acompanhar o trabalho da consultoria. false caso contrário.
+
 Formato exigido:
 {
   "identification": {
@@ -135,7 +148,14 @@ Formato exigido:
     "reasoning": "1 a 2 frases explicando a identificação"
   },
   "analysis": {
-    "meeting": { "executive_summary": "", "main_topic": "", "measurable_result": "" },
+    "meeting": {
+      "executive_summary": "", "main_topic": "", "measurable_result": "",
+      "satisfaction_score": null, "value_score": null,
+      "next_action": "", "main_priority": "", "main_pain": "",
+      "action_owner": "", "action_deadline": "",
+      "explicit_complaint": false, "continuity_doubt": false,
+      "low_client_adherence": false, "missing_internal_owner": false
+    },
     "context_updates": {
       "objectives": [{ "content": "", "classification": "fact" }],
       "problems": [], "root_causes": [], "priorities": [],
