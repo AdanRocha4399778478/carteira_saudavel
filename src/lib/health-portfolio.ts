@@ -19,7 +19,7 @@ import type { ActionItem, Meeting, RiskItem } from "@/lib/domain";
 
 const COCKPIT_PROJECT_COLUMNS = "id, client_id, name, status";
 const COCKPIT_ACTION_COLUMNS =
-  "client_id, meeting_id, status, deadline, created_at, updated_at";
+  "client_id, meeting_id, status, deadline, is_recurring, created_at, updated_at";
 const COCKPIT_RISK_COUNT_COLUMNS =
   "project_id, critical_count, high_count, medium_count, low_count";
 const COCKPIT_MEETING_COLUMNS = "id, project_id, meeting_date, has_measurable_result";

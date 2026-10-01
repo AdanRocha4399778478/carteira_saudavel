@@ -24,6 +24,7 @@ export type Database = {
           erp_area: string | null
           evidence: string | null
           id: string
+          is_recurring: boolean
           meeting_id: string | null
           owner_name: string | null
           priority: string
@@ -39,6 +40,7 @@ export type Database = {
           erp_area?: string | null
           evidence?: string | null
           id?: string
+          is_recurring?: boolean
           meeting_id?: string | null
           owner_name?: string | null
           priority?: string
@@ -54,6 +56,7 @@ export type Database = {
           erp_area?: string | null
           evidence?: string | null
           id?: string
+          is_recurring?: boolean
           meeting_id?: string | null
           owner_name?: string | null
           priority?: string

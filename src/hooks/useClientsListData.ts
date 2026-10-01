@@ -6,7 +6,7 @@ import { isOverdue, type ActionItem, type Client } from "@/lib/domain";
 import { MAX_QUERY_RETRIES } from "@/lib/query-errors";
 import { supabase } from "@/lib/supabase/client";
 
-type ClientListAction = Pick<ActionItem, "client_id" | "status" | "deadline">;
+type ClientListAction = Pick<ActionItem, "client_id" | "status" | "deadline" | "is_recurring">;
 type ClientListClient = Pick<
   Client,
   | "id"
@@ -52,7 +52,7 @@ function clientsListActionsQuery() {
     queryFn: async (): Promise<ClientListAction[]> => {
       const res = await supabase
         .from("actions")
-        .select("client_id, status, deadline");
+        .select("client_id, status, deadline, is_recurring");
       if (res.error) {
         logDbError("actions", "select-clients-list", res.error);
         throw new Error(res.error.message);

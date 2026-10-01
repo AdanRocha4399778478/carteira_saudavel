@@ -171,6 +171,8 @@ export type ActionItem = {
   evidence: string | null;
   created_at: string;
   updated_at: string;
+  /** Ação contínua/recorrente, sem prazo de entrega única — ver isOverdue. Só manual, nunca inferido pela IA. */
+  is_recurring: boolean;
   /** Vetor semântico da descrição — usado para reconhecer continuidade entre reuniões. */
   embedding?: number[] | null;
 };
@@ -211,9 +213,12 @@ export type RiskRule = {
 
 export const HIGH_THRESHOLD = 7;
 
-export function isOverdue(action: Pick<ActionItem, "deadline" | "status">): boolean {
+export function isOverdue(
+  action: Pick<ActionItem, "deadline" | "status"> & Partial<Pick<ActionItem, "is_recurring">>,
+): boolean {
   if (!action.deadline) return false;
   if (action.status === "concluída") return false;
+  if (action.is_recurring) return false;
   return new Date(action.deadline) < startOfToday();
 }
 
