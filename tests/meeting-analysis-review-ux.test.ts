@@ -33,7 +33,7 @@ describe("GATE 10A — nenhuma alteração em thresholds/dedupe/backend", () => 
     // silenciosamente "update" num item fechado, nem "skip" escondendo uma
     // recorrência sem avisar. Ver defaultResolution em src/lib/deduplication.ts.
     expect(dedupeSource).toContain(
-      '  const mode: ResolutionMode =\n    match.type === "EXISTING" || match.type === "POSSIBLE_DUPLICATE" || !!match.historyFlag\n      ? "skip"\n      : match.type === "UPDATE_EXISTING"\n        ? "update"\n        : "create";',
+      '  const mode: ResolutionMode =\n    match.type === "EXISTING" ||\n    match.type === "POSSIBLE_DUPLICATE" ||\n    !!match.historyFlag ||\n    !!match.statusSignal\n      ? "skip"\n      : match.type === "UPDATE_EXISTING"\n        ? "update"\n        : "create";',
     );
   });
 
@@ -219,7 +219,7 @@ describe("PR 1 — item em revisão nasce sem modo escolhido; aprovar trava com 
     // do PR 1: a UI é que não pode MOSTRAR esse default como se fosse uma escolha,
     // a regra pura de detecção continua a mesma.
     expect(dedupeSource).toContain(
-      '  const mode: ResolutionMode =\n    match.type === "EXISTING" || match.type === "POSSIBLE_DUPLICATE" || !!match.historyFlag\n      ? "skip"',
+      '  const mode: ResolutionMode =\n    match.type === "EXISTING" ||\n    match.type === "POSSIBLE_DUPLICATE" ||\n    !!match.historyFlag ||\n    !!match.statusSignal\n      ? "skip"',
     );
   });
 });

@@ -234,6 +234,7 @@ const analysisSchema = z.object({
             deadline: txt,
             priority: txt,
             erp_area: txt,
+            evidence: txt,
             classification,
             embedding: z.array(z.number()).nullish(),
           }),

@@ -1021,8 +1021,15 @@ export function defaultResolution(match: DedupeMatch<unknown>): ItemResolution {
   // aplicar "update" nele silenciosamente reabriria algo encerrado — ou,
   // se EXISTING, "skip" esconderia uma recorrência genuína sem avisar.
   // Trata igual a POSSIBLE_DUPLICATE: nunca create/update sozinho.
+  // Mudança de status detectada por regex de linguagem natural
+  // (detectStatusSignal) é a mesma cautela: sem volume real validando a
+  // precisão do regex, a mudança de estado nunca decide sozinha — fica em
+  // revisão mesmo quando o resto do veredito (similaridade) seria seguro.
   const mode: ResolutionMode =
-    match.type === "EXISTING" || match.type === "POSSIBLE_DUPLICATE" || !!match.historyFlag
+    match.type === "EXISTING" ||
+    match.type === "POSSIBLE_DUPLICATE" ||
+    !!match.historyFlag ||
+    !!match.statusSignal
       ? "skip"
       : match.type === "UPDATE_EXISTING"
         ? "update"
