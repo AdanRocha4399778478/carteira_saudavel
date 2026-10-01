@@ -7,6 +7,7 @@ const read = (path: string) => readFileSync(resolve(root, path), "utf8").replace
 
 const routeSource = read("src/routes/_authenticated/reuniao-inteligente.tsx");
 const dialogSource = read("src/components/painel/MeetingAnalysisDialog.tsx");
+const analysisLibSource = read("src/lib/meeting-analysis.ts");
 
 /* ------------------------------------------------------------------ *
  * Bug real de produção (cliente Bandrone, 3 reuniões órfãs — 0 decisões,
@@ -97,5 +98,32 @@ describe("Persistência adiada da Reunião Inteligente (caso Bandrone)", () => {
     expect(dialogSource).toContain(
       'const saved = useQuery({ ...meetingAnalysisQuery(meeting?.id ?? ""), enabled: open && !!meeting?.id });',
     );
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Regressão real de produção pós-#57: "Analisar reunião" (passo 2) chama
+ * saveAnalysisDraft com `meeting.id` do rascunho em memória — que é "" até
+ * a aprovação persistir a reunião de verdade. A leitura de `meeting_analyses`
+ * (useQuery `saved`) já era guardada (teste acima), mas a ESCRITA dentro de
+ * saveAnalysisDraft não era: `.eq("meeting_id", "")` quebrava no Postgres com
+ * "invalid input syntax for type uuid" em qualquer reunião nova, bloqueando
+ * o preview para todo cliente. Corrigido com um early return antes de
+ * qualquer chamada ao Supabase.
+ * ------------------------------------------------------------------ */
+describe("saveAnalysisDraft não consulta nem grava meeting_analyses sem meeting_id real", () => {
+  test("early return antes do primeiro .from(\"meeting_analyses\") quando meetingId está vazio", () => {
+    const fnStart = analysisLibSource.indexOf("export async function saveAnalysisDraft(params: {");
+    const guardIndex = analysisLibSource.indexOf("if (!params.meetingId) return null;", fnStart);
+    const firstQueryIndex = analysisLibSource.indexOf('.from("meeting_analyses")', fnStart);
+
+    expect(fnStart).toBeGreaterThan(-1);
+    expect(guardIndex).toBeGreaterThan(fnStart);
+    expect(firstQueryIndex).toBeGreaterThan(guardIndex);
+  });
+
+  test("os dois pontos de chamada (análise em preview e aprovação) continuam passando meetingId sem guarda própria — dependem só da guarda dentro da função", () => {
+    expect(dialogSource).toContain("meetingId: meeting.id,");
+    expect(dialogSource).toContain("meetingId: persistedMeeting.id,");
   });
 });

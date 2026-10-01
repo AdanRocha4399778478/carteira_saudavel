@@ -841,7 +841,13 @@ export async function saveAnalysisDraft(params: {
   errorMessage?: string | null;
   /** JSON bruto da resposta da IA (string), para auditoria — ver `MeetingAnalysisRow.raw_ai_response`. */
   rawAiResponse?: string | null;
-}): Promise<MeetingAnalysisRow> {
+}): Promise<MeetingAnalysisRow | null> {
+  // Reunião ainda em preview (rascunho em memória, sem id real — ver #57):
+  // não existe linha em `meetings` para associar, e `meeting_id` é uuid,
+  // não aceita string vazia. Nada a persistir até a aprovação gravar a
+  // reunião de verdade e chamar esta função de novo com o id real.
+  if (!params.meetingId) return null;
+
   const { data: auth } = await supabase.auth.getUser();
   const existing = await supabase
     .from("meeting_analyses")
