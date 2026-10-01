@@ -34,7 +34,7 @@ function meetingsActionsQuery() {
     queryFn: async (): Promise<ActionItem[]> => {
       const res = await supabase
         .from("actions")
-        .select("client_id, deadline, status");
+        .select("client_id, deadline, status, is_recurring");
       if (res.error) {
         logDbError("actions", "select-meetings-overdue-support", res.error);
         throw new Error(res.error.message);

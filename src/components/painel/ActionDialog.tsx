@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -40,6 +41,7 @@ type Form = {
   status: string;
   erp_area: string;
   evidence: string;
+  is_recurring: boolean;
 };
 
 const empty: Form = {
@@ -51,6 +53,7 @@ const empty: Form = {
   status: "não iniciada",
   erp_area: "",
   evidence: "",
+  is_recurring: false,
 };
 
 export function ActionDialog({
@@ -84,6 +87,7 @@ export function ActionDialog({
             status: action.status,
             erp_area: action.erp_area ?? "",
             evidence: action.evidence ?? "",
+            is_recurring: action.is_recurring,
           }
         : { ...empty, client_id: defaultClientId ?? "" },
     );
@@ -103,6 +107,7 @@ export function ActionDialog({
         status: form.status,
         erp_area: form.erp_area || null,
         evidence: form.evidence.trim() || null,
+        is_recurring: form.is_recurring,
       };
       if (action) {
         const { error } = await supabase.from("actions").update(payload).eq("id", action.id);
@@ -241,6 +246,16 @@ export function ActionDialog({
               value={form.evidence}
               onChange={(e) => set("evidence", e.target.value)}
             />
+          </div>
+          <div className="flex items-center gap-2 sm:col-span-2">
+            <Checkbox
+              id="is_recurring"
+              checked={form.is_recurring}
+              onCheckedChange={(v) => set("is_recurring", v === true)}
+            />
+            <Label htmlFor="is_recurring" className="cursor-pointer font-normal">
+              Ação contínua/recorrente (sem prazo de entrega única — nunca conta como vencida)
+            </Label>
           </div>
 
           <DialogFooter className="sm:col-span-2">

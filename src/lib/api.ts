@@ -207,7 +207,7 @@ export const clientActionsQuery = (clientId: string) =>
         "actions",
         await supabase
           .from("actions")
-          .select("id, client_id, meeting_id, description, owner_name, deadline, priority, status, erp_area, evidence, created_at, updated_at, embedding")
+          .select("id, client_id, meeting_id, description, owner_name, deadline, priority, status, erp_area, evidence, is_recurring, created_at, updated_at, embedding")
           .eq("client_id", clientId)
           .order("deadline", { ascending: true }),
       ),

@@ -318,7 +318,7 @@ describe("GATE 8 — leitura de embeddings existentes para o matcher (evidência
     expect(projectsSource).toContain('supabase.from("decisions").select("*")');
 
     // As variantes de coluna explícita (usadas em projetos/$projectId.tsx) listam embedding.
-    expect(apiSource).toContain("erp_area, evidence, created_at, updated_at, embedding");
+    expect(apiSource).toContain("erp_area, evidence, is_recurring, created_at, updated_at, embedding");
     expect(apiSource).toContain("level, active, created_at, embedding");
     expect(apiSource).toContain("expected_benefit, status, created_at, embedding");
     expect(projectDetailSource).toContain("status, owner, due_date, embedding");

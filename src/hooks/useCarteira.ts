@@ -286,7 +286,7 @@ const DASHBOARD_CLIENT_COLUMNS =
   "id, company_name, segment, consultant_id, account_status, current_satisfaction, current_value_score, current_risk_score, current_risk_level, current_quadrant, last_meeting_date, active";
 const DASHBOARD_MEETING_COLUMNS =
   "client_id, meeting_date, satisfaction_score, value_score, calculated_risk_score";
-const DASHBOARD_ACTION_COLUMNS = "id, client_id, description, deadline, status";
+const DASHBOARD_ACTION_COLUMNS = "id, client_id, description, deadline, status, is_recurring";
 const DASHBOARD_OPPORTUNITY_COLUMNS = "client_id, status";
 
 function dashboardClientsQuery() {
