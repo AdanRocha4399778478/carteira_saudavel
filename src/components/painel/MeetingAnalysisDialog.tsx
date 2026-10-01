@@ -196,6 +196,7 @@ function toReviewItems<K extends string | number>(
     mode: r.mode,
     hasOverride: sel[r.key] !== undefined,
     historyFlag: r.match.historyFlag ?? null,
+    statusSignal: r.match.statusSignal ?? null,
   }));
 }
 
@@ -523,6 +524,7 @@ export function MeetingAnalysisDialog({
             owner_name: item.owner_name,
             deadline: item.deadline,
             priority: item.priority,
+            evidence: item.evidence,
             embedding: item.embedding ?? null,
           },
           dedupeActions,

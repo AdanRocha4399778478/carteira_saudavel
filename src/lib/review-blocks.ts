@@ -1,4 +1,4 @@
-import type { DedupeVerdict, HistoryFlag, ResolutionMode } from "@/lib/deduplication";
+import type { DedupeVerdict, HistoryFlag, ResolutionMode, StatusSignal } from "@/lib/deduplication";
 
 /* ------------------------------------------------------------------ *
  * GATE 10A — helpers puros da revisão em blocos da Reunião Inteligente.
@@ -20,6 +20,14 @@ export type ReviewBlockItem<K extends string | number = string | number> = {
   hasOverride: boolean;
   /** Ver HistoryFlag em deduplication.ts — vencedor concluído/cancelado. */
   historyFlag?: HistoryFlag;
+  /**
+   * Mudança de estado ("resolvido"/"reaberto") detectada por detectStatusSignal
+   * no texto da nova menção — ver matchAction/matchRisk em deduplication.ts.
+   * Regex de linguagem natural, ainda sem volume real validando a precisão:
+   * tratado como POSSIBLE_DUPLICATE para efeito de revisão, mesmo quando o
+   * veredito de similaridade por si só seria seguro.
+   */
+  statusSignal?: StatusSignal;
 };
 
 export type ReviewBlockCounts = {
@@ -40,9 +48,12 @@ export type ReviewBlockCounts = {
  * melhor match, e isso também precisa de decisão explícita, nunca silenciosa.
  */
 export function needsReview(
-  item: Pick<ReviewBlockItem, "verdict" | "hasOverride" | "historyFlag">,
+  item: Pick<ReviewBlockItem, "verdict" | "hasOverride" | "historyFlag" | "statusSignal">,
 ): boolean {
-  return (item.verdict === "POSSIBLE_DUPLICATE" || !!item.historyFlag) && !item.hasOverride;
+  return (
+    (item.verdict === "POSSIBLE_DUPLICATE" || !!item.historyFlag || !!item.statusSignal) &&
+    !item.hasOverride
+  );
 }
 
 /** Verdicts cuja resolução default é inequívoca — nunca inclui POSSIBLE_DUPLICATE. */
@@ -95,8 +106,10 @@ export function formatBlockSummary(counts: ReviewBlockCounts): string {
  * "Aplicar sugestões seguras" / "Aprovar bloco": aplica a resolução default a
  * todo item cujo verdict é inequívoco (NEW/UPDATE_EXISTING/EXISTING) e que o
  * consultor ainda não decidiu manualmente. Nunca toca em POSSIBLE_DUPLICATE,
- * em item com `historyFlag` (vencedor concluído/cancelado — ver `needsReview`)
- * nem em item com override — devolve só o patch para itens realmente afetados.
+ * em item com `historyFlag` (vencedor concluído/cancelado — ver `needsReview`),
+ * em item com `statusSignal` (mudança de estado só por regex de linguagem
+ * natural — ver `ReviewBlockItem.statusSignal`) nem em item com override —
+ * devolve só o patch para itens realmente afetados.
  */
 export function applySafeResolutions<K extends string | number>(
   items: ReviewBlockItem<K>[],
@@ -106,6 +119,7 @@ export function applySafeResolutions<K extends string | number>(
     if (item.hasOverride) continue;
     if (!isSafeVerdict(item.verdict)) continue;
     if (item.historyFlag) continue;
+    if (item.statusSignal) continue;
     patch[item.key] = defaultModeForVerdict(item.verdict);
   }
   return patch;
