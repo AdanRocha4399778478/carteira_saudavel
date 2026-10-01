@@ -191,7 +191,7 @@ describe("GATE 10A — revisão individual (nível 3)", () => {
 describe("PR 1 — item em revisão nasce sem modo escolhido; aprovar trava com pendências", () => {
   test("o botão principal desabilita quando há itens em revisão, com o motivo visível", () => {
     expect(dialogSource).toContain(
-      "disabled={approve.isPending || approved || overallCounts.reviewCount > 0}",
+      "disabled={approve.isPending || approved || isApproved || overallCounts.reviewCount > 0}",
     );
     expect(dialogSource).toContain(
       '"Escolha uma opção para cada item em revisão antes de aprovar."',

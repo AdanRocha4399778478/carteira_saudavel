@@ -851,12 +851,22 @@ export async function saveAnalysisDraft(params: {
   const { data: auth } = await supabase.auth.getUser();
   const existing = await supabase
     .from("meeting_analyses")
-    .select("id")
+    .select("id, status")
     .eq("meeting_id", params.meetingId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (existing.error) throw new Error(existing.error.message);
+  const existingRow = existing.data as { id: string; status: string } | null;
+
+  // Aprovação é definitiva: reabrir a reunião e reanalisar não pode rebaixar
+  // o status nem apagar approved_at/approved_by de um registro já aprovado.
+  // Causa real encontrada em produção (Grupo Erinho): "Analisar reunião" de
+  // novo numa reunião já aprovada gravava status: "aguardando_revisao" sem
+  // approved_at/approved_by no payload — o UPDATE deixava os dois campos
+  // antigos intactos, mas o status regredia, criando o estado inconsistente
+  // "aguardando_revisao" com approved_at preenchido.
+  if (existingRow?.status === "aprovada" && params.status !== "aprovada") return null;
 
   const payload = {
     meeting_id: params.meetingId,
@@ -877,17 +887,17 @@ export async function saveAnalysisDraft(params: {
     ...(params.rawAiResponse ? { raw_ai_response: JSON.parse(params.rawAiResponse) as never } : {}),
   };
 
-  const res = existing.data
+  const res = existingRow
     ? await supabase
         .from("meeting_analyses")
         .update(payload)
-        .eq("id", (existing.data as { id: string }).id)
+        .eq("id", existingRow.id)
         .select("*")
         .single()
     : await supabase.from("meeting_analyses").insert(payload).select("*").single();
 
   if (res.error) {
-    logDbError("meeting_analyses", existing.data ? "update" : "insert", res.error);
+    logDbError("meeting_analyses", existingRow ? "update" : "insert", res.error);
     throw new Error(res.error.message);
   }
   return res.data as unknown as MeetingAnalysisRow;

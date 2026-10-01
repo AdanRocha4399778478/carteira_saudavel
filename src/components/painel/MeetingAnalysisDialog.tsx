@@ -341,6 +341,14 @@ export function MeetingAnalysisDialog({
 
   const saved = useQuery({ ...meetingAnalysisQuery(meeting?.id ?? ""), enabled: open && !!meeting?.id });
 
+  /**
+   * Aprovação é definitiva: reunião já aprovada abre em modo leitura — nunca
+   * mais editável nem reaprovável, mesmo depois de fechar e reabrir o
+   * diálogo (achado real: Grupo Erinho ficou com status regredido porque
+   * "Analisar reunião" rodou de novo numa reunião já aprovada).
+   */
+  const isApproved = saved.data?.status === "aprovada";
+
 
   useEffect(() => {
     if (!open) return;
@@ -1033,6 +1041,7 @@ export function MeetingAnalysisDialog({
   const analyze = useMutation({
     mutationFn: async () => {
       if (!meeting) throw new Error("Reunião não encontrada.");
+      if (isApproved) throw new Error("Esta reunião já foi aprovada — não é possível reanalisar.");
       const usarJson = rawJson.trim().length > 0;
       const result = await meetingAnalysisService.analyze(
         {
@@ -1123,6 +1132,7 @@ export function MeetingAnalysisDialog({
     mutationFn: async () => {
       if (!meeting || !analysis || !agenda) throw new Error("Nada para aprovar.");
       if (!project) throw new Error("Vincule a reunião a um projeto antes de aplicar a análise.");
+      if (isApproved) throw new Error("Esta reunião já foi aprovada — não é possível aprovar de novo.");
       setApproveError(null);
 
       /**
@@ -1289,6 +1299,19 @@ export function MeetingAnalysisDialog({
                 <p className="flex items-center gap-2 font-semibold">
                   <CheckCircle2 className="size-4 text-emerald-600" aria-hidden /> Reunião
                   processada e projeto atualizado
+                </p>
+              </div>
+            )}
+
+            {isApproved && !approved && (
+              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                <p className="flex items-center gap-2 font-semibold">
+                  <CheckCircle2 className="size-4 text-emerald-600" aria-hidden /> Reunião já
+                  aprovada — somente leitura
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  A aprovação é definitiva. Esta análise não pode ser reanalisada nem aprovada de
+                  novo.
                 </p>
               </div>
             )}
@@ -1858,8 +1881,9 @@ export function MeetingAnalysisDialog({
               <Button
                 type="button"
                 className="gap-2"
-                disabled={analyze.isPending || !meeting}
+                disabled={analyze.isPending || !meeting || isApproved}
                 onClick={() => analyze.mutate()}
+                title={isApproved ? "Reunião já aprovada — não é possível reanalisar." : undefined}
               >
                 {analyze.isPending ? (
                   <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -1882,13 +1906,15 @@ export function MeetingAnalysisDialog({
               </Button>
               <Button
                 type="button"
-                disabled={approve.isPending || approved || overallCounts.reviewCount > 0}
+                disabled={approve.isPending || approved || isApproved || overallCounts.reviewCount > 0}
                 className="gap-2"
                 onClick={submitApproval}
                 title={
-                  overallCounts.reviewCount > 0
-                    ? "Escolha uma opção para cada item em revisão antes de aprovar."
-                    : undefined
+                  isApproved
+                    ? "Reunião já aprovada — somente leitura."
+                    : overallCounts.reviewCount > 0
+                      ? "Escolha uma opção para cada item em revisão antes de aprovar."
+                      : undefined
                 }
               >
                 {approve.isPending && <Loader2 className="size-4 animate-spin" aria-hidden />}

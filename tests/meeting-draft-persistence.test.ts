@@ -127,3 +127,69 @@ describe("saveAnalysisDraft não consulta nem grava meeting_analyses sem meeting
     expect(dialogSource).toContain("meetingId: persistedMeeting.id,");
   });
 });
+
+/* ------------------------------------------------------------------ *
+ * Regressão real de produção (Grupo Erinho): reunião aprovada → reabrir o
+ * diálogo → clicar "Analisar reunião" de novo (sem reaprovar) → o
+ * UPDATE de saveAnalysisDraft gravava status: "aguardando_revisao" sem
+ * approved_at/approved_by no payload (só entram quando status === "aprovada")
+ * — o Supabase deixa colunas ausentes do payload intactas, então
+ * approved_at/approved_by antigos sobreviviam enquanto o status regredia.
+ * Resultado real encontrado no banco: meeting_analyses com
+ * status="aguardando_revisao" e approved_at preenchido.
+ *
+ * Corrigido em duas camadas: (1) saveAnalysisDraft nunca rebaixa o status de
+ * uma linha já aprovada — é um no-op; (2) o diálogo trava "Analisar reunião"
+ * e "Aprovar e atualizar projeto" assim que `saved.data?.status === "aprovada"`,
+ * independente do estado local da sessão — reunião aprovada abre em modo
+ * leitura mesmo depois de fechar e reabrir.
+ * ------------------------------------------------------------------ */
+describe("Aprovação é definitiva — reanalisar depois nunca rebaixa status nem reabre para edição", () => {
+  test("saveAnalysisDraft: no-op (early return) antes de montar o payload quando a linha já está aprovada e o novo status não é 'aprovada'", () => {
+    const fnStart = analysisLibSource.indexOf("export async function saveAnalysisDraft(params: {");
+    const guardIndex = analysisLibSource.indexOf(
+      'if (existingRow?.status === "aprovada" && params.status !== "aprovada") return null;',
+      fnStart,
+    );
+    const payloadIndex = analysisLibSource.indexOf("const payload = {", fnStart);
+
+    expect(fnStart).toBeGreaterThan(-1);
+    expect(guardIndex).toBeGreaterThan(fnStart);
+    expect(payloadIndex).toBeGreaterThan(guardIndex);
+
+    // A guarda só funciona se o SELECT que a alimenta já buscar o status.
+    const selectIndex = analysisLibSource.indexOf('.select("id, status")', fnStart);
+    expect(selectIndex).toBeGreaterThan(fnStart);
+    expect(guardIndex).toBeGreaterThan(selectIndex);
+  });
+
+  test("MeetingAnalysisDialog: isApproved vem de saved.data?.status, não do estado local da sessão", () => {
+    expect(dialogSource).toContain('const isApproved = saved.data?.status === "aprovada";');
+  });
+
+  test("análise de novo numa reunião aprovada é bloqueada tanto na mutation quanto no botão", () => {
+    const analyzeStart = dialogSource.indexOf("const analyze = useMutation({");
+    const analyzeGuard = dialogSource.indexOf(
+      'if (isApproved) throw new Error("Esta reunião já foi aprovada — não é possível reanalisar.");',
+      analyzeStart,
+    );
+    expect(analyzeStart).toBeGreaterThan(-1);
+    expect(analyzeGuard).toBeGreaterThan(analyzeStart);
+
+    expect(dialogSource).toContain("disabled={analyze.isPending || !meeting || isApproved}");
+  });
+
+  test("aprovar de novo uma reunião já aprovada é bloqueado tanto na mutation quanto no botão", () => {
+    const approveStart = dialogSource.indexOf("const approve = useMutation({");
+    const approveGuard = dialogSource.indexOf(
+      'if (isApproved) throw new Error("Esta reunião já foi aprovada — não é possível aprovar de novo.");',
+      approveStart,
+    );
+    expect(approveStart).toBeGreaterThan(-1);
+    expect(approveGuard).toBeGreaterThan(approveStart);
+
+    expect(dialogSource).toContain(
+      "disabled={approve.isPending || approved || isApproved || overallCounts.reviewCount > 0}",
+    );
+  });
+});
