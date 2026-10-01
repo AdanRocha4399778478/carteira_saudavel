@@ -441,9 +441,15 @@ export type DeliveryClarityMetric = {
   label: string;
 };
 
+/** Mesma métrica, mas com os itens de verdade por trás do numerador/denominador — para o consultor auditar, não só confiar no percentual. */
+export type AuditableDeliveryClarityMetric = DeliveryClarityMetric & {
+  numeratorItems: string[];
+  denominatorItems: string[];
+};
+
 export type DeliveryClarity = {
   actionCompletenessRate: DeliveryClarityMetric;
-  commitmentConversionRate: DeliveryClarityMetric;
+  commitmentConversionRate: AuditableDeliveryClarityMetric;
 };
 
 /**
@@ -453,9 +459,9 @@ export type DeliveryClarity = {
  * contexto já extraídos, antes ou depois da aprovação.
  */
 export function computeDeliveryClarity(input: {
-  actions: { owner_name: string | null; deadline: string | null }[];
-  decisionsCount: number;
-  contextItemsCount: number;
+  actions: { owner_name: string | null; deadline: string | null; description: string }[];
+  decisions: { title: string }[];
+  contextItems: string[];
 }): DeliveryClarity {
   const totalActions = input.actions.length;
   const completeActions = input.actions.filter(
@@ -472,10 +478,14 @@ export function computeDeliveryClarity(input: {
         : `${completeActions} de ${totalActions} ${totalActions === 1 ? "ação" : "ações"} com responsável e prazo — ${completionPct}%`,
   };
 
-  const commitments = input.decisionsCount + totalActions;
-  const context = input.contextItemsCount;
+  const numeratorItems = [
+    ...input.decisions.map((d) => d.title),
+    ...input.actions.map((a) => a.description),
+  ];
+  const commitments = numeratorItems.length;
+  const context = input.contextItems.length;
   const conversionPct = context === 0 ? null : Math.round((commitments / context) * 100);
-  const commitmentConversionRate: DeliveryClarityMetric = {
+  const commitmentConversionRate: AuditableDeliveryClarityMetric = {
     rate: conversionPct,
     numerator: commitments,
     denominator: context,
@@ -483,6 +493,8 @@ export function computeDeliveryClarity(input: {
       context === 0
         ? "Nenhum item de contexto registrado nesta reunião."
         : `${commitments} ${commitments === 1 ? "compromisso" : "compromissos"} para ${context} ${context === 1 ? "ponto discutido" : "pontos discutidos"} — ${conversionPct}%`,
+    numeratorItems,
+    denominatorItems: input.contextItems,
   };
 
   return { actionCompletenessRate, commitmentConversionRate };
