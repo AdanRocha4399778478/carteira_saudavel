@@ -433,6 +433,61 @@ export function accountStatusFromRisk(level: RiskLevel): AccountStatus {
   return "crítico";
 }
 
+export type DeliveryClarityMetric = {
+  /** 0-100 arredondado; null quando o denominador é zero (nada para medir ainda). */
+  rate: number | null;
+  numerator: number;
+  denominator: number;
+  label: string;
+};
+
+export type DeliveryClarity = {
+  actionCompletenessRate: DeliveryClarityMetric;
+  commitmentConversionRate: DeliveryClarityMetric;
+};
+
+/**
+ * Autoavaliação da consultoria sobre a própria reunião (não do cliente):
+ * o quanto o que foi discutido virou encaminhamento claro, com responsável
+ * e prazo. Pura e sem IA — calculada a partir das decisões/ações/itens de
+ * contexto já extraídos, antes ou depois da aprovação.
+ */
+export function computeDeliveryClarity(input: {
+  actions: { owner_name: string | null; deadline: string | null }[];
+  decisionsCount: number;
+  contextItemsCount: number;
+}): DeliveryClarity {
+  const totalActions = input.actions.length;
+  const completeActions = input.actions.filter(
+    (a) => !!a.owner_name?.trim() && !!a.deadline,
+  ).length;
+  const completionPct = totalActions === 0 ? null : Math.round((completeActions / totalActions) * 100);
+  const actionCompletenessRate: DeliveryClarityMetric = {
+    rate: completionPct,
+    numerator: completeActions,
+    denominator: totalActions,
+    label:
+      totalActions === 0
+        ? "Nenhuma ação extraída nesta reunião."
+        : `${completeActions} de ${totalActions} ${totalActions === 1 ? "ação" : "ações"} com responsável e prazo — ${completionPct}%`,
+  };
+
+  const commitments = input.decisionsCount + totalActions;
+  const context = input.contextItemsCount;
+  const conversionPct = context === 0 ? null : Math.round((commitments / context) * 100);
+  const commitmentConversionRate: DeliveryClarityMetric = {
+    rate: conversionPct,
+    numerator: commitments,
+    denominator: context,
+    label:
+      context === 0
+        ? "Nenhum item de contexto registrado nesta reunião."
+        : `${commitments} ${commitments === 1 ? "compromisso" : "compromissos"} para ${context} ${context === 1 ? "ponto discutido" : "pontos discutidos"} — ${conversionPct}%`,
+  };
+
+  return { actionCompletenessRate, commitmentConversionRate };
+}
+
 export function scoreBand(score: number | null): "0 a 4" | "5 a 6" | "7 a 8" | "9 a 10" | null {
   if (score === null) return null;
   if (score < 5) return "0 a 4";

@@ -21,6 +21,7 @@ import {
   Wand2,
 } from "lucide-react";
 import {
+  computeDeliveryClarity,
   formatDate,
   isOverdue,
   type ActionItem,
@@ -613,6 +614,23 @@ export function MeetingAnalysisDialog({
     [contextItemsByGroup, decisionItems, actionItems, riskItems, oppItems],
   );
   const overallCounts = useMemo(() => countReviewBlock(allReviewItems), [allReviewItems]);
+
+  /**
+   * Autoavaliação da consultoria sobre a própria reunião — calculada a
+   * partir do que a IA extraiu no preview, antes de qualquer aprovação.
+   */
+  const deliveryClarity = useMemo(
+    () =>
+      computeDeliveryClarity({
+        actions: (analysis?.actions ?? []).map((a) => ({
+          owner_name: a.owner_name,
+          deadline: a.deadline,
+        })),
+        decisionsCount: analysis?.decisions.length ?? 0,
+        contextItemsCount: contextRows.reduce((n, g) => n + g.rows.length, 0),
+      }),
+    [analysis, contextRows],
+  );
 
   /**
    * Quantas das 12 categorias possíveis (8 listas de contexto + decisões,
@@ -1436,6 +1454,41 @@ export function MeetingAnalysisDialog({
                     )}
                   </section>
                 )}
+
+                <section className="rounded-lg border p-4">
+                  <span className="block text-sm font-semibold">Clareza da entrega</span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    Autoavaliação da consultoria sobre esta reunião — não é uma nota do cliente.
+                  </span>
+                  <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <span className="block text-xs font-medium text-muted-foreground">
+                        Taxa de encaminhamento completo
+                      </span>
+                      <span className="mt-1 block text-lg font-semibold">
+                        {deliveryClarity.actionCompletenessRate.rate !== null
+                          ? `${deliveryClarity.actionCompletenessRate.rate}%`
+                          : "—"}
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        {deliveryClarity.actionCompletenessRate.label}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="block text-xs font-medium text-muted-foreground">
+                        Taxa de conversão em compromisso
+                      </span>
+                      <span className="mt-1 block text-lg font-semibold">
+                        {deliveryClarity.commitmentConversionRate.rate !== null
+                          ? `${deliveryClarity.commitmentConversionRate.rate}%`
+                          : "—"}
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        {deliveryClarity.commitmentConversionRate.label}
+                      </span>
+                    </div>
+                  </div>
+                </section>
 
                 <ReviewSummaryCard
                   counts={overallCounts}
