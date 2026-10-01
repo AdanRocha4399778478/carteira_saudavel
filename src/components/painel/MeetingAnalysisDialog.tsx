@@ -324,6 +324,7 @@ export function MeetingAnalysisDialog({
   const [riskSel, setRiskSel] = useState<Record<number, ResolutionMode>>({});
   const [oppSel, setOppSel] = useState<Record<number, ResolutionMode>>({});
   const [summarySel, setSummarySel] = useState(true);
+  const [showConversionItems, setShowConversionItems] = useState(false);
   // Classificação de evolução ajustada manualmente pelo consultor.
   const [evoSel, setEvoSel] = useState<Record<string, EvolutionClassification>>({});
   /** Falha na aprovação: mantém o diálogo aberto, com transcrição e escolhas intactas. */
@@ -625,9 +626,14 @@ export function MeetingAnalysisDialog({
         actions: (analysis?.actions ?? []).map((a) => ({
           owner_name: a.owner_name,
           deadline: a.deadline,
+          description: a.description,
         })),
-        decisionsCount: analysis?.decisions.length ?? 0,
-        contextItemsCount: contextRows.reduce((n, g) => n + g.rows.length, 0),
+        decisions: (analysis?.decisions ?? []).map((d) => ({
+          title: d.title || d.description || "Decisão sem título",
+        })),
+        contextItems: contextRows.flatMap((g) =>
+          g.rows.map((r) => `${CONTEXT_LIST_LABEL[g.list]}: ${r.item.text}`),
+        ),
       }),
     [analysis, contextRows],
   );
@@ -1492,6 +1498,43 @@ export function MeetingAnalysisDialog({
                       <span className="block text-xs text-muted-foreground">
                         {deliveryClarity.commitmentConversionRate.label}
                       </span>
+                      {deliveryClarity.commitmentConversionRate.denominator > 0 && (
+                        <>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="mt-1 h-6 px-0 text-xs text-muted-foreground underline-offset-2 hover:underline"
+                            onClick={() => setShowConversionItems((v) => !v)}
+                          >
+                            {showConversionItems ? "Ocultar itens" : "Ver itens considerados"}
+                          </Button>
+                          {showConversionItems && (
+                            <div className="mt-1 grid gap-3 text-xs sm:grid-cols-2">
+                              <div>
+                                <p className="font-medium text-muted-foreground">
+                                  Numerador — decisões e ações ({deliveryClarity.commitmentConversionRate.numerator})
+                                </p>
+                                <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                                  {deliveryClarity.commitmentConversionRate.numeratorItems.map((item, i) => (
+                                    <li key={i}>{item}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                              <div>
+                                <p className="font-medium text-muted-foreground">
+                                  Denominador — itens de contexto ({deliveryClarity.commitmentConversionRate.denominator})
+                                </p>
+                                <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                                  {deliveryClarity.commitmentConversionRate.denominatorItems.map((item, i) => (
+                                    <li key={i}>{item}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
                   </div>
                 </section>
