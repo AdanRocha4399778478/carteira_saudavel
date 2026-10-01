@@ -1368,7 +1368,7 @@ export function MeetingAnalysisDialog({
                             {analysis.meeting.measurable_result}
                           </span>
                         )}
-                        {meeting?.executive_summary ? (
+                        {meeting?.id && meeting?.executive_summary ? (
                           <span className="mt-1 block text-xs text-muted-foreground">
                             A reunião já possui resumo — o texto atual é preservado.
                           </span>
@@ -1462,8 +1462,14 @@ export function MeetingAnalysisDialog({
                   </span>
                   <div className="mt-3 grid gap-4 sm:grid-cols-2">
                     <div>
-                      <span className="block text-xs font-medium text-muted-foreground">
+                      <span
+                        className="block text-xs font-medium text-muted-foreground"
+                        title="Entre as ações que a IA identificou nesta reunião — não cobre tudo que foi discutido."
+                      >
                         Taxa de encaminhamento completo
+                      </span>
+                      <span className="block text-[11px] text-muted-foreground/70">
+                        Entre as ações identificadas pela IA nesta reunião
                       </span>
                       <span className="mt-1 block text-lg font-semibold">
                         {deliveryClarity.actionCompletenessRate.rate !== null
@@ -2087,7 +2093,12 @@ function ReviewSummaryCard({
           <p className="text-xs font-semibold">Execução</p>
           <dl className="mt-1 grid grid-cols-1 gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
             <div>
-              <dt className="text-muted-foreground">Ações propostas</dt>
+              <dt
+                className="text-muted-foreground"
+                title="Ações criadas automaticamente a partir de próximos passos sem ação correspondente — não é o total de ações da reunião."
+              >
+                Ações criadas de próximos passos
+              </dt>
               <dd className="font-semibold">{executionQuality.proposedActions}</dd>
             </div>
             <div>
