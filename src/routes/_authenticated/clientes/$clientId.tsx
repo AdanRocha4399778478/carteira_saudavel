@@ -443,6 +443,16 @@ function ClientDetailPage() {
                     <Field label="Prioridade" value={m.main_priority} />
                     <Field label="Responsável pela ação" value={m.action_owner} />
                     <Field label="Prazo" value={formatDate(m.action_deadline)} />
+                    <Field
+                      label="Encaminhamento completo"
+                      value={m.delivery_clarity_rate === null ? null : `${m.delivery_clarity_rate}%`}
+                    />
+                    <Field
+                      label="Conversão em compromisso"
+                      value={
+                        m.commitment_conversion_rate === null ? null : `${m.commitment_conversion_rate}%`
+                      }
+                    />
                   </div>
 
                   {m.satisfaction_justification || m.value_justification ? (

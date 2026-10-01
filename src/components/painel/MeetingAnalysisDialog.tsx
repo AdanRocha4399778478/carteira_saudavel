@@ -1165,6 +1165,10 @@ export function MeetingAnalysisDialog({
         continuityDoubt: summarySel ? analysis.meeting.continuity_doubt : false,
         lowClientAdherence: summarySel ? analysis.meeting.low_client_adherence : false,
         missingInternalOwner: summarySel ? analysis.meeting.missing_internal_owner : false,
+        // Autoavaliação da consultoria (sem IA) — não depende do checkbox de
+        // resumo, que só controla campos vindos da IA.
+        deliveryClarityRate: deliveryClarity.actionCompletenessRate.rate,
+        commitmentConversionRate: deliveryClarity.commitmentConversionRate.rate,
         contextItems,
         decisions: decisionRows.map((r) => ({
           title: r.item.title,
