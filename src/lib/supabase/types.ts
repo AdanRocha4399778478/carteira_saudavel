@@ -721,9 +721,11 @@ export type Database = {
           calculated_risk_level: string
           calculated_risk_score: number
           client_id: string
+          commitment_conversion_rate: number | null
           continuity_doubt: boolean
           created_at: string
           created_by: string | null
+          delivery_clarity_rate: number | null
           executive_summary: string | null
           expansion_opportunity: string | null
           explicit_complaint: boolean
@@ -758,9 +760,11 @@ export type Database = {
           calculated_risk_level?: string
           calculated_risk_score?: number
           client_id: string
+          commitment_conversion_rate?: number | null
           continuity_doubt?: boolean
           created_at?: string
           created_by?: string | null
+          delivery_clarity_rate?: number | null
           executive_summary?: string | null
           expansion_opportunity?: string | null
           explicit_complaint?: boolean
@@ -795,9 +799,11 @@ export type Database = {
           calculated_risk_level?: string
           calculated_risk_score?: number
           client_id?: string
+          commitment_conversion_rate?: number | null
           continuity_doubt?: boolean
           created_at?: string
           created_by?: string | null
+          delivery_clarity_rate?: number | null
           executive_summary?: string | null
           expansion_opportunity?: string | null
           explicit_complaint?: boolean

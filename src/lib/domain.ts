@@ -152,6 +152,9 @@ export type Meeting = {
   import_hash: string | null;
   created_by: string | null;
   created_at: string;
+  /** Autoavaliação da consultoria (sem IA) — ver computeDeliveryClarity. 0-100, null quando não calculável (sem ações/contexto). */
+  delivery_clarity_rate: number | null;
+  commitment_conversion_rate: number | null;
 };
 
 
@@ -304,6 +307,8 @@ export function normalizeMeeting(row: Record<string, unknown>): Meeting {
     import_hash: safeText(row["import_hash"]),
     created_by: safeText(row["created_by"]),
     created_at: typeof row["created_at"] === "string" ? row["created_at"] : "",
+    delivery_clarity_rate: safeNumber(row["delivery_clarity_rate"]),
+    commitment_conversion_rate: safeNumber(row["commitment_conversion_rate"]),
   };
 }
 

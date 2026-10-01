@@ -921,6 +921,9 @@ export type ApprovedSelection = {
   continuityDoubt: boolean;
   lowClientAdherence: boolean;
   missingInternalOwner: boolean;
+  /** Autoavaliação da consultoria (sem IA) — ver computeDeliveryClarity. 0-100, null quando não calculável. */
+  deliveryClarityRate: number | null;
+  commitmentConversionRate: number | null;
   contextItems: {
     list: ContextListKey;
     text: string;
@@ -1582,6 +1585,8 @@ export async function applyApprovedAnalysis(params: {
     continuity_doubt?: boolean;
     low_client_adherence?: boolean;
     missing_internal_owner?: boolean;
+    delivery_clarity_rate?: number;
+    commitment_conversion_rate?: number;
   } = {};
   if (selection.meetingSummary && !meeting.executive_summary)
     meetingPatch.executive_summary = selection.meetingSummary;
@@ -1605,6 +1610,12 @@ export async function applyApprovedAnalysis(params: {
   if (selection.continuityDoubt) meetingPatch.continuity_doubt = true;
   if (selection.lowClientAdherence) meetingPatch.low_client_adherence = true;
   if (selection.missingInternalOwner) meetingPatch.missing_internal_owner = true;
+  // Autoavaliação da consultoria (sem IA, ver computeDeliveryClarity) — mesma
+  // guarda "só complementa campo vazio" dos demais campos desta reunião.
+  if (selection.deliveryClarityRate !== null && meeting.delivery_clarity_rate === null)
+    meetingPatch.delivery_clarity_rate = selection.deliveryClarityRate;
+  if (selection.commitmentConversionRate !== null && meeting.commitment_conversion_rate === null)
+    meetingPatch.commitment_conversion_rate = selection.commitmentConversionRate;
   if (Object.keys(meetingPatch).length > 0) {
     const { error } = await supabase.from("meetings").update(meetingPatch).eq("id", meeting.id);
     if (error) {
