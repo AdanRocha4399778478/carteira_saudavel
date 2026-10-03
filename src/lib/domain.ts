@@ -222,6 +222,19 @@ export function isOverdue(
   return new Date(action.deadline) < startOfToday();
 }
 
+const OVERDUE_DECISION_STATUSES = ["pendente", "aprovada", "em_execucao"];
+
+/** due_date é `date` no banco: compara só o dia, sem new Date(due_date), que o leria como UTC. */
+export function isDecisionOverdue(decision: { due_date: string | null; status: string }): boolean {
+  if (!decision.due_date) return false;
+  if (!OVERDUE_DECISION_STATUSES.includes(decision.status)) return false;
+  const day = decision.due_date.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+  const today = startOfToday();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return day < `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+}
+
 export function startOfToday(): Date {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
