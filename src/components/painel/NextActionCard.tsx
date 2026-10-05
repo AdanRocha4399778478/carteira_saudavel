@@ -26,13 +26,16 @@ import {
  * concordou — nenhum agente é executado automaticamente.
  * ------------------------------------------------------------------ */
 
-export function NextActionCard(props: StateInput & { projectId: string }) {
-  const { projectId, ...input } = props;
+export function NextActionCard(
+  props: StateInput & { projectId: string; ready: boolean; hasError: boolean },
+) {
+  const { projectId, ready, hasError, ...input } = props;
   const queryClient = useQueryClient();
   const [analysisOpen, setAnalysisOpen] = useState(false);
 
   const state = useMemo(() => buildOrchestratorState(input), [input]);
-  const rec = useQuery(orchestratorQuery(projectId, state));
+  const { enabled: canQuery, ...query } = orchestratorQuery(projectId, state);
+  const rec = useQuery({ ...query, enabled: !!canQuery && ready });
 
   const decide = useMutation({
     mutationFn: async (status: "approved" | "rejected") => {
@@ -68,7 +71,15 @@ export function NextActionCard(props: StateInput & { projectId: string }) {
         {data ? <Pill tone="neutral">{RECOMMENDATION_STATUS_LABEL[data.status]}</Pill> : null}
       </div>
 
-      {rec.isLoading ? (
+      {!ready ? (
+        hasError ? (
+          <p className="mt-4 text-sm text-muted-foreground">
+            Não foi possível calcular a próxima ação.
+          </p>
+        ) : (
+          <p className="mt-4 text-sm text-muted-foreground">Analisando o estado do projeto…</p>
+        )
+      ) : rec.isLoading ? (
         <p className="mt-4 text-sm text-muted-foreground">Analisando o estado do projeto…</p>
       ) : rec.error ? (
         <p className="mt-4 text-sm text-muted-foreground">

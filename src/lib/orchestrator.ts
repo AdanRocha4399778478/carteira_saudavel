@@ -48,6 +48,40 @@ const inFlightRecommendations = new Map<
   Promise<StoredRecommendation>
 >();
 
+/** Projetos cuja limpeza de 'suggested' antigas já foi disparada nesta sessão do navegador. */
+const cleanedProjects = new Set<string>();
+
+/**
+ * Marca como 'superseded' as recomendações 'suggested' MAIS ANTIGAS do mesmo
+ * projeto (created_at estritamente menor que referenceCreatedAt). Nunca toca
+ * em 'approved', 'rejected' ou 'executed'. Nunca filtra por id. Afetar 0
+ * linhas é esperado e não é erro. Falha real só registra console.error uma
+ * vez e nunca lança — nunca bloqueia o card.
+ */
+async function supersedeOlderSuggested(
+  projectId: string,
+  referenceCreatedAt: string,
+): Promise<void> {
+  try {
+    const supersede = await supabase
+      .from(TABLE as never)
+      .update({ status: "superseded" } as never)
+      .eq("project_id", projectId)
+      .eq("status", "suggested")
+      .lt("created_at", referenceCreatedAt);
+
+    if (supersede.error) {
+      console.error("[orchestrator] supersede-status", {
+        message: supersede.error.message,
+      });
+    }
+  } catch (error) {
+    console.error("[orchestrator] supersede-status", {
+      message: error instanceof Error ? error.message : "unknown error",
+    });
+  }
+}
+
 function fromRow(row: Row): StoredRecommendation {
   const bottleneck = (row["main_bottleneck"] ?? {}) as Record<string, unknown>;
   const erp = (row["erp_classification"] ?? {}) as Record<string, unknown>;
@@ -256,6 +290,14 @@ async function performRecommendationResolution(
   );
 
   if (existingLive) {
+    if (!cleanedProjects.has(projectId)) {
+      cleanedProjects.add(projectId);
+      void supersedeOlderSuggested(projectId, existingLive.created_at).catch((error) => {
+        console.error("[orchestrator] supersede-status", {
+          message: error instanceof Error ? error.message : "unknown error",
+        });
+      });
+    }
     return existingLive;
   }
 
@@ -278,29 +320,6 @@ async function performRecommendationResolution(
 
   const { recommendation, source } =
     await buildRecommendation(state);
-
-  // A recomendação anterior ainda sugerida deixa de valer.
-  if (
-    latest &&
-    latest.status === "suggested"
-  ) {
-    try {
-      await updateRecommendationStatus(
-        latest.id,
-        "superseded",
-      );
-    } catch (error) {
-      console.error(
-        "[orchestrator] supersede-status",
-        {
-          message:
-            error instanceof Error
-              ? error.message
-              : "unknown error",
-        },
-      );
-    }
-  }
 
   const insert = await supabase
     .from(TABLE as never)
@@ -354,7 +373,11 @@ async function performRecommendationResolution(
     throw new Error(insert.error.message);
   }
 
-  return fromRow(insert.data as Row);
+  const inserted = fromRow(insert.data as Row);
+
+  await supersedeOlderSuggested(projectId, inserted.created_at);
+
+  return inserted;
 }
 
 /**
