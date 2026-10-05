@@ -103,6 +103,25 @@ export function ActionStatusBadge({ status, overdue }: { status: string; overdue
   );
 }
 
+export function DecisionStatusBadge({
+  status,
+  label,
+  overdue,
+}: {
+  status: string;
+  label: string;
+  overdue?: boolean;
+}) {
+  if (overdue) {
+    return (
+      <Pill tone="critical" icon={Timer}>
+        {`atrasada (${label})`}
+      </Pill>
+    );
+  }
+  return <Pill tone={status === "implementada" ? "healthy" : "neutral"}>{label}</Pill>;
+}
+
 export function TrendBadge({ trend }: { trend: string | null }) {
   if (!trend) return <span className="text-muted-foreground">—</span>;
   const tone: Tone = trend === "queda" ? "highrisk" : trend === "alta" ? "healthy" : "neutral";

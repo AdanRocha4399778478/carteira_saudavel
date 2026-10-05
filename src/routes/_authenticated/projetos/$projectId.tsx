@@ -21,7 +21,12 @@ import { PageHeader } from "@/components/painel/PageHeader";
 import { TimerWidget } from "@/components/painel/TimerWidget";
 import { routeErrorComponent } from "@/components/painel/RouteError";
 import { EmptyState, ErrorState, LoadingState } from "@/components/painel/states";
-import { ActionStatusBadge, Pill, RiskBadge } from "@/components/painel/badges";
+import {
+  ActionStatusBadge,
+  DecisionStatusBadge,
+  Pill,
+  RiskBadge,
+} from "@/components/painel/badges";
 import { ProjectDialog } from "@/components/painel/ProjectDialog";
 import { DecisionDialog } from "@/components/painel/DecisionDialog";
 import { ContextListEditor } from "@/components/painel/ContextListEditor";
@@ -53,7 +58,7 @@ import {
   type ContextListKey,
   type Decision,
 } from "@/lib/projects";
-import { formatDate, isOverdue, type Meeting } from "@/lib/domain";
+import { formatDate, isDecisionOverdue, isOverdue, type Meeting } from "@/lib/domain";
 import {
   projectClientQuery,
   projectDecisionsQuery,
@@ -753,9 +758,11 @@ function ProjectDetailPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Pill tone={d.status === "implementada" ? "healthy" : "neutral"}>
-                          {DECISION_STATUS_LABEL[d.status] ?? d.status}
-                        </Pill>
+                        <DecisionStatusBadge
+                          status={d.status}
+                          label={DECISION_STATUS_LABEL[d.status] ?? d.status}
+                          overdue={isDecisionOverdue(d)}
+                        />
                         <Button
                           variant="ghost"
                           size="icon"
