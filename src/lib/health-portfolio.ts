@@ -23,7 +23,7 @@ const COCKPIT_ACTION_COLUMNS =
 const COCKPIT_RISK_COUNT_COLUMNS =
   "project_id, critical_count, high_count, medium_count, low_count";
 const COCKPIT_MEETING_COLUMNS = "id, project_id, meeting_date, has_measurable_result";
-const COCKPIT_DECISION_COLUMNS = "project_id, status, due_date";
+const COCKPIT_DECISION_COLUMNS = "id, project_id, title, status, due_date, owner";
 const COCKPIT_CONTEXT_COLUMNS = "project_id, results";
 const COCKPIT_EVOLUTION_COLUMNS = "project_id, movement, summary, created_at";
 
@@ -99,7 +99,7 @@ const cockpitMeetingsQuery = () =>
     },
   });
 
-const cockpitDecisionsQuery = () =>
+export const cockpitDecisionsQuery = () =>
   queryOptions({
     queryKey: ["decisions", "cockpit"],
     queryFn: async (): Promise<Decision[]> => {

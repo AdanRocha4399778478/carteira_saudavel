@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
   AlertTriangle,
@@ -32,6 +33,8 @@ import {
 import { SatisfactionValueMatrix } from "@/components/charts/SatisfactionValueMatrix";
 import { InterventionCockpit } from "@/components/painel/InterventionCockpit";
 import { useDashboardData } from "@/hooks/useCarteira";
+import { cockpitDecisionsQuery, useProjectsHealth } from "@/lib/health-portfolio";
+import { getOverdueDecisions, type OverdueDecisionProjectRow } from "@/lib/overdue-decisions";
 
 import {
   ACCOUNT_STATUSES,
@@ -281,6 +284,28 @@ function DashboardPage() {
     [filtered],
   );
 
+  const decisionsQuery = useQuery(cockpitDecisionsQuery());
+  const {
+    rows: projectHealthRows,
+    isLoading: projectsHealthLoading,
+    error: projectsHealthError,
+  } = useProjectsHealth();
+  const overdueDecisionProjects = useMemo<OverdueDecisionProjectRow[]>(
+    () =>
+      projectHealthRows.map((r) => ({
+        projectId: r.projectId,
+        projectName: r.projectName,
+        clientId: r.clientId,
+        clientName: clientName(r.clientId),
+        status: r.status,
+      })),
+    [projectHealthRows, clientName],
+  );
+  const overdueDecisions = useMemo(
+    () => getOverdueDecisions(decisionsQuery.data ?? [], overdueDecisionProjects, filteredIds),
+    [decisionsQuery.data, overdueDecisionProjects, filteredIds],
+  );
+
   if (error) {
     return (
       <>
@@ -518,6 +543,63 @@ function DashboardPage() {
             >
               <SectionErrorBoundary label="o cockpit de intervenção">
                 <InterventionCockpit clientName={clientName} />
+              </SectionErrorBoundary>
+            </Panel>
+
+            <Panel
+              title={
+                decisionsQuery.isLoading ||
+                decisionsQuery.error ||
+                projectsHealthLoading ||
+                projectsHealthError
+                  ? "Decisões atrasadas"
+                  : `Decisões atrasadas (${overdueDecisions.total})`
+              }
+              description="Decisões com prazo vencido em todos os clientes no filtro atual"
+            >
+              <SectionErrorBoundary label="as decisões atrasadas">
+                {decisionsQuery.isLoading || projectsHealthLoading ? (
+                  <p className="text-sm text-muted-foreground">Calculando...</p>
+                ) : decisionsQuery.error || projectsHealthError ? (
+                  <p className="text-sm text-muted-foreground">
+                    Não foi possível carregar as decisões atrasadas.
+                  </p>
+                ) : overdueDecisions.linhas.length === 0 ? (
+                  <EmptyState
+                    title="Nenhuma decisão atrasada"
+                    description="Nenhuma decisão com prazo vencido nos clientes do filtro atual."
+                  />
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <ul className="grid gap-2">
+                      {overdueDecisions.linhas.map((d) => (
+                        <li key={d.decisionId} className="rounded-xl border border-border p-3">
+                          <Link
+                            to="/projetos/$projectId"
+                            params={{ projectId: d.projectId }}
+                            className="flex flex-col gap-1"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="truncate text-sm font-semibold">{d.title}</span>
+                              <span className="whitespace-nowrap text-xs text-highrisk">
+                                {d.daysOverdue} dia(s) de atraso
+                              </span>
+                            </div>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {d.clientName} · {d.projectName} · {d.owner} · Prazo{" "}
+                              {formatDate(d.dueDate)}
+                            </p>
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                    {overdueDecisions.total > 10 ? (
+                      <p className="text-xs text-muted-foreground">
+                        Mostrando 10 de {overdueDecisions.total}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
               </SectionErrorBoundary>
             </Panel>
 
