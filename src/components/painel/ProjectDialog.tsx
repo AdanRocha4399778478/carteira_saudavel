@@ -12,6 +12,8 @@ import {
   PROJECT_STATUS_LABEL,
   type Project,
 } from "@/lib/projects";
+import { buildProjectName, isValidErpPair } from "@/lib/project-name";
+import { ErpAreaSubareaSelect } from "@/components/painel/ErpAreaSubareaSelect";
 import {
   Dialog,
   DialogContent,
@@ -71,6 +73,7 @@ export function ProjectDialog({
 }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormState>(empty);
+  const [erp, setErp] = useState({ area: "", subarea: "" });
 
   useEffect(() => {
     if (!open) return;
@@ -91,6 +94,7 @@ export function ProjectDialog({
             consultant_id: clients.find((c) => c.id === defaultClientId)?.consultant_id ?? "",
           },
     );
+    setErp({ area: "", subarea: "" });
   }, [open, project, defaultClientId, clients]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
@@ -112,20 +116,26 @@ export function ProjectDialog({
         if (error) throw new Error(error.message);
         return project.id;
       }
+      // Criação: nome gerado a partir da área/subárea do ERP (obrigatórias nesta fase).
+      const generatedName = buildProjectName(erp.area, erp.subarea);
       // Criação idempotente: o banco reaproveita projeto equivalente do cliente
       // em vez de gerar uma duplicata.
       const created = await getOrCreateProject({
         clientId: payload.client_id,
-        name: payload.name,
+        name: generatedName,
         description: payload.description,
       });
-      if (created.reused) toast.info("Já existia um projeto equivalente — ele foi reaproveitado.");
+      if (created.reused) {
+        throw new Error(`Este cliente já tem o projeto "${generatedName}" nesta área e subárea.`);
+      }
       const id = created.project.id;
       const rest = {
         status: payload.status,
         start_date: payload.start_date,
         target_end_date: payload.target_end_date,
         consultant_id: payload.consultant_id,
+        erp_area: erp.area,
+        erp_subarea: erp.subarea,
       };
       const { error } = await supabase.from("projects").update(rest).eq("id", id);
       if (error) throw new Error(error.message);
@@ -147,8 +157,13 @@ export function ProjectDialog({
       toast.error("Selecione o cliente.");
       return;
     }
-    if (!form.name.trim()) {
-      toast.error("Informe o nome do projeto.");
+    if (project) {
+      if (!form.name.trim()) {
+        toast.error("Informe o nome do projeto.");
+        return;
+      }
+    } else if (!isValidErpPair(erp.area, erp.subarea)) {
+      toast.error("Selecione a área e a subárea do ERP.");
       return;
     }
     mutation.mutate();
@@ -186,15 +201,31 @@ export function ProjectDialog({
             </Select>
           </div>
 
-          <div className="grid gap-1.5 sm:col-span-2">
-            <Label htmlFor="project-name">Nome do projeto *</Label>
-            <Input
-              id="project-name"
-              value={form.name}
-              onChange={(e) => set("name", e.target.value)}
-              placeholder="Ex.: Reestruturação comercial 2026"
-            />
-          </div>
+          {project ? (
+            <div className="grid gap-1.5 sm:col-span-2">
+              <Label htmlFor="project-name">Nome do projeto *</Label>
+              <Input
+                id="project-name"
+                value={form.name}
+                onChange={(e) => set("name", e.target.value)}
+                placeholder="Ex.: Reestruturação comercial 2026"
+              />
+            </div>
+          ) : (
+            <div className="grid gap-1.5 sm:col-span-2">
+              <ErpAreaSubareaSelect
+                area={erp.area}
+                subarea={erp.subarea}
+                onChange={(area, subarea) => setErp({ area, subarea })}
+              />
+              <p className="text-sm text-muted-foreground">
+                Nome do projeto:{" "}
+                {isValidErpPair(erp.area, erp.subarea)
+                  ? buildProjectName(erp.area, erp.subarea)
+                  : "—"}
+              </p>
+            </div>
+          )}
 
           <div className="grid gap-1.5 sm:col-span-2">
             <Label htmlFor="project-desc">Descrição</Label>
@@ -262,7 +293,10 @@ export function ProjectDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={mutation.isPending}>
+            <Button
+              type="submit"
+              disabled={mutation.isPending || (!project && !isValidErpPair(erp.area, erp.subarea))}
+            >
               {mutation.isPending ? "Salvando…" : "Salvar projeto"}
             </Button>
           </DialogFooter>

@@ -1,0 +1,65 @@
+import { describe, expect, test } from "bun:test";
+import { ERP_TAXONOMY } from "../src/lib/domain";
+import { buildProjectName, isValidErpPair } from "../src/lib/project-name";
+
+/** Aproximação em JS de `normalize_project_name` (banco): trim(regexp_replace(unaccent(lower(nome)), '[^a-z0-9]+', ' ', 'g')).
+ *  `unaccent` do Postgres não é idêntico a `normalize("NFD") + remoção de diacríticos` do JS em todos os casos
+ *  (ex.: alguns caracteres compostos/ligaduras), então esta é uma aproximação — suficiente para detectar
+ *  colisão de nome entre as 138 combinações de área/subárea, não uma reimplementação exata do unaccent. */
+function normalizeProjectNameApprox(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+describe("buildProjectName", () => {
+  test("gera o formato esperado 'Área - Subárea'", () => {
+    expect(buildProjectName("Financeiro", "Contas a Pagar")).toBe("Financeiro - Contas a Pagar");
+  });
+});
+
+describe("isValidErpPair", () => {
+  test("par válido (área e subárea da mesma área)", () => {
+    expect(isValidErpPair("Financeiro", "Contas a Pagar")).toBe(true);
+  });
+
+  test("área válida com subárea de OUTRA área = falso", () => {
+    expect(isValidErpPair("Financeiro", "Recrutamento e Seleção")).toBe(false);
+  });
+
+  test("área inválida = falso", () => {
+    expect(isValidErpPair("Área Inexistente", "Contas a Pagar")).toBe(false);
+  });
+
+  test("nulos e vazios = falso", () => {
+    expect(isValidErpPair(null, "Contas a Pagar")).toBe(false);
+    expect(isValidErpPair("Financeiro", null)).toBe(false);
+    expect(isValidErpPair(undefined, undefined)).toBe(false);
+    expect(isValidErpPair("", "")).toBe(false);
+  });
+});
+
+describe("colisão de nome gerado entre as 138 combinações de ERP_TAXONOMY", () => {
+  test("nenhum par (área, subárea) gera o mesmo normalized_name que outro", () => {
+    const seen = new Map<string, string>();
+    const collisions: { normalized: string; a: string; b: string }[] = [];
+
+    for (const area of Object.keys(ERP_TAXONOMY)) {
+      for (const subarea of ERP_TAXONOMY[area] ?? []) {
+        const name = buildProjectName(area, subarea);
+        const normalized = normalizeProjectNameApprox(name);
+        const existing = seen.get(normalized);
+        if (existing && existing !== name) {
+          collisions.push({ normalized, a: existing, b: name });
+        } else {
+          seen.set(normalized, name);
+        }
+      }
+    }
+
+    expect(collisions).toEqual([]);
+  });
+});
