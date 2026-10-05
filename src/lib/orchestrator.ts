@@ -279,29 +279,6 @@ async function performRecommendationResolution(
   const { recommendation, source } =
     await buildRecommendation(state);
 
-  // A recomendação anterior ainda sugerida deixa de valer.
-  if (
-    latest &&
-    latest.status === "suggested"
-  ) {
-    try {
-      await updateRecommendationStatus(
-        latest.id,
-        "superseded",
-      );
-    } catch (error) {
-      console.error(
-        "[orchestrator] supersede-status",
-        {
-          message:
-            error instanceof Error
-              ? error.message
-              : "unknown error",
-        },
-      );
-    }
-  }
-
   const insert = await supabase
     .from(TABLE as never)
     .insert({
@@ -354,7 +331,35 @@ async function performRecommendationResolution(
     throw new Error(insert.error.message);
   }
 
-  return fromRow(insert.data as Row);
+  const inserted = fromRow(insert.data as Row);
+
+  /**
+   * Limpeza pós-insert: recomendações 'suggested' MAIS ANTIGAS do mesmo
+   * projeto deixam de valer. Nunca toca em 'approved', 'rejected' ou
+   * 'executed'. Uma colisão aqui (duas execuções concorrentes marcando a
+   * mesma linha) não é erro — afetar 0 linhas é esperado. Falha real não
+   * bloqueia o card: a recomendação nova já foi gravada com sucesso.
+   */
+  try {
+    const supersede = await supabase
+      .from(TABLE as never)
+      .update({ status: "superseded" } as never)
+      .eq("project_id", projectId)
+      .eq("status", "suggested")
+      .lt("created_at", inserted.created_at);
+
+    if (supersede.error) {
+      console.error("[orchestrator] supersede-status", {
+        message: supersede.error.message,
+      });
+    }
+  } catch (error) {
+    console.error("[orchestrator] supersede-status", {
+      message: error instanceof Error ? error.message : "unknown error",
+    });
+  }
+
+  return inserted;
 }
 
 /**

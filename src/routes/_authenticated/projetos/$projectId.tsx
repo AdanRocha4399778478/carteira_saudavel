@@ -59,6 +59,7 @@ import {
   type Decision,
 } from "@/lib/projects";
 import { formatDate, isDecisionOverdue, isOverdue, type Meeting } from "@/lib/domain";
+import { isOrchestratorStateReady } from "@/lib/orchestrator/ready";
 import {
   projectClientQuery,
   projectDecisionsQuery,
@@ -190,6 +191,19 @@ function ProjectDetailPage() {
   const clientMeetings = useQuery(clientMeetingsQuery(clientId));
   const clientProjectNames = useQuery(clientProjectNamesQuery(clientId));
   const evolution = useQuery(projectEvolutionQuery(projectId));
+
+  /** As 7 consultas que compõem o estado do Orquestrador (ver src/lib/orchestrator/state.ts). */
+  const orchestratorStateQueries = [
+    project,
+    context,
+    actions,
+    risks,
+    decisions,
+    meetings,
+    evolution,
+  ];
+  const orchestratorStateReady = isOrchestratorStateReady(orchestratorStateQueries);
+  const orchestratorStateHasError = orchestratorStateQueries.some((q) => q.isError);
 
   const [editOpen, setEditOpen] = useState(false);
   const [decisionOpen, setDecisionOpen] = useState(false);
@@ -437,6 +451,8 @@ function ProjectDetailPage() {
             <ProjectHealthCard health={health} />
             <NextActionCard
               projectId={projectId}
+              ready={orchestratorStateReady}
+              hasError={orchestratorStateHasError}
               project={p}
               context={context.data ?? null}
               health={health}
