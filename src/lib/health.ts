@@ -1,7 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase/client";
 import { logDbError } from "./api";
-import { daysSince, isOverdue, startOfToday, type ActionItem, type Meeting, type RiskItem } from "./domain";
+import { daysSince, isDecisionOverdue, isOverdue, type ActionItem, type Meeting, type RiskItem } from "./domain";
 import type { ContextItem, Decision } from "./projects";
 import type { EvolutionRecord, ProjectMovement } from "./evolution";
 
@@ -121,12 +121,6 @@ function isStale(action: ActionItem): boolean {
   const base = action.updated_at ?? action.created_at;
   const days = daysSince(base?.slice(0, 10) ?? null);
   return (days ?? 0) > HEALTH_CONFIG.staleActionDays;
-}
-
-function isDecisionOverdue(d: Decision): boolean {
-  if (!d.due_date) return false;
-  if (d.status === "implementada" || d.status === "cancelada") return false;
-  return new Date(d.due_date) < startOfToday();
 }
 
 /** Mediana dos intervalos entre reuniões — a cadência real do projeto. */
