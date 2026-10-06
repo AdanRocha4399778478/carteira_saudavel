@@ -71,9 +71,9 @@ describe("subárea 'Outros' em todas as áreas", () => {
     }
   });
 
-  test("o total de subáreas é 159", () => {
+  test("o total de subáreas é 183", () => {
     const total = Object.values(ERP_TAXONOMY).reduce((sum, subareas) => sum + subareas.length, 0);
-    expect(total).toBe(159);
+    expect(total).toBe(183);
   });
 
   test("contagem de subáreas por área", () => {
@@ -83,13 +83,13 @@ describe("subárea 'Outros' em todas as áreas", () => {
       Operações: 11,
       Marketing: 10,
       Financeiro: 11,
-      Estratégia: 12,
-      "Inovação e Pesquisas": 9,
-      Jurídica: 14,
-      "Logística e Suprimentos": 9,
+      Estratégia: 16,
+      "Inovação e Pesquisas": 14,
+      Jurídica: 16,
+      "Logística e Suprimentos": 16,
       Projetos: 9,
-      Qualidade: 12,
-      Sustentabilidade: 13,
+      Qualidade: 15,
+      Sustentabilidade: 16,
       "Tecnologia da Informação": 17,
       Administrativo: 10,
     };
