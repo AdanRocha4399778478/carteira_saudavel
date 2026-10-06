@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
+  classificationLoaded,
   classificationState,
   detectUniqueConflict,
   findConflictingProject,
@@ -230,5 +233,49 @@ describe("findConflictingProject", () => {
       name: "Nome que não existe em nenhum projeto",
     });
     expect(result).toBeNull();
+  });
+});
+
+describe("classificationLoaded", () => {
+  test("os três campos presentes (mesmo com valor) = carregado", () => {
+    expect(
+      classificationLoaded({ erp_area: "Comercial", erp_subarea: "Prospecção", erp_item: "X" }),
+    ).toBe(true);
+  });
+
+  test("os três nulos conta como carregado", () => {
+    expect(classificationLoaded({ erp_area: null, erp_subarea: null, erp_item: null })).toBe(true);
+  });
+
+  test("um campo undefined = não carregado", () => {
+    expect(
+      classificationLoaded({
+        erp_area: "Comercial",
+        erp_subarea: "Prospecção",
+        erp_item: undefined,
+      }),
+    ).toBe(false);
+    expect(classificationLoaded({ erp_area: undefined, erp_subarea: null, erp_item: null })).toBe(
+      false,
+    );
+  });
+
+  test("objeto sem os campos = não carregado", () => {
+    expect(classificationLoaded({})).toBe(false);
+  });
+});
+
+const root = resolve(import.meta.dir, "..");
+function source(path: string): string {
+  return readFileSync(resolve(root, ...path.split("/")), "utf8").replace(/\r\n/g, "\n");
+}
+
+describe("projectDetailQuery seleciona as colunas de classificação do ERP", () => {
+  const projectDetail = source("src/lib/project-detail.ts");
+
+  test("o select do detalhe do projeto cita erp_area, erp_subarea e erp_item", () => {
+    expect(projectDetail).toContain("erp_area");
+    expect(projectDetail).toContain("erp_subarea");
+    expect(projectDetail).toContain("erp_item");
   });
 });

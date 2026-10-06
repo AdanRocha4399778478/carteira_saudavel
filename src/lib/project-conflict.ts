@@ -18,6 +18,23 @@ export function classificationState(
   return "parcial";
 }
 
+/**
+ * Verdadeira só se as três propriedades de classificação vieram na consulta
+ * (nulo conta como carregado; `undefined` significa que a coluna não foi
+ * selecionada e não deve ser tratada como "sem classificação").
+ */
+export function classificationLoaded(project: {
+  erp_area?: unknown;
+  erp_subarea?: unknown;
+  erp_item?: unknown;
+}): boolean {
+  return (
+    project.erp_area !== undefined &&
+    project.erp_subarea !== undefined &&
+    project.erp_item !== undefined
+  );
+}
+
 export type UniqueConflictKind = "classificacao" | "nome" | "outro";
 
 /**
