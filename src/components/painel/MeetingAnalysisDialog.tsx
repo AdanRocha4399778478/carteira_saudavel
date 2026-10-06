@@ -1268,7 +1268,7 @@ export function MeetingAnalysisDialog({
           </DialogTitle>
           <DialogDescription>
             {meeting
-              ? `${formatDate(meeting.meeting_date)} · ${meeting.meeting_type ?? "Reunião"} — transcrição, análise, revisão do consultor e próxima pauta.`
+              ? `${formatDate(meeting.meeting_date)} · ${meeting.meeting_type ?? "Reunião"}${project?.name ? ` · ${project.name}` : ""} — transcrição, análise, revisão do consultor e próxima pauta.`
               : "Selecione uma reunião."}
           </DialogDescription>
         </DialogHeader>

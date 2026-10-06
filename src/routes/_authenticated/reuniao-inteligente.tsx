@@ -20,6 +20,8 @@ import {
   risksQuery,
 } from "@/lib/api";
 import { MEETING_TYPES, normalizeMeeting, type Meeting } from "@/lib/domain";
+import { cleanParticipants, normalizeMeetingType } from "@/lib/identification-clean";
+import { useAccess } from "@/lib/auth/access";
 import {
   classifyProjectMatch,
   clientDecisionsQuery,
@@ -165,6 +167,7 @@ function SmartMeetingPage() {
   const actions = useQuery(actionsQuery());
   const risks = useQuery(risksQuery());
   const opportunities = useQuery(opportunitiesQuery());
+  const { access } = useAccess();
 
   const analyze = useServerFn(analyzeMeetingWithAI);
 
@@ -367,6 +370,7 @@ function SmartMeetingPage() {
             name: p.name,
             status: p.status,
           })),
+          consultantName: access?.profile?.full_name ?? undefined,
         },
       });
       const payload = JSON.parse(raw.json) as Record<string, unknown>;
@@ -402,8 +406,9 @@ function SmartMeetingPage() {
           ? identification.meeting_date
           : new Date().toISOString().slice(0, 10),
       );
-      if (identification.meeting_type) setMeetingType(identification.meeting_type);
-      setParticipants(identification.participants.join(", "));
+      const normalizedMeetingType = normalizeMeetingType(identification.meeting_type);
+      if (normalizedMeetingType) setMeetingType(normalizedMeetingType);
+      setParticipants(cleanParticipants(identification.participants.join(", ")));
       setStep("identificacao");
     },
     onError: (e: Error) => setErrors(e.message.split("\n")),
