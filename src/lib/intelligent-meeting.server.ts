@@ -3,6 +3,8 @@ import { splitTranscript } from "@/lib/transcript-chunking";
 import { getEmbeddings } from "@/lib/embeddings.server";
 import { consolidateAnalysisSemantically } from "@/lib/analysis-consolidation";
 import { formatErpTaxonomyForPrompt } from "@/lib/project-proposal";
+import { stripTactiqSummary } from "@/lib/tactiq-clean";
+import { MEETING_TYPES } from "@/lib/domain";
 
 /* ------------------------------------------------------------------ *
  * REUNIÃO INTELIGENTE — camada de IA (servidor)
@@ -89,6 +91,7 @@ export const analyzeInput = z.object({
     .default([]),
   currentContext: z.string().optional(),
   projectContext: z.string().optional(),
+  consultantName: z.string().optional(),
   openActions: z.array(z.string()).default([]),
   overdueActions: z.array(z.string()).default([]),
   pendingDecisions: z.array(z.string()).default([]),
@@ -112,6 +115,10 @@ Regras:
 - Separe DECISÃO (algo definido) de AÇÃO (algo a executar, com responsável/prazo quando citados).
 - Riscos só quando sustentados pela reunião. Oportunidades só com evidência real (upsell, cross-sell, novo projeto, nova unidade, expansão, indicação) — elogio não é oportunidade.
 - Identifique o cliente e o projeto comparando com as listas fornecidas. Se nenhum projeto existente corresponder, proponha um novo (project_id = null e preencha project_proposal).
+- identification.meeting_type deve ser EXATAMENTE um dos valores: ${MEETING_TYPES.join(", ")}. Fora dessa lista, ou sem certeza, devolva "" — nunca adivinhe.
+- "Speaker 1", "Speaker 2" e rótulos semelhantes (ex.: "Falante 1") são genéricos, não nomes: deduza o nome real de cada pessoa pelos nomes ditos na própria conversa (alguém se apresenta, é chamado pelo nome, assina um e-mail citado etc.); sem essa certeza, deixe o nome vazio em vez de usar o rótulo genérico.
+- Resumos, listas de itens de ação ou análises que já vierem prontos no texto (por exemplo, uma exportação do Tactiq com "Summary and Action items") NÃO são fonte de verdade: só o diálogo real entre os falantes sustenta decisions, actions, risks, opportunities e identification — nunca copie direto de um resumo pré-existente.
+- decisions[].due_date e actions[].deadline NUNCA devem ser preenchidos com a data da reunião por padrão: preencha só quando a própria conversa citar um prazo ou data (resolvendo referências relativas como "dia 16" ou "próxima terça" a partir da data real desta reunião); sem prazo citado, devolva "".
 - Ao propor um projeto NOVO, escolha a área principal da reunião e preencha project_proposal.erp_area e project_proposal.erp_subarea EXATAMENTE como aparecem na lista abaixo (sem inventar, sem traduzir, sem abreviar) — ou null nos dois se não tiver certeza da área. project_proposal.name é ignorado; o nome do projeto é gerado a partir da área e subárea escolhidas. Se um projeto já existente tiver nome no formato "Área - Subárea" que corresponda à área e subárea identificadas nesta reunião, escolha existing_project (e preencha project_id) em vez de propor um novo.
 
 Áreas e subáreas do ERP (escolha exatamente um par, nos nomes abaixo):
@@ -193,6 +200,7 @@ async function requestCompletion(provider: Provider, userPrompt: string): Promis
       },
       body: JSON.stringify({
         model: provider.model,
+        temperature: 0.2,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
@@ -421,7 +429,13 @@ export function consolidate(parts: Record<string, unknown>[]): Record<string, un
 export type MeetingAnalysisInput = z.infer<typeof analyzeInput>;
 
 export async function runMeetingAnalysis(data: MeetingAnalysisInput) {
-  const blocks = splitTranscript(data.transcript).slice(0, MAX_BLOCKS);
+  // stripTactiqSummary só afeta o texto enviado à IA: a transcrição gravada
+  // e o transcriptHash (calculados no cliente, fora deste arquivo) continuam
+  // com o texto original, recorte do Tactiq incluído.
+  const transcriptForAi = stripTactiqSummary(data.transcript);
+  const blocks = splitTranscript(transcriptForAi).slice(0, MAX_BLOCKS);
+
+  const consultantName = data.consultantName?.trim();
 
   const header = (block: { index: number; total: number }) =>
     [
@@ -430,6 +444,10 @@ export async function runMeetingAnalysis(data: MeetingAnalysisInput) {
         ? `Origem da transcrição: ${data.source.type === "pdf" ? `PDF ${data.source.file_name ?? ""}` : "texto colado"}`
         : "",
       block.total > 1 ? `Este é o bloco ${block.index} de ${block.total} da transcrição.` : "",
+      consultantName ? `Consultor logado (quem conduz a reunião): ${consultantName}` : "",
+      consultantName
+        ? "O outro falante da conversa é, em geral, o cliente (ou alguém da equipe do cliente), não outro consultor."
+        : "",
       `Clientes cadastrados: ${JSON.stringify(data.clients)}`,
       `Projetos cadastrados: ${JSON.stringify(data.projects)}`,
       data.projectContext || data.currentContext
