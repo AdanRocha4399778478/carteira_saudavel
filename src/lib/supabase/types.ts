@@ -1304,6 +1304,7 @@ export type Database = {
           description: string | null
           erp_area: string | null
           erp_subarea: string | null
+          erp_item: string | null
           id: string
           merged_into_project_id: string | null
           name: string
@@ -1321,6 +1322,7 @@ export type Database = {
           description?: string | null
           erp_area?: string | null
           erp_subarea?: string | null
+          erp_item?: string | null
           id?: string
           merged_into_project_id?: string | null
           name: string
@@ -1338,6 +1340,7 @@ export type Database = {
           description?: string | null
           erp_area?: string | null
           erp_subarea?: string | null
+          erp_item?: string | null
           id?: string
           merged_into_project_id?: string | null
           name?: string
