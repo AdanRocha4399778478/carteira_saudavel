@@ -617,7 +617,7 @@ export type SemanticConsolidationPolicy = {
   allowSemanticOnly: boolean;
 };
 
-/** actions/next_steps (antes da promoção)/decisions/risks/opportunities — itens concretos, factuais, curtos; cosine sozinho já se mostrou confiável nos dados medidos. */
+/** next_steps (antes da promoção) — itens concretos, factuais, curtos; cosine sozinho já se mostrou confiável nos dados medidos. */
 const EXECUTION_POLICY: SemanticConsolidationPolicy = {
   semanticThreshold: SEMANTIC_CONSOLIDATION_THRESHOLD,
   lexicalFloor: 0,
@@ -631,6 +631,33 @@ const STRATEGIC_POLICY: SemanticConsolidationPolicy = {
   allowSemanticOnly: false,
 };
 
+/**
+ * actions/decisions/risks/opportunities — consolidação SEMÂNTICA DESLIGADA.
+ *
+ * Medição com frases REAIS de um incidente (tarefas diferentes do mesmo
+ * responsável, fundidas por engano numa reunião real de 77 min): o índice
+ * LEXICAL entre pares de tarefas DIFERENTES do mesmo responsável vai de
+ * 0.11 a 0.42 — sem nenhum valor de `lexicalFloor` que separe essas
+ * diferentes das duplicatas reais (que também passam por esse mesmo
+ * intervalo). Não existe piso lexical seguro para estas 4 categorias.
+ *
+ * `semanticThreshold`/`lexicalFloor` em 1.1 (acima do máximo teórico de
+ * `similarity`/`combinedSimilarity`, que são sempre <= 1) tornam
+ * `meetsConsolidationPolicy` e `withPolicyGuard` sempre falsos — nenhum par
+ * nunca atinge o limiar, nenhum cluster nunca se forma (ver `clusterSemantic`:
+ * `score >= threshold` nunca é verdadeiro). Reaproveita o mecanismo de
+ * política já existente em vez de um retorno antecipado em
+ * `consolidateEntityList` — menos código novo, mesmo caminho testado pelas
+ * outras políticas. Na dúvida, não fundir: só texto IDÊNTICO se funde, e
+ * isso já acontece antes, em `consolidate()` (intelligent-meeting.server.ts),
+ * que não muda.
+ */
+const ENTITY_POLICY: SemanticConsolidationPolicy = {
+  semanticThreshold: 1.1,
+  lexicalFloor: 1.1,
+  allowSemanticOnly: false,
+};
+
 const STRATEGIC_CATEGORIES = new Set([
   "objectives",
   "problems",
@@ -641,17 +668,23 @@ const STRATEGIC_CATEGORIES = new Set([
   "results",
 ]);
 
+const ENTITY_CATEGORIES = new Set(["actions", "decisions", "risks", "opportunities"]);
+
 /**
  * Política de consolidação por categoria (Fase 4 do GATE 12B.1) —
  * centralizada e determinística: mesma categoria sempre devolve a mesma
- * política, sem estado. `actions`/`next_steps`/`decisions`/`risks`/
- * `opportunities` usam EXECUTION_POLICY (semantic-only permitido);
- * as 7 listas de contexto estratégico usam STRATEGIC_POLICY (exige
- * também overlap lexical mínimo — nunca "tematiza", só reconhece
- * paráfrase real do MESMO núcleo conceitual).
+ * política, sem estado. `next_steps` usa EXECUTION_POLICY (semantic-only
+ * permitido, antes da promoção para action); as 7 listas de contexto
+ * estratégico usam STRATEGIC_POLICY (exige também overlap lexical mínimo —
+ * nunca "tematiza", só reconhece paráfrase real do MESMO núcleo conceitual).
+ * `actions`/`decisions`/`risks`/`opportunities` usam ENTITY_POLICY, que
+ * desliga a consolidação semântica por completo (ver comentário da própria
+ * constante) — não é "lexical mínimo", é "nunca funde por semântica".
  */
 export function semanticConsolidationPolicy(category: string): SemanticConsolidationPolicy {
-  return STRATEGIC_CATEGORIES.has(category) ? STRATEGIC_POLICY : EXECUTION_POLICY;
+  if (STRATEGIC_CATEGORIES.has(category)) return STRATEGIC_POLICY;
+  if (ENTITY_CATEGORIES.has(category)) return ENTITY_POLICY;
+  return EXECUTION_POLICY;
 }
 
 /**

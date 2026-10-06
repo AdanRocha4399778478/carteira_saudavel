@@ -73,7 +73,7 @@ describe("GATE 12B.1 — reprodução do erro real (Fase 1, obrigatório)", () =
     expect((contextUpdates["priorities"] as unknown[]).length).toBe(2);
   });
 
-  test("actions: 'consultar banco sobre linha de crédito para capital de giro' x 'verificar quais linhas de crédito estão disponíveis no banco' CONSOLIDAM", () => {
+  test("actions: 'consultar banco sobre linha de crédito para capital de giro' x 'verificar quais linhas de crédito estão disponíveis no banco' NÃO consolidam mais (ENTITY_POLICY desliga consolidação semântica de actions)", () => {
     const embA = unit(0);
     const embB = angled(0, 1, 0.6464); // combined real medido
     const raw = {
@@ -93,14 +93,14 @@ describe("GATE 12B.1 — reprodução do erro real (Fase 1, obrigatório)", () =
     };
     const { result } = consolidateAnalysisSemantically(raw);
     const actions = (result["analysis"] as Record<string, unknown>)["actions"] as unknown[];
-    expect(actions.length).toBe(1);
+    expect(actions.length).toBe(2);
   });
 });
 
 describe("GATE 12B.1 — política por categoria (4, 11, 12)", () => {
   test("semanticConsolidationPolicy é determinística por categoria", () => {
     expect(semanticConsolidationPolicy("priorities")).toEqual(semanticConsolidationPolicy("priorities"));
-    expect(semanticConsolidationPolicy("actions").allowSemanticOnly).toBe(true);
+    expect(semanticConsolidationPolicy("actions").allowSemanticOnly).toBe(false);
     expect(semanticConsolidationPolicy("priorities").allowSemanticOnly).toBe(false);
   });
 
@@ -112,9 +112,10 @@ describe("GATE 12B.1 — política por categoria (4, 11, 12)", () => {
     }
   });
 
-  test("semantic-only é permitido só onde explicitamente definido (actions/next_steps/decisions/risks/opportunities)", () => {
-    for (const cat of ["actions", "next_steps", "decisions", "risks", "opportunities"]) {
-      expect(semanticConsolidationPolicy(cat).allowSemanticOnly).toBe(true);
+  test("semantic-only é permitido só em next_steps (pré-promoção) — actions/decisions/risks/opportunities nunca fundem semanticamente (ENTITY_POLICY desligada)", () => {
+    expect(semanticConsolidationPolicy("next_steps").allowSemanticOnly).toBe(true);
+    for (const cat of ["actions", "decisions", "risks", "opportunities"]) {
+      expect(semanticConsolidationPolicy(cat).allowSemanticOnly).toBe(false);
     }
   });
 
@@ -129,8 +130,8 @@ describe("GATE 12B.1 — política por categoria (4, 11, 12)", () => {
     expect(meetsConsolidationPolicy(0.43, 0.65, policy)).toBe(true); // caso real correto (crédito/banco, se fosse estratégico)
   });
 
-  test("política de execução aceita semantic-only acima do limiar", () => {
-    const policy = semanticConsolidationPolicy("actions");
+  test("política de execução (next_steps, pré-promoção) aceita semantic-only acima do limiar", () => {
+    const policy = semanticConsolidationPolicy("next_steps");
     expect(meetsConsolidationPolicy(0.01, 0.65, policy)).toBe(true);
   });
 });
@@ -204,8 +205,8 @@ describe("GATE 12B.1 — objectives/problems/root_causes relacionados mas difere
   });
 });
 
-describe("GATE 12B.1 — actions equivalentes continuam consolidando (2, 6)", () => {
-  test("par de crédito/banco (política de execução) consolida", () => {
+describe("GATE 12B.1 — actions não consolidam mais por semântica (2, 6) — ENTITY_POLICY", () => {
+  test("par de crédito/banco não consolida mais (consolidação semântica desligada para actions)", () => {
     const embA = unit(0);
     const embB = angled(0, 1, 0.7604); // combined real medido (par 1-POS)
     const raw = {
@@ -221,7 +222,7 @@ describe("GATE 12B.1 — actions equivalentes continuam consolidando (2, 6)", ()
       },
     };
     const { result } = consolidateAnalysisSemantically(raw);
-    expect(((result["analysis"] as Record<string, unknown>)["actions"] as unknown[]).length).toBe(1);
+    expect(((result["analysis"] as Record<string, unknown>)["actions"] as unknown[]).length).toBe(2);
   });
 });
 
@@ -236,9 +237,11 @@ describe("GATE 12B.1 — 8 pares medidos (Fase 6/7)", () => {
     category: "actions" | "priorities";
     expectMerge: boolean;
   }[] = [
-    { label: "1-POS antecipação/crédito", a: "Consultar banco sobre linha de crédito", b: "Verificar linha de crédito disponível no banco", lexical: 0.6, combined: 0.7604, category: "actions", expectMerge: true },
-    { label: "2-POS antecipação", a: "Reduzir antecipação de recebíveis", b: "Diminuir uso da antecipação de recebíveis", lexical: 0.5714, combined: 0.9006, category: "actions", expectMerge: true },
-    { label: "3-POS cobrança", a: "Cobrar clientes vencidos", b: "Realizar cobrança de clientes em atraso", lexical: 0.5714, combined: 0.7603, category: "actions", expectMerge: true },
+    // ENTITY_POLICY desliga a consolidação semântica de actions por completo — estes 3 pares
+    // (antes POS: deviam consolidar) agora NÃO consolidam, mesmo com lexical/combined altos.
+    { label: "1-POS antecipação/crédito", a: "Consultar banco sobre linha de crédito", b: "Verificar linha de crédito disponível no banco", lexical: 0.6, combined: 0.7604, category: "actions", expectMerge: false },
+    { label: "2-POS antecipação", a: "Reduzir antecipação de recebíveis", b: "Diminuir uso da antecipação de recebíveis", lexical: 0.5714, combined: 0.9006, category: "actions", expectMerge: false },
+    { label: "3-POS cobrança", a: "Cobrar clientes vencidos", b: "Realizar cobrança de clientes em atraso", lexical: 0.5714, combined: 0.7603, category: "actions", expectMerge: false },
     { label: "4-NEG capital/previsibilidade", a: "Diminuir dependência de capital de curto prazo", b: "Melhorar previsibilidade financeira", lexical: 0.0135, combined: 0.6277, category: "priorities", expectMerge: false },
     { label: "5-NEG taxas/comparação", a: "Analisar taxas da maquininha", b: "Comparar custo do crédito com antecipação", lexical: 0.0357, combined: 0.5155, category: "priorities", expectMerge: false },
     { label: "6-NEG cobrança/fornecedor", a: "Cobrar clientes vencidos", b: "Negociar prazo com fornecedores", lexical: 0.0408, combined: 0.4344, category: "priorities", expectMerge: false },
@@ -351,7 +354,7 @@ describe("GATE 12B.1 — dedupe global inalterado (19, 20)", () => {
 });
 
 describe("GATE 12B.1 — fixture Medeiros real (Fase 10, obrigatório)", () => {
-  test("priorities: 2 -> 2 (não consolidam); actions: 2 -> 1 (consolidam)", () => {
+  test("priorities: 2 -> 2 (não consolidam, STRATEGIC_POLICY inalterada); actions: 2 -> 2 (não consolidam mais, ENTITY_POLICY desliga consolidação semântica)", () => {
     const raw = {
       identification: {},
       analysis: {
@@ -395,6 +398,6 @@ describe("GATE 12B.1 — fixture Medeiros real (Fase 10, obrigatório)", () => {
     const analysis = result["analysis"] as Record<string, unknown>;
     const contextUpdates = analysis["context_updates"] as Record<string, unknown>;
     expect((contextUpdates["priorities"] as unknown[]).length).toBe(2);
-    expect((analysis["actions"] as unknown[]).length).toBe(1);
+    expect((analysis["actions"] as unknown[]).length).toBe(2);
   });
 });
