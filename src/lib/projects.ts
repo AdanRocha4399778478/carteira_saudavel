@@ -64,6 +64,9 @@ export type Project = {
   normalized_name?: string | null;
   /** Preenchido quando o projeto foi consolidado em outro. */
   merged_into_project_id?: string | null;
+  erp_area: string | null;
+  erp_subarea: string | null;
+  erp_item: string | null;
 };
 
 
@@ -506,18 +509,40 @@ export async function getOrCreateProject(params: {
   return { project: res.data as unknown as Project, reused: result.reused, reason: result.reason };
 }
 
-/** Grava erp_area/erp_subarea num projeto já criado (mesmo padrão do ProjectDialog). */
-export async function setProjectErp(
-  projectId: string,
-  area: string,
-  subarea: string,
-): Promise<void> {
-  const { error } = await supabase
-    .from("projects")
-    .update({ erp_area: area, erp_subarea: subarea })
-    .eq("id", projectId);
+/**
+ * Criação atômica de projeto já classificado (área/subárea/item do ERP) — a
+ * classificação é gravada no mesmo passo do insert, nunca em dois passos
+ * separados (ver migration 20261006020000). Reaproveita projeto existente
+ * com a mesma classificação ou o mesmo nome normalizado.
+ */
+export async function getOrCreateProjectErp(params: {
+  clientId: string;
+  name: string;
+  erpArea: string;
+  erpSubarea: string;
+  erpItem?: string | null;
+  description?: string | null;
+  analysisId?: string | null;
+}): Promise<{ project: Project; reused: boolean; reason: string }> {
+  const { data, error } = await supabase.rpc("get_or_create_project_erp", {
+    p_client_id: params.clientId,
+    p_name: params.name,
+    p_erp_area: params.erpArea,
+    p_erp_subarea: params.erpSubarea,
+    ...(params.erpItem ? { p_erp_item: params.erpItem } : {}),
+    ...(params.description ? { p_description: params.description } : {}),
+    ...(params.analysisId ? { p_analysis_id: params.analysisId } : {}),
+  });
+
   if (error) {
-    logDbError("projects", "update-erp", error);
+    logDbError("get_or_create_project_erp", "rpc", error);
     throw new Error(error.message);
   }
+  const result = data as unknown as GetOrCreateProjectResult;
+  const res = await supabase.from("projects").select("*").eq("id", result.project_id).single();
+  if (res.error) {
+    logDbError("projects", "select-one", res.error);
+    throw new Error(res.error.message);
+  }
+  return { project: res.data as unknown as Project, reused: result.reused, reason: result.reason };
 }

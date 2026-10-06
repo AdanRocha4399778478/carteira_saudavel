@@ -25,13 +25,13 @@ import {
   clientDecisionsQuery,
   decisionsQuery,
   ensureProjectContext,
-  getOrCreateProject,
+  getOrCreateProjectErp,
   projectsQuery,
-  setProjectErp,
   type Project,
   type ProjectContext,
 } from "@/lib/projects";
 import { buildProjectName, isValidErpPair } from "@/lib/project-name";
+import { isValidErpTriple } from "@/lib/erp-hierarchy";
 import { normalizeProjectProposal } from "@/lib/project-proposal";
 
 import { parseAnalysis, type MeetingAnalysis } from "@/lib/meeting-analysis";
@@ -181,10 +181,11 @@ function SmartMeetingPage() {
   const [projectId, setProjectId] = useState(preset.projectId ?? "");
   const [newProjectArea, setNewProjectArea] = useState("");
   const [newProjectSubarea, setNewProjectSubarea] = useState("");
+  const [newProjectItem, setNewProjectItem] = useState("");
   const [newProjectDesc, setNewProjectDesc] = useState("");
   const [confirmSimilar, setConfirmSimilar] = useState(false);
   const newProjectName = isValidErpPair(newProjectArea, newProjectSubarea)
-    ? buildProjectName(newProjectArea, newProjectSubarea)
+    ? buildProjectName(newProjectArea, newProjectSubarea, newProjectItem)
     : "";
 
   const [meetingDate, setMeetingDate] = useState("");
@@ -394,6 +395,7 @@ function SmartMeetingPage() {
       );
       setNewProjectArea(identification.project_proposal.erp_area ?? "");
       setNewProjectSubarea(identification.project_proposal.erp_subarea ?? "");
+      setNewProjectItem("");
       setNewProjectDesc(identification.project_proposal.description);
       setMeetingDate(
         /^\d{4}-\d{2}-\d{2}$/.test(identification.meeting_date)
@@ -424,19 +426,20 @@ function SmartMeetingPage() {
 
       let target = clientProjects.find((p) => p.id === projectId) ?? null;
       if (!target) {
-        if (!isValidErpPair(newProjectArea, newProjectSubarea)) {
+        if (!isValidErpTriple(newProjectArea, newProjectSubarea, newProjectItem)) {
           throw new Error("Escolha a área e a subárea do ERP do novo projeto.");
         }
-        const name = buildProjectName(newProjectArea, newProjectSubarea);
-        const created = await getOrCreateProject({
+        const name = buildProjectName(newProjectArea, newProjectSubarea, newProjectItem);
+        const created = await getOrCreateProjectErp({
           clientId,
           name,
+          erpArea: newProjectArea,
+          erpSubarea: newProjectSubarea,
+          erpItem: newProjectItem || null,
           description: newProjectDesc.trim() || null,
         });
         if (created.reused) {
-          toast.info(`Usando o projeto existente "${name}".`);
-        } else {
-          await setProjectErp(created.project.id, newProjectArea, newProjectSubarea);
+          toast.info(`Usando o projeto existente "${created.project.name}".`);
         }
         target = created.project;
         void qc.invalidateQueries({ queryKey: ["projects"] });
@@ -790,7 +793,10 @@ function SmartMeetingPage() {
                   onChange={(area, subarea) => {
                     setNewProjectArea(area);
                     setNewProjectSubarea(subarea);
+                    setNewProjectItem("");
                   }}
+                  item={newProjectItem}
+                  onItemChange={setNewProjectItem}
                 />
                 <p className="text-sm text-muted-foreground">
                   Nome do projeto: {newProjectName || "—"}
