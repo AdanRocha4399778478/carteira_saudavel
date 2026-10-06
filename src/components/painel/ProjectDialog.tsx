@@ -295,7 +295,10 @@ export function ProjectDialog({
             </Button>
             <Button
               type="submit"
-              disabled={mutation.isPending || (!project && !isValidErpPair(erp.area, erp.subarea))}
+              disabled={
+                mutation.isPending ||
+                (!project && (!form.client_id || !isValidErpPair(erp.area, erp.subarea)))
+              }
             >
               {mutation.isPending ? "Salvando…" : "Salvar projeto"}
             </Button>

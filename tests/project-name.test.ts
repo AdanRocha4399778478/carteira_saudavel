@@ -5,7 +5,7 @@ import { buildProjectName, isValidErpPair } from "../src/lib/project-name";
 /** Aproximação em JS de `normalize_project_name` (banco): trim(regexp_replace(unaccent(lower(nome)), '[^a-z0-9]+', ' ', 'g')).
  *  `unaccent` do Postgres não é idêntico a `normalize("NFD") + remoção de diacríticos` do JS em todos os casos
  *  (ex.: alguns caracteres compostos/ligaduras), então esta é uma aproximação — suficiente para detectar
- *  colisão de nome entre as 138 combinações de área/subárea, não uma reimplementação exata do unaccent. */
+ *  colisão de nome entre todas as combinações de área/subárea, não uma reimplementação exata do unaccent. */
 function normalizeProjectNameApprox(name: string): string {
   return name
     .toLowerCase()
@@ -42,7 +42,7 @@ describe("isValidErpPair", () => {
   });
 });
 
-describe("colisão de nome gerado entre as 138 combinações de ERP_TAXONOMY", () => {
+describe("colisão de nome gerado entre todas as combinações de ERP_TAXONOMY", () => {
   test("nenhum par (área, subárea) gera o mesmo normalized_name que outro", () => {
     const seen = new Map<string, string>();
     const collisions: { normalized: string; a: string; b: string }[] = [];
@@ -61,5 +61,50 @@ describe("colisão de nome gerado entre as 138 combinações de ERP_TAXONOMY", (
     }
 
     expect(collisions).toEqual([]);
+  });
+});
+
+describe("subárea 'Outros' em todas as áreas", () => {
+  test("toda área de ERP_TAXONOMY tem 'Outros' como ÚLTIMA subárea", () => {
+    for (const [area, subareas] of Object.entries(ERP_TAXONOMY)) {
+      expect(subareas[subareas.length - 1]).toBe("Outros");
+    }
+  });
+
+  test("o total de subáreas é 159", () => {
+    const total = Object.values(ERP_TAXONOMY).reduce((sum, subareas) => sum + subareas.length, 0);
+    expect(total).toBe(159);
+  });
+
+  test("contagem de subáreas por área", () => {
+    const expected: Record<string, number> = {
+      Pessoas: 11,
+      Comercial: 11,
+      Operações: 11,
+      Marketing: 10,
+      Financeiro: 11,
+      Estratégia: 12,
+      "Inovação e Pesquisas": 9,
+      Jurídica: 14,
+      "Logística e Suprimentos": 9,
+      Projetos: 9,
+      Qualidade: 12,
+      Sustentabilidade: 13,
+      "Tecnologia da Informação": 17,
+      Administrativo: 10,
+    };
+    const mismatches: { area: string; expected: number; actual: number }[] = [];
+    for (const [area, count] of Object.entries(expected)) {
+      const actual = ERP_TAXONOMY[area]?.length ?? 0;
+      if (actual !== count) {
+        mismatches.push({ area, expected: count, actual });
+      }
+    }
+    expect(mismatches).toEqual([]);
+  });
+
+  test("'Outros' é válido em qualquer área", () => {
+    expect(isValidErpPair("Tecnologia da Informação", "Outros")).toBe(true);
+    expect(isValidErpPair("Financeiro", "Outros")).toBe(true);
   });
 });
