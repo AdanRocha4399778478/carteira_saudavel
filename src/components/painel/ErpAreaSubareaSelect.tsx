@@ -43,7 +43,7 @@ export function ErpAreaSubareaSelect({
   };
 
   return (
-    <div className={onItemChange ? "grid gap-2 sm:grid-cols-3" : "grid grid-cols-2 gap-2"}>
+    <div className={onItemChange ? "grid gap-2 sm:grid-cols-2" : "grid grid-cols-2 gap-2"}>
       <div className="grid gap-1.5">
         <Label>Área do ERP *</Label>
         <Select value={area} onValueChange={handleAreaChange}>
@@ -75,15 +75,18 @@ export function ErpAreaSubareaSelect({
         </Select>
       </div>
       {onItemChange ? (
-        <div className="grid gap-1.5">
+        <div className="grid gap-1.5 sm:col-span-2">
           <Label>Item do ERP (opcional)</Label>
           <Select
             value={item || NENHUM_ITEM}
             onValueChange={(v) => onItemChange(v === NENHUM_ITEM ? "" : v)}
             disabled={!subarea}
           >
-            <SelectTrigger>
-              <SelectValue placeholder={subarea ? "Selecione" : "Escolha a subárea primeiro"} />
+            <SelectTrigger className="w-full min-w-0">
+              <SelectValue
+                className="truncate"
+                placeholder={subarea ? "Selecione" : "Escolha a subárea primeiro"}
+              />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={NENHUM_ITEM}>Nenhum (projeto na subárea)</SelectItem>
