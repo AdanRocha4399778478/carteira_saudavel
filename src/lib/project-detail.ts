@@ -5,7 +5,7 @@ import type { Decision, Project } from "@/lib/projects";
 import { supabase } from "@/lib/supabase/client";
 
 const PROJECT_DETAIL_COLUMNS =
-  "id, client_id, name, description, status, start_date, target_end_date, consultant_id";
+  "id, client_id, name, description, status, start_date, target_end_date, consultant_id, erp_area, erp_subarea, erp_item";
 const PROJECT_CLIENT_COLUMNS = "id, company_name, consultant_id";
 const PROJECT_EDIT_CLIENT_COLUMNS = "id, company_name";
 const UNLINKED_MEETING_COLUMNS = "id, meeting_date, meeting_type";

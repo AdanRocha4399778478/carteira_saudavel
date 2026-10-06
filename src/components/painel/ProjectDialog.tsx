@@ -8,12 +8,19 @@ import { consultantDisplayName, selectableConsultants } from "@/lib/consultants"
 import {
   ensureProjectContext,
   getOrCreateProjectErp,
+  projectsQuery,
   PROJECT_STATUSES,
   PROJECT_STATUS_LABEL,
   type Project,
 } from "@/lib/projects";
 import { buildProjectName } from "@/lib/project-name";
 import { isValidErpTriple } from "@/lib/erp-hierarchy";
+import {
+  classificationLoaded,
+  classificationState,
+  detectUniqueConflict,
+  findConflictingProject,
+} from "@/lib/project-conflict";
 import { ErpAreaSubareaSelect } from "@/components/painel/ErpAreaSubareaSelect";
 import {
   Dialog,
@@ -95,7 +102,15 @@ export function ProjectDialog({
             consultant_id: clients.find((c) => c.id === defaultClientId)?.consultant_id ?? "",
           },
     );
-    setErp({ area: "", subarea: "", item: "" });
+    setErp(
+      project && classificationLoaded(project)
+        ? {
+            area: project.erp_area ?? "",
+            subarea: project.erp_subarea ?? "",
+            item: project.erp_item ?? "",
+          }
+        : { area: "", subarea: "", item: "" },
+    );
   }, [open, project, defaultClientId, clients]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
@@ -113,8 +128,42 @@ export function ProjectDialog({
         consultant_id: form.consultant_id || null,
       };
       if (project) {
-        const { error } = await supabase.from("projects").update(payload).eq("id", project.id);
-        if (error) throw new Error(error.message);
+        const erpLoaded = classificationLoaded(project);
+        const erpState = classificationState(erp.area, erp.subarea, erp.item);
+        const erpPayload = !erpLoaded
+          ? {}
+          : erpState === "completa"
+            ? { erp_area: erp.area, erp_subarea: erp.subarea, erp_item: erp.item || null }
+            : { erp_area: null, erp_subarea: null, erp_item: null };
+        const { error } = await supabase
+          .from("projects")
+          .update({ ...payload, ...erpPayload })
+          .eq("id", project.id);
+        if (error) {
+          const kind = detectUniqueConflict(error);
+          if (kind === "classificacao" || kind === "nome") {
+            const projects = await queryClient.fetchQuery(projectsQuery());
+            const conflicting = findConflictingProject(projects, kind, {
+              clientId: project.client_id,
+              excludeId: project.id,
+              area: erp.area,
+              subarea: erp.subarea,
+              item: erp.item,
+              name: payload.name,
+            });
+            if (!conflicting) {
+              throw new Error(
+                "Este cliente já tem um projeto com esta classificação ou com este nome.",
+              );
+            }
+            throw new Error(
+              kind === "classificacao"
+                ? `Este cliente já tem o projeto "${conflicting.name}" com esta classificação.`
+                : `Este cliente já tem um projeto com este nome: "${conflicting.name}".`,
+            );
+          }
+          throw new Error(error.message);
+        }
         return project.id;
       }
       // Criação: nome gerado a partir de área/subárea/item do ERP (área e subárea
@@ -166,6 +215,10 @@ export function ProjectDialog({
         toast.error("Informe o nome do projeto.");
         return;
       }
+      if (classificationState(erp.area, erp.subarea, erp.item) === "parcial") {
+        toast.error("Escolha a área e a subárea do ERP, ou limpe a classificação.");
+        return;
+      }
     } else if (!isValidErpTriple(erp.area, erp.subarea, erp.item)) {
       toast.error("Selecione a área e a subárea do ERP.");
       return;
@@ -206,15 +259,64 @@ export function ProjectDialog({
           </div>
 
           {project ? (
-            <div className="grid gap-1.5 sm:col-span-2">
-              <Label htmlFor="project-name">Nome do projeto *</Label>
-              <Input
-                id="project-name"
-                value={form.name}
-                onChange={(e) => set("name", e.target.value)}
-                placeholder="Ex.: Reestruturação comercial 2026"
-              />
-            </div>
+            <>
+              <div className="grid gap-1.5 sm:col-span-2">
+                <Label htmlFor="project-name">Nome do projeto *</Label>
+                <Input
+                  id="project-name"
+                  value={form.name}
+                  onChange={(e) => set("name", e.target.value)}
+                  placeholder="Ex.: Reestruturação comercial 2026"
+                />
+              </div>
+              <div className="grid gap-1.5 sm:col-span-2">
+                <Label>Classificação no ERP (opcional)</Label>
+                {project && !classificationLoaded(project) ? (
+                  <p className="text-sm text-muted-foreground">
+                    A classificação deste projeto não está disponível para edição agora.
+                  </p>
+                ) : (
+                  <>
+                    <ErpAreaSubareaSelect
+                      area={erp.area}
+                      subarea={erp.subarea}
+                      onChange={(area, subarea) =>
+                        setErp((e) => ({ ...e, area, subarea, item: "" }))
+                      }
+                      item={erp.item}
+                      onItemChange={(item) => setErp((e) => ({ ...e, item }))}
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      O nome do projeto não muda sozinho.
+                    </p>
+                    <div className="flex gap-2">
+                      {classificationState(erp.area, erp.subarea, erp.item) === "completa" && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            set("name", buildProjectName(erp.area, erp.subarea, erp.item))
+                          }
+                        >
+                          Usar o nome gerado
+                        </Button>
+                      )}
+                      {(erp.area || erp.subarea || erp.item) && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setErp({ area: "", subarea: "", item: "" })}
+                        >
+                          Limpar classificação
+                        </Button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </>
           ) : (
             <div className="grid gap-1.5 sm:col-span-2">
               <ErpAreaSubareaSelect
