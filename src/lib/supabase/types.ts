@@ -1649,6 +1649,18 @@ export type Database = {
         }
         Returns: Json
       }
+      get_or_create_project_erp: {
+        Args: {
+          p_analysis_id?: string
+          p_client_id: string
+          p_description?: string
+          p_erp_area: string
+          p_erp_item?: string
+          p_erp_subarea: string
+          p_name: string
+        }
+        Returns: Json
+      }
       get_or_create_smart_meeting: {
         Args: {
           p_client_id: string

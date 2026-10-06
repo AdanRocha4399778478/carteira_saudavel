@@ -7,12 +7,13 @@ import type { PublicProfile } from "@/lib/api";
 import { consultantDisplayName, selectableConsultants } from "@/lib/consultants";
 import {
   ensureProjectContext,
-  getOrCreateProject,
+  getOrCreateProjectErp,
   PROJECT_STATUSES,
   PROJECT_STATUS_LABEL,
   type Project,
 } from "@/lib/projects";
-import { buildProjectName, isValidErpPair } from "@/lib/project-name";
+import { buildProjectName } from "@/lib/project-name";
+import { isValidErpTriple } from "@/lib/erp-hierarchy";
 import { ErpAreaSubareaSelect } from "@/components/painel/ErpAreaSubareaSelect";
 import {
   Dialog,
@@ -73,7 +74,7 @@ export function ProjectDialog({
 }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormState>(empty);
-  const [erp, setErp] = useState({ area: "", subarea: "" });
+  const [erp, setErp] = useState({ area: "", subarea: "", item: "" });
 
   useEffect(() => {
     if (!open) return;
@@ -94,7 +95,7 @@ export function ProjectDialog({
             consultant_id: clients.find((c) => c.id === defaultClientId)?.consultant_id ?? "",
           },
     );
-    setErp({ area: "", subarea: "" });
+    setErp({ area: "", subarea: "", item: "" });
   }, [open, project, defaultClientId, clients]);
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
@@ -116,17 +117,22 @@ export function ProjectDialog({
         if (error) throw new Error(error.message);
         return project.id;
       }
-      // Criação: nome gerado a partir da área/subárea do ERP (obrigatórias nesta fase).
-      const generatedName = buildProjectName(erp.area, erp.subarea);
-      // Criação idempotente: o banco reaproveita projeto equivalente do cliente
-      // em vez de gerar uma duplicata.
-      const created = await getOrCreateProject({
+      // Criação: nome gerado a partir de área/subárea/item do ERP (área e subárea
+      // obrigatórias; item opcional). A classificação é gravada atomicamente pela
+      // RPC — nunca em dois passos separados (ver migration 20261006020000).
+      const generatedName = buildProjectName(erp.area, erp.subarea, erp.item);
+      const created = await getOrCreateProjectErp({
         clientId: payload.client_id,
         name: generatedName,
+        erpArea: erp.area,
+        erpSubarea: erp.subarea,
+        erpItem: erp.item || null,
         description: payload.description,
       });
       if (created.reused) {
-        throw new Error(`Este cliente já tem o projeto "${generatedName}" nesta área e subárea.`);
+        throw new Error(
+          `Este cliente já tem o projeto "${created.project.name}" com esta classificação.`,
+        );
       }
       const id = created.project.id;
       const rest = {
@@ -134,8 +140,6 @@ export function ProjectDialog({
         start_date: payload.start_date,
         target_end_date: payload.target_end_date,
         consultant_id: payload.consultant_id,
-        erp_area: erp.area,
-        erp_subarea: erp.subarea,
       };
       const { error } = await supabase.from("projects").update(rest).eq("id", id);
       if (error) throw new Error(error.message);
@@ -162,7 +166,7 @@ export function ProjectDialog({
         toast.error("Informe o nome do projeto.");
         return;
       }
-    } else if (!isValidErpPair(erp.area, erp.subarea)) {
+    } else if (!isValidErpTriple(erp.area, erp.subarea, erp.item)) {
       toast.error("Selecione a área e a subárea do ERP.");
       return;
     }
@@ -216,12 +220,14 @@ export function ProjectDialog({
               <ErpAreaSubareaSelect
                 area={erp.area}
                 subarea={erp.subarea}
-                onChange={(area, subarea) => setErp({ area, subarea })}
+                onChange={(area, subarea) => setErp((e) => ({ ...e, area, subarea, item: "" }))}
+                item={erp.item}
+                onItemChange={(item) => setErp((e) => ({ ...e, item }))}
               />
               <p className="text-sm text-muted-foreground">
                 Nome do projeto:{" "}
-                {isValidErpPair(erp.area, erp.subarea)
-                  ? buildProjectName(erp.area, erp.subarea)
+                {isValidErpTriple(erp.area, erp.subarea, erp.item)
+                  ? buildProjectName(erp.area, erp.subarea, erp.item)
                   : "—"}
               </p>
             </div>
@@ -297,7 +303,8 @@ export function ProjectDialog({
               type="submit"
               disabled={
                 mutation.isPending ||
-                (!project && (!form.client_id || !isValidErpPair(erp.area, erp.subarea)))
+                (!project &&
+                  (!form.client_id || !isValidErpTriple(erp.area, erp.subarea, erp.item)))
               }
             >
               {mutation.isPending ? "Salvando…" : "Salvar projeto"}
