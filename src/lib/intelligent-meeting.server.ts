@@ -2,6 +2,7 @@ import { z } from "zod";
 import { splitTranscript } from "@/lib/transcript-chunking";
 import { getEmbeddings } from "@/lib/embeddings.server";
 import { consolidateAnalysisSemantically } from "@/lib/analysis-consolidation";
+import { formatErpTaxonomyForPrompt } from "@/lib/project-proposal";
 
 /* ------------------------------------------------------------------ *
  * REUNIÃO INTELIGENTE — camada de IA (servidor)
@@ -111,6 +112,10 @@ Regras:
 - Separe DECISÃO (algo definido) de AÇÃO (algo a executar, com responsável/prazo quando citados).
 - Riscos só quando sustentados pela reunião. Oportunidades só com evidência real (upsell, cross-sell, novo projeto, nova unidade, expansão, indicação) — elogio não é oportunidade.
 - Identifique o cliente e o projeto comparando com as listas fornecidas. Se nenhum projeto existente corresponder, proponha um novo (project_id = null e preencha project_proposal).
+- Ao propor um projeto NOVO, escolha a área principal da reunião e preencha project_proposal.erp_area e project_proposal.erp_subarea EXATAMENTE como aparecem na lista abaixo (sem inventar, sem traduzir, sem abreviar) — ou null nos dois se não tiver certeza da área. project_proposal.name é ignorado; o nome do projeto é gerado a partir da área e subárea escolhidas. Se um projeto já existente tiver nome no formato "Área - Subárea" que corresponda à área e subárea identificadas nesta reunião, escolha existing_project (e preencha project_id) em vez de propor um novo.
+
+Áreas e subáreas do ERP (escolha exatamente um par, nos nomes abaixo):
+${formatErpTaxonomyForPrompt()}
 - Confiança é um número de 0 a 1. Se não tiver certeza, use confiança baixa em vez de escolher no chute.
 - A pauta recomendada deve ser específica ao cliente, considerando ações abertas/atrasadas, decisões pendentes e riscos críticos informados.
 - Em context_updates, TODAS as listas (objectives, problems, root_causes, priorities, hypotheses, constraints, results, next_steps) devem ser arrays de objetos {"content": "texto", "classification": "fact|inference|suggestion"}. Nunca devolva string solta, objeto solto nem arrays aninhados. Se não houver itens, devolva [].
@@ -141,7 +146,7 @@ Formato exigido:
     "project_name": "",
     "project_confidence": 0.0,
     "project_status": "existing_project|new_project|uncertain",
-    "project_proposal": { "name": "", "description": "", "objective": "" },
+    "project_proposal": { "name": "", "description": "", "objective": "", "erp_area": "", "erp_subarea": "" },
     "meeting_date": "AAAA-MM-DD ou \\"\\"",
     "meeting_type": "",
     "participants": ["Nome"],

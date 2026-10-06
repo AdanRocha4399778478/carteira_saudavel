@@ -7,6 +7,7 @@ import { ArrowRight, CheckCircle2, FileText, Loader2, Sparkles, Upload, X } from
 import { PageHeader } from "@/components/painel/PageHeader";
 import { ErrorState } from "@/components/painel/states";
 import { ClientCombobox } from "@/components/painel/ClientCombobox";
+import { ErpAreaSubareaSelect } from "@/components/painel/ErpAreaSubareaSelect";
 import { MeetingAnalysisDialog } from "@/components/painel/MeetingAnalysisDialog";
 import { routeErrorComponent } from "@/components/painel/RouteError";
 import { supabase } from "@/lib/supabase/client";
@@ -26,9 +27,12 @@ import {
   ensureProjectContext,
   getOrCreateProject,
   projectsQuery,
+  setProjectErp,
   type Project,
   type ProjectContext,
 } from "@/lib/projects";
+import { buildProjectName, isValidErpPair } from "@/lib/project-name";
+import { normalizeProjectProposal } from "@/lib/project-proposal";
 
 import { parseAnalysis, type MeetingAnalysis } from "@/lib/meeting-analysis";
 import { transcriptHash, transcriptKey } from "@/lib/transcript-fingerprint";
@@ -96,7 +100,7 @@ type Identification = {
   client_name: string;
   project_id: string | null;
   project_name: string;
-  project_proposal: { name: string; description: string };
+  project_proposal: { description: string; erp_area: string | null; erp_subarea: string | null };
   meeting_date: string;
   meeting_type: string;
   participants: string[];
@@ -109,7 +113,6 @@ type Identification = {
 function normalizeIdentification(raw: unknown): Identification {
   const o = (raw ?? {}) as Record<string, unknown>;
   const str = (v: unknown) => (typeof v === "string" ? v : "");
-  const proposal = (o["project_proposal"] ?? {}) as Record<string, unknown>;
   const cid = str(o["client_id"]);
   const pid = str(o["project_id"]);
   const parts = o["participants"];
@@ -118,10 +121,7 @@ function normalizeIdentification(raw: unknown): Identification {
     client_name: str(o["client_name"]),
     project_id: pid || null,
     project_name: str(o["project_name"]),
-    project_proposal: {
-      name: str(proposal["name"]),
-      description: str(proposal["description"]),
-    },
+    project_proposal: normalizeProjectProposal(o["project_proposal"]),
     meeting_date: str(o["meeting_date"]),
     meeting_type: str(o["meeting_type"]),
     participants: Array.isArray(parts) ? parts.map((p) => String(p)) : [],
@@ -179,9 +179,13 @@ function SmartMeetingPage() {
   const [ident, setIdent] = useState<Identification | null>(null);
   const [clientId, setClientId] = useState(preset.clientId ?? "");
   const [projectId, setProjectId] = useState(preset.projectId ?? "");
-  const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectArea, setNewProjectArea] = useState("");
+  const [newProjectSubarea, setNewProjectSubarea] = useState("");
   const [newProjectDesc, setNewProjectDesc] = useState("");
   const [confirmSimilar, setConfirmSimilar] = useState(false);
+  const newProjectName = isValidErpPair(newProjectArea, newProjectSubarea)
+    ? buildProjectName(newProjectArea, newProjectSubarea)
+    : "";
 
   const [meetingDate, setMeetingDate] = useState("");
   const [meetingType, setMeetingType] = useState<string>(MEETING_TYPES[0] ?? "");
@@ -275,12 +279,26 @@ function SmartMeetingPage() {
   );
   const contextKnown = !!preset.clientId && clientId === preset.clientId;
 
-  /** Aviso antiduplicidade antes de propor um novo projeto. */
-  const projectMatch = useMemo(
-    () => classifyProjectMatch(newProjectName, clientProjects),
-    [newProjectName, clientProjects],
-  );
-
+  /**
+   * Aviso antiduplicidade antes de propor um novo projeto. Nomes gerados por
+   * área/subárea compartilham palavras entre áreas diferentes do mesmo cliente
+   * (ex.: "Jurídica - Gestão de Contratos" e "Administrativo - Gestão de
+   * Contratos") — o fuzzy (PROBABLE_MATCH) não deve alertar quando o par
+   * área/subárea já é válido; só o reaproveitamento por nome EXATO continua
+   * valendo (resolvido depois pela própria RPC idempotente).
+   */
+  const projectMatch = useMemo(() => {
+    const match = classifyProjectMatch(newProjectName, clientProjects);
+    if (match.kind === "PROBABLE_MATCH" && isValidErpPair(newProjectArea, newProjectSubarea)) {
+      return {
+        kind: "NEW_PROJECT" as const,
+        existing: null,
+        confidence: match.confidence,
+        reason: "",
+      };
+    }
+    return match;
+  }, [newProjectName, newProjectArea, newProjectSubarea, clientProjects]);
 
   /* ---------------- 1. transcrição (PDF ou texto colado) ---------------- */
 
@@ -374,7 +392,8 @@ function SmartMeetingPage() {
         preset.projectId ??
           (identification.project_confidence >= 0.6 ? (identification.project_id ?? "") : ""),
       );
-      setNewProjectName(identification.project_proposal.name || identification.project_name);
+      setNewProjectArea(identification.project_proposal.erp_area ?? "");
+      setNewProjectSubarea(identification.project_proposal.erp_subarea ?? "");
       setNewProjectDesc(identification.project_proposal.description);
       setMeetingDate(
         /^\d{4}-\d{2}-\d{2}$/.test(identification.meeting_date)
@@ -405,21 +424,20 @@ function SmartMeetingPage() {
 
       let target = clientProjects.find((p) => p.id === projectId) ?? null;
       if (!target) {
-        const name = newProjectName.trim();
-        if (!name) throw new Error("Informe o nome do novo projeto.");
-        const match = classifyProjectMatch(name, clientProjects);
-        // A IA nunca cria projeto direto: nome igual reaproveita, nome parecido
-        // exige confirmação explícita do consultor.
-        if (match.kind === "PROBABLE_MATCH" && !confirmSimilar)
-          throw new Error(
-            `${match.reason} Marque "Criar mesmo assim" ou selecione o projeto existente.`,
-          );
+        if (!isValidErpPair(newProjectArea, newProjectSubarea)) {
+          throw new Error("Escolha a área e a subárea do ERP do novo projeto.");
+        }
+        const name = buildProjectName(newProjectArea, newProjectSubarea);
         const created = await getOrCreateProject({
           clientId,
           name,
           description: newProjectDesc.trim() || null,
         });
-        if (created.reused) toast.info("Projeto existente reaproveitado — nenhuma duplicata criada.");
+        if (created.reused) {
+          toast.info(`Usando o projeto existente "${name}".`);
+        } else {
+          await setProjectErp(created.project.id, newProjectArea, newProjectSubarea);
+        }
         target = created.project;
         void qc.invalidateQueries({ queryKey: ["projects"] });
       }
@@ -765,15 +783,18 @@ function SmartMeetingPage() {
             )}
 
             {!projectId ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="grid gap-1.5">
-                  <Label htmlFor="novo-projeto">Nome do novo projeto</Label>
-                  <Input
-                    id="novo-projeto"
-                    value={newProjectName}
-                    onChange={(e) => setNewProjectName(e.target.value)}
-                  />
-                </div>
+              <div className="grid gap-4">
+                <ErpAreaSubareaSelect
+                  area={newProjectArea}
+                  subarea={newProjectSubarea}
+                  onChange={(area, subarea) => {
+                    setNewProjectArea(area);
+                    setNewProjectSubarea(subarea);
+                  }}
+                />
+                <p className="text-sm text-muted-foreground">
+                  Nome do projeto: {newProjectName || "—"}
+                </p>
                 <div className="grid gap-1.5">
                   <Label htmlFor="novo-projeto-desc">Descrição</Label>
                   <Input
@@ -896,7 +917,14 @@ function SmartMeetingPage() {
             ) : null}
 
             <div className="flex flex-wrap gap-2">
-              <Button onClick={() => createAndReview.mutate(false)} disabled={busy || !clientId}>
+              <Button
+                onClick={() => createAndReview.mutate(false)}
+                disabled={
+                  busy ||
+                  !clientId ||
+                  (!projectId && !isValidErpPair(newProjectArea, newProjectSubarea))
+                }
+              >
                 {createAndReview.isPending ? (
                   <Loader2 className="size-4 animate-spin" aria-hidden />
                 ) : (

@@ -505,3 +505,19 @@ export async function getOrCreateProject(params: {
   }
   return { project: res.data as unknown as Project, reused: result.reused, reason: result.reason };
 }
+
+/** Grava erp_area/erp_subarea num projeto já criado (mesmo padrão do ProjectDialog). */
+export async function setProjectErp(
+  projectId: string,
+  area: string,
+  subarea: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("projects")
+    .update({ erp_area: area, erp_subarea: subarea })
+    .eq("id", projectId);
+  if (error) {
+    logDbError("projects", "update-erp", error);
+    throw new Error(error.message);
+  }
+}
