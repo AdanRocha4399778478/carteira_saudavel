@@ -91,7 +91,7 @@ describe("formatErpTaxonomyForPrompt", () => {
     }
   });
 
-  test("contém cada uma das 159 subáreas de ERP_TAXONOMY", () => {
+  test("contém cada uma das 183 subáreas de ERP_TAXONOMY", () => {
     const missing: string[] = [];
     for (const subareas of Object.values(ERP_TAXONOMY)) {
       for (const subarea of subareas) {
