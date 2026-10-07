@@ -4,6 +4,7 @@ import { getEmbeddings } from "@/lib/embeddings.server";
 import { consolidateAnalysisSemantically } from "@/lib/analysis-consolidation";
 import { formatErpTaxonomyForPrompt } from "@/lib/project-proposal";
 import { stripTactiqBoilerplate, stripTactiqSummary } from "@/lib/tactiq-clean";
+import { applySingleSpeakerGuard } from "@/lib/speakers";
 import { MEETING_TYPES } from "@/lib/domain";
 
 /* ------------------------------------------------------------------ *
@@ -574,5 +575,10 @@ export async function runMeetingAnalysis(data: MeetingAnalysisInput) {
   analysisOut["execution_quality"] = quality;
   analysisOut["semantic_consolidation"] = semantic;
 
-  return { json: JSON.stringify(consolidated), blocks: blocks.length, rawAnalysisJson };
+  // Garantia no código: o prompt já instrui a IA a anular as duas notas com
+  // falante único, mas isso não é obedecido de forma confiável. A detecção
+  // usa a transcrição ORIGINAL (data.transcript), não transcriptForAi.
+  const guarded = applySingleSpeakerGuard(consolidated as Record<string, unknown>, data.transcript);
+
+  return { json: JSON.stringify(guarded), blocks: blocks.length, rawAnalysisJson };
 }
