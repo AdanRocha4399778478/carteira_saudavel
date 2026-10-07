@@ -3,7 +3,8 @@ import { splitTranscript } from "@/lib/transcript-chunking";
 import { getEmbeddings } from "@/lib/embeddings.server";
 import { consolidateAnalysisSemantically } from "@/lib/analysis-consolidation";
 import { formatErpTaxonomyForPrompt } from "@/lib/project-proposal";
-import { stripTactiqSummary } from "@/lib/tactiq-clean";
+import { stripTactiqBoilerplate, stripTactiqSummary } from "@/lib/tactiq-clean";
+import { applySingleSpeakerGuard } from "@/lib/speakers";
 import { MEETING_TYPES } from "@/lib/domain";
 
 /* ------------------------------------------------------------------ *
@@ -133,6 +134,7 @@ ${formatErpTaxonomyForPrompt()}
 Campos de saúde da conta (dentro de "meeting" — um valor só por reunião, nunca invente quando não houver base):
 - satisfaction_score: número de 0 a 10 baseado no tom e engajamento do cliente NESTA REUNIÃO COM A CONSULTORIA especificamente (entusiasmo, colaboração, abertura, energia na conversa com o consultor) — NÃO é uma avaliação do estado geral do negócio do cliente. Um cliente pode estar vivendo uma dificuldade real no negócio (financeiro apertado, operação bagunçada, estresse) e ainda assim ter uma reunião produtiva e engajada com a consultoria — isso deve pontuar ALTO, porque é sobre a relação com a consultoria, não sobre a saúde do negócio dele. O oposto também vale: não rebaixe a nota só porque o cliente relatou problemas que a consultoria foi contratada para resolver. Use null se a reunião não der nenhuma base pra isso (ex.: reunião puramente técnica, sem indício de como o cliente reagiu à consultoria).
 - value_score: número de 0 a 10 baseado em quanto valor perceptível a consultoria gerou NESTA reunião especificamente (resultado concreto, decisão importante destravada, problema resolvido) — não é sobre o valor do contrato. Use null se não houver base.
+- Se a transcrição tiver um ÚNICO falante (só o consultor; a voz do cliente não foi captada), satisfaction_score e value_score devem ser null: não há base para avaliar a reação do cliente.
 - next_action: a próxima ação mais importante e concreta combinada na reunião, em uma frase (pode repetir conteúdo já presente em "actions" — aqui é só a mais prioritária, resumida). "" se nenhuma ação clara foi definida.
 - main_priority: a prioridade principal do cliente identificada nesta reunião, em uma frase. "" se não ficou claro.
 - main_pain: a principal dor ou dificuldade do cliente expressa nesta reunião, em uma frase. "" se não foi mencionada.
@@ -430,10 +432,10 @@ export function consolidate(parts: Record<string, unknown>[]): Record<string, un
 export type MeetingAnalysisInput = z.infer<typeof analyzeInput>;
 
 export async function runMeetingAnalysis(data: MeetingAnalysisInput) {
-  // stripTactiqSummary só afeta o texto enviado à IA: a transcrição gravada
-  // e o transcriptHash (calculados no cliente, fora deste arquivo) continuam
-  // com o texto original, recorte do Tactiq incluído.
-  const transcriptForAi = stripTactiqSummary(data.transcript);
+  // stripTactiqSummary/stripTactiqBoilerplate só afetam o texto enviado à IA:
+  // a transcrição gravada e o transcriptHash (calculados no cliente, fora
+  // deste arquivo) continuam com o texto original, recorte do Tactiq incluído.
+  const transcriptForAi = stripTactiqBoilerplate(stripTactiqSummary(data.transcript));
   const blocks = splitTranscript(transcriptForAi).slice(0, MAX_BLOCKS);
 
   const consultantName = data.consultantName?.trim();
@@ -573,5 +575,10 @@ export async function runMeetingAnalysis(data: MeetingAnalysisInput) {
   analysisOut["execution_quality"] = quality;
   analysisOut["semantic_consolidation"] = semantic;
 
-  return { json: JSON.stringify(consolidated), blocks: blocks.length, rawAnalysisJson };
+  // Garantia no código: o prompt já instrui a IA a anular as duas notas com
+  // falante único, mas isso não é obedecido de forma confiável. A detecção
+  // usa a transcrição ORIGINAL (data.transcript), não transcriptForAi.
+  const guarded = applySingleSpeakerGuard(consolidated as Record<string, unknown>, data.transcript);
+
+  return { json: JSON.stringify(guarded), blocks: blocks.length, rawAnalysisJson };
 }
