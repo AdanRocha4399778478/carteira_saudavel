@@ -5,6 +5,7 @@ import { consolidateAnalysisSemantically } from "@/lib/analysis-consolidation";
 import { formatErpTaxonomyForPrompt } from "@/lib/project-proposal";
 import { stripTactiqBoilerplate, stripTactiqSummary } from "@/lib/tactiq-clean";
 import { applySingleSpeakerGuard } from "@/lib/speakers";
+import { extractMeetingDateFromHeader } from "@/lib/meeting-date";
 import { MEETING_TYPES } from "@/lib/domain";
 
 /* ------------------------------------------------------------------ *
@@ -120,6 +121,7 @@ Regras:
 - "Speaker 1", "Speaker 2" e rótulos semelhantes (ex.: "Falante 1") são genéricos, não nomes: deduza o nome real de cada pessoa pelos nomes ditos na própria conversa (alguém se apresenta, é chamado pelo nome, assina um e-mail citado etc.); sem essa certeza, deixe o nome vazio em vez de usar o rótulo genérico.
 - Resumos, listas de itens de ação ou análises que já vierem prontos no texto (por exemplo, uma exportação do Tactiq com "Summary and Action items") NÃO são fonte de verdade: só o diálogo real entre os falantes sustenta decisions, actions, risks, opportunities e identification — nunca copie direto de um resumo pré-existente.
 - decisions[].due_date e actions[].deadline NUNCA devem ser preenchidos com a data da reunião por padrão: preencha só quando a própria conversa citar um prazo ou data (resolvendo referências relativas como "dia 16" ou "próxima terça" a partir da data real desta reunião); sem prazo citado, devolva "".
+- Toda referência relativa de prazo (segunda-feira, semana que vem, amanhã, dia 16) parte da DATA DA REUNIÃO: use a linha 'Data da reunião' do cabeçalho quando existir; sem ela, use identification.meeting_date. A 'Data de hoje' NUNCA serve de referência para prazos.
 - Ao propor um projeto NOVO, escolha a área principal da reunião e preencha project_proposal.erp_area e project_proposal.erp_subarea EXATAMENTE como aparecem na lista abaixo (sem inventar, sem traduzir, sem abreviar) — ou null nos dois se não tiver certeza da área. project_proposal.name é ignorado; o nome do projeto é gerado a partir da área e subárea escolhidas. Se um projeto já existente tiver nome no formato "Área - Subárea" que corresponda à área e subárea identificadas nesta reunião, escolha existing_project (e preencha project_id) em vez de propor um novo.
 
 Áreas e subáreas do ERP (escolha exatamente um par, nos nomes abaixo):
@@ -440,9 +442,17 @@ export async function runMeetingAnalysis(data: MeetingAnalysisInput) {
 
   const consultantName = data.consultantName?.trim();
 
+  // Data ORIGINAL do cabeçalho do Tactiq (data.transcript, não
+  // transcriptForAi): usada para resolver prazos relativos ("segunda-feira",
+  // "dia 16") a partir da data real da reunião, nunca da Data de hoje.
+  const meetingDate = extractMeetingDateFromHeader(data.transcript);
+
   const header = (block: { index: number; total: number }) =>
     [
       `Data de hoje: ${new Date().toISOString().slice(0, 10)}`,
+      meetingDate
+        ? `Data da reunião (do cabeçalho da transcrição): ${meetingDate.iso} (${meetingDate.weekday}). Resolva TODA referência relativa de prazo (segunda-feira, semana que vem, amanhã, dia 16) a partir DESTA data, NUNCA a partir da Data de hoje.`
+        : "",
       data.source
         ? `Origem da transcrição: ${data.source.type === "pdf" ? `PDF ${data.source.file_name ?? ""}` : "texto colado"}`
         : "",
