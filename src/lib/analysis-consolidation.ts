@@ -821,8 +821,18 @@ export function consolidateAnalysisSemantically(consolidated: Json): {
     return consolidatedList.items;
   }
 
-  const decisions = consolidateEntityList("decisions", asArray(analysis["decisions"]), (i) => textOf(i, "title"));
-  const risks = consolidateEntityList("risks", asArray(analysis["risks"]), (i) => textOf(i, "description"));
+  // Decisão sem título usa a descrição: texto vazio fica fora do agrupamento e some da lista.
+  const decisions = consolidateEntityList(
+    "decisions",
+    asArray(analysis["decisions"]),
+    (i) => textOf(i, "title").trim() || textOf(i, "description"),
+  );
+  // Risco sem descrição usa o título, pelo mesmo motivo.
+  const risks = consolidateEntityList(
+    "risks",
+    asArray(analysis["risks"]),
+    (i) => textOf(i, "description").trim() || textOf(i, "title"),
+  );
   const opportunities = consolidateEntityList(
     "opportunities",
     asArray(analysis["opportunities"]),

@@ -277,7 +277,10 @@ const analysisSchema = z.object({
               const o = v as Record<string, unknown>;
               return {
                 ...o,
-                description: o["description"] ?? o["descricao"] ?? o["risco"] ?? o["title"],
+                // Primeiro texto não vazio: "??" sozinho não pula description "" e o risco era descartado.
+                description: [o["description"], o["descricao"], o["risco"], o["title"]].find((x) =>
+                  typeof x === "string" ? x.trim() !== "" : x !== null && x !== undefined,
+                ),
                 level: o["level"] ?? o["criticidade"] ?? o["nivel"],
               };
             }
