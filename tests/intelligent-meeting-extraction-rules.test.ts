@@ -32,6 +32,6 @@ describe("SYSTEM_PROMPT (intelligent-meeting.server.ts) — novas regras de extr
   });
 
   test("a regra de não fragmentar itens quase idênticos deixa explícito que entregas diferentes são itens separados", () => {
-    expect(source).toContain("tarefas com entregas diferentes");
+    expect(source).toContain("tarefa com entrega própria é SEMPRE um item separado");
   });
 });

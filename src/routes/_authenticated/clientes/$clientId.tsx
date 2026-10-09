@@ -447,12 +447,6 @@ function ClientDetailPage() {
                       label="Encaminhamento completo"
                       value={m.delivery_clarity_rate === null ? null : `${m.delivery_clarity_rate}%`}
                     />
-                    <Field
-                      label="Conversão em compromisso"
-                      value={
-                        m.commitment_conversion_rate === null ? null : `${m.commitment_conversion_rate}%`
-                      }
-                    />
                   </div>
 
                   {m.satisfaction_justification || m.value_justification ? (
