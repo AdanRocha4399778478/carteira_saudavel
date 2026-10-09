@@ -192,7 +192,7 @@ function SmartMeetingPage() {
     : "";
 
   const [meetingDate, setMeetingDate] = useState("");
-  const [meetingType, setMeetingType] = useState<string>(MEETING_TYPES[0] ?? "");
+  const [meetingType, setMeetingType] = useState<string>("");
   const [participants, setParticipants] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
 
@@ -406,8 +406,7 @@ function SmartMeetingPage() {
           ? identification.meeting_date
           : new Date().toISOString().slice(0, 10),
       );
-      const normalizedMeetingType = normalizeMeetingType(identification.meeting_type);
-      if (normalizedMeetingType) setMeetingType(normalizedMeetingType);
+      setMeetingType(normalizeMeetingType(identification.meeting_type));
       setParticipants(cleanParticipants(identification.participants.join(", ")));
       setStep("identificacao");
     },
@@ -427,6 +426,7 @@ function SmartMeetingPage() {
   const createAndReview = useMutation({
     mutationFn: async (force: boolean) => {
       if (!clientId) throw new Error("Selecione o cliente da reunião.");
+      if (!meetingType) throw new Error("Escolha o tipo da reunião.");
       if (!analysis) throw new Error("Nenhuma análise disponível.");
 
       let target = clientProjects.find((p) => p.id === projectId) ?? null;
@@ -867,7 +867,7 @@ function SmartMeetingPage() {
                 <Label>Tipo</Label>
                 <Select value={meetingType} onValueChange={setMeetingType}>
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder="Selecione" />
                   </SelectTrigger>
                   <SelectContent>
                     {MEETING_TYPES.map((t) => (
@@ -877,6 +877,11 @@ function SmartMeetingPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                {!meetingType ? (
+                  <p className="text-xs text-muted-foreground">
+                    Obrigatório: escolha o tipo da reunião.
+                  </p>
+                ) : null}
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="participantes">Participantes</Label>
@@ -933,6 +938,7 @@ function SmartMeetingPage() {
                 disabled={
                   busy ||
                   !clientId ||
+                  !meetingType ||
                   (!projectId && !isValidErpPair(newProjectArea, newProjectSubarea))
                 }
               >

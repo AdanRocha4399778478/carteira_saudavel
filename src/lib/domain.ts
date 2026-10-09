@@ -75,6 +75,7 @@ export const MEETING_TYPES = [
   "revisão de plano",
   "alinhamento de liderança",
   "encerramento de ciclo",
+  "implantação",
 ] as const;
 
 export type Profile = {
