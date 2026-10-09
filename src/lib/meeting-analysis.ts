@@ -58,6 +58,22 @@ const txt = z
   .optional()
   .transform((v) => (v === null || v === undefined ? "" : String(v).trim()));
 
+const MAX_DERIVED_TITLE_CHARS = 100;
+
+/**
+ * Título de uma decisão que veio sem `title`: primeira frase da descrição,
+ * até 100 caracteres, cortando em palavra inteira. Descrição vazia → "".
+ */
+export function titleFromDescription(description: string): string {
+  const text = description.trim();
+  const sentence = (/^[\s\S]*?[.!?](?=\s|$)/.exec(text)?.[0] ?? text).trim();
+  if (sentence.length <= MAX_DERIVED_TITLE_CHARS) return sentence;
+  const cut = sentence.slice(0, MAX_DERIVED_TITLE_CHARS);
+  if (/\s/.test(sentence[MAX_DERIVED_TITLE_CHARS]!)) return cut.trim();
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trim();
+}
+
 const classification = z
   .union([z.enum(["fact", "inference", "suggestion"]), z.null()])
   .optional()
@@ -208,7 +224,13 @@ const analysisSchema = z.object({
       z.null(),
     ])
     .optional()
-    .transform((v) => (Array.isArray(v) ? v.filter((d) => d.title.length > 0) : [])),
+    .transform((v) =>
+      Array.isArray(v)
+        ? v
+            .map((d) => (d.title ? d : { ...d, title: titleFromDescription(d.description) }))
+            .filter((d) => d.title.length > 0)
+        : [],
+    ),
 
   actions: z
     .union([
@@ -255,7 +277,10 @@ const analysisSchema = z.object({
               const o = v as Record<string, unknown>;
               return {
                 ...o,
-                description: o["description"] ?? o["descricao"] ?? o["risco"] ?? o["title"],
+                // Primeiro texto não vazio: "??" sozinho não pula description "" e o risco era descartado.
+                description: [o["description"], o["descricao"], o["risco"], o["title"]].find((x) =>
+                  typeof x === "string" ? x.trim() !== "" : x !== null && x !== undefined,
+                ),
                 level: o["level"] ?? o["criticidade"] ?? o["nivel"],
               };
             }
