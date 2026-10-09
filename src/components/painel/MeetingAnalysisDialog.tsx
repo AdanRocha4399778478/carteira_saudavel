@@ -1432,14 +1432,16 @@ export function MeetingAnalysisDialog({
                         : 'Não será gravado — marque "Resumo executivo" acima para incluir.'}
                     </span>
                     <div className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-                      {(analysis.meeting.satisfaction_score !== null ||
-                        analysis.meeting.value_score !== null) && (
-                        <span className="block">
-                          <span className="font-medium">Satisfação / Valor:</span>{" "}
-                          {analysis.meeting.satisfaction_score ?? "—"}/10 ·{" "}
-                          {analysis.meeting.value_score ?? "—"}/10
-                        </span>
-                      )}
+                      <span className="block">
+                        <span className="font-medium">Satisfação / Valor:</span>{" "}
+                        {analysis.meeting.satisfaction_score !== null
+                          ? `${analysis.meeting.satisfaction_score}/10`
+                          : "—"}{" "}
+                        ·{" "}
+                        {analysis.meeting.value_score !== null
+                          ? `${analysis.meeting.value_score}/10`
+                          : "—"}
+                      </span>
                       {analysis.meeting.main_priority && (
                         <span className="block">
                           <span className="font-medium">Prioridade:</span>{" "}
