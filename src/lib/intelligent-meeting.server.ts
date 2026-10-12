@@ -6,6 +6,11 @@ import { formatErpTaxonomyForPrompt } from "@/lib/project-proposal";
 import { stripTactiqBoilerplate, stripTactiqSummary } from "@/lib/tactiq-clean";
 import { applySingleSpeakerGuard } from "@/lib/speakers";
 import { extractMeetingDateFromHeader } from "@/lib/meeting-date";
+import {
+  buildSecondPassInstruction,
+  shouldRunSecondPass,
+  summarizeExtracted,
+} from "@/lib/second-pass";
 import { MEETING_TYPES } from "@/lib/domain";
 
 /* ------------------------------------------------------------------ *
@@ -330,6 +335,11 @@ function arr(v: unknown): unknown[] {
   return Array.isArray(v) ? v.flat(3) : v === null || v === undefined ? [] : [v];
 }
 
+/** Contagem de itens de uma categoria somados em todos os parts — só para o console.info da segunda passada. */
+function countItems(parts: Record<string, unknown>[], key: string): number {
+  return parts.reduce((sum, part) => sum + arr(obj(part["analysis"])[key]).length, 0);
+}
+
 
 /** União sem duplicidades, preservando o item mais completo (com evidência). */
 function mergeList(target: unknown[], incoming: unknown[], keys: string[]): unknown[] {
@@ -490,6 +500,41 @@ export async function runMeetingAnalysis(data: MeetingAnalysisInput) {
   for (const block of blocks) {
     const prompt = [header(block), "", "Transcrição da reunião:", block.text].join("\n");
     parts.push(await callGateway(prompt));
+  }
+
+  // Segunda passada "o que faltou?": só em transcrição longa que coube num
+  // bloco único (com mais de 1 bloco, o chunking já cobre a cobertura).
+  // Só ACRESCENTA — nunca revisa os itens da primeira. consolidate() usa
+  // parts[0] para identification/meeting/speaker_map (não alterado aqui);
+  // zeramos esses campos no resultado da segunda chamada por garantia,
+  // mesmo que a IA não siga a instrução de deixá-los vazios.
+  if (shouldRunSecondPass(blocks.length, transcriptForAi.length)) {
+    const startedAt = Date.now();
+    const categories = ["decisions", "actions", "risks", "opportunities"] as const;
+    const countsOf = () =>
+      Object.fromEntries(categories.map((k) => [k, countItems(parts, k)]));
+    try {
+      const secondPrompt = [
+        header(blocks[0]!),
+        "",
+        "Transcrição da reunião:",
+        blocks[0]!.text,
+        "",
+        buildSecondPassInstruction(summarizeExtracted(parts)),
+      ].join("\n");
+      const before = countsOf();
+      const secondResult = await callGateway(secondPrompt);
+      secondResult["identification"] = {};
+      const secondAnalysis = secondResult["analysis"];
+      if (secondAnalysis && typeof secondAnalysis === "object" && !Array.isArray(secondAnalysis)) {
+        delete (secondAnalysis as Record<string, unknown>)["meeting"];
+        delete (secondAnalysis as Record<string, unknown>)["speaker_map"];
+      }
+      parts.push(secondResult);
+      console.info("[ia] segunda passada", { before, after: countsOf(), ms: Date.now() - startedAt });
+    } catch (error) {
+      console.warn("[ia] segunda passada falhou, seguindo só com a primeira:", error);
+    }
   }
 
   const mergedByKey = consolidate(parts) as {
