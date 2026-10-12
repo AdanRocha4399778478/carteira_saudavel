@@ -17,7 +17,7 @@ export function normalizeMeetingType(value: unknown): MeetingType | "" {
 
 const GENERIC_SPEAKER_RE = /^(speaker|falante|participante)\s*\d+\.?$|^unknown\.?$/i;
 
-function isGenericSpeaker(token: string): boolean {
+export function isGenericSpeaker(token: string): boolean {
   return GENERIC_SPEAKER_RE.test(token.trim());
 }
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { queryOptions } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase/client";
+import { isGenericSpeaker } from "./identification-clean";
 import { logDbError, recalculateClient } from "./api";
 import { analyzeMeetingWithAI } from "./intelligent-meeting.functions";
 import {
@@ -96,6 +97,14 @@ const flag = z
   .optional()
   .transform((v) => v === true);
 
+/**
+ * Campo de responsável: mesma normalização de `txt`, mas um rótulo genérico
+ * de falante ("Speaker 1", "Falante 2", "Participante 3", "Unknown") nunca
+ * passa como nome — vira "" (mesma detecção que cleanParticipants já usa
+ * para identification.participants). Nome real permanece intacto.
+ */
+const ownerTxt = txt.transform((v) => (isGenericSpeaker(v) ? "" : v));
+
 
 /**
  * Normalização tolerante das listas de contexto (next_steps, objectives, …).
@@ -165,7 +174,7 @@ const analysisSchema = z.object({
       next_action: txt,
       main_priority: txt,
       main_pain: txt,
-      action_owner: txt,
+      action_owner: ownerTxt,
       action_deadline: txt,
       explicit_complaint: flag,
       continuity_doubt: flag,
@@ -213,7 +222,7 @@ const analysisSchema = z.object({
             title: txt,
             description: txt,
             reason: txt,
-            owner: txt,
+            owner: ownerTxt,
             due_date: txt,
             status: txt,
             classification,
@@ -252,7 +261,7 @@ const analysisSchema = z.object({
           },
           z.object({
             description: txt,
-            owner_name: txt,
+            owner_name: ownerTxt,
             deadline: txt,
             priority: txt,
             erp_area: txt,
