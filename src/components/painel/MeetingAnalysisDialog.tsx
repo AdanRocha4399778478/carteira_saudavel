@@ -55,6 +55,7 @@ import {
   type MeetingAnalysis,
   type SemanticConsolidation,
 } from "@/lib/meeting-analysis";
+import { applySpeakerMapToAnalysis, toSpeakerMapEntries } from "@/lib/speaker-map";
 import {
   annotateOrigin,
   applyChronologyGuard,
@@ -1113,10 +1114,17 @@ export function MeetingAnalysisDialog({
       setErrors(parsed.errors);
       return;
     }
-    setAnalysis(parsed.analysis);
+    // Rascunho reaberto direto na revisão, sem etapa de edição do mapa:
+    // aplica o speaker_map salvo com a análise (vazio em rascunhos antigos,
+    // que então só esvaziam o rótulo genérico, sem trocar por nome nenhum).
+    const cleaned = applySpeakerMapToAnalysis(
+      parsed.analysis,
+      toSpeakerMapEntries(parsed.analysis.speaker_map),
+    );
+    setAnalysis(cleaned);
     setAgenda(
       buildAgenda({
-        suggested: parsed.analysis.agenda_recommendation,
+        suggested: cleaned.agenda_recommendation,
         context,
         openActions,
         overdueActions,

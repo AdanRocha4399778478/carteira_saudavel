@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { queryOptions } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase/client";
-import { isGenericSpeaker } from "./identification-clean";
+import { applySpeakerMapToAnalysis, toSpeakerMapEntries } from "./speaker-map";
 import { logDbError, recalculateClient } from "./api";
 import { analyzeMeetingWithAI } from "./intelligent-meeting.functions";
 import {
@@ -97,14 +97,6 @@ const flag = z
   .optional()
   .transform((v) => v === true);
 
-/**
- * Campo de responsável: mesma normalização de `txt`, mas um rótulo genérico
- * de falante ("Speaker 1", "Falante 2", "Participante 3", "Unknown") nunca
- * passa como nome — vira "" (mesma detecção que cleanParticipants já usa
- * para identification.participants). Nome real permanece intacto.
- */
-const ownerTxt = txt.transform((v) => (isGenericSpeaker(v) ? "" : v));
-
 
 /**
  * Normalização tolerante das listas de contexto (next_steps, objectives, …).
@@ -174,7 +166,7 @@ const analysisSchema = z.object({
       next_action: txt,
       main_priority: txt,
       main_pain: txt,
-      action_owner: ownerTxt,
+      action_owner: txt,
       action_deadline: txt,
       explicit_complaint: flag,
       continuity_doubt: flag,
@@ -222,7 +214,7 @@ const analysisSchema = z.object({
             title: txt,
             description: txt,
             reason: txt,
-            owner: ownerTxt,
+            owner: txt,
             due_date: txt,
             status: txt,
             classification,
@@ -261,7 +253,7 @@ const analysisSchema = z.object({
           },
           z.object({
             description: txt,
-            owner_name: ownerTxt,
+            owner_name: txt,
             deadline: txt,
             priority: txt,
             erp_area: txt,
@@ -342,6 +334,35 @@ const analysisSchema = z.object({
     ])
     .optional()
     .transform((v) => (Array.isArray(v) ? v.filter((o) => o.description.length > 0) : [])),
+
+  /**
+   * Mapa de falantes sugerido pela IA (rótulo -> nome real), usado só para
+   * reescrever rótulos genéricos nos campos de responsável (ver
+   * applySpeakerMapToAnalysis em speaker-map.ts) — nunca persistido como
+   * está aqui. role/confidence fora da lista esperada caem no fallback em
+   * vez de quebrar o parse (análises antigas sem este campo viram []).
+   */
+  speaker_map: z
+    .union([
+      z.array(
+        z.object({
+          label: txt,
+          name: txt,
+          role: z
+            .union([z.string(), z.null()])
+            .optional()
+            .transform((v) => (v === "consultor" || v === "cliente" ? v : "")),
+          confidence: z
+            .union([z.string(), z.null()])
+            .optional()
+            .transform((v) => (v === "alta" || v === "média" ? v : "baixa")),
+          evidence: txt,
+        }),
+      ),
+      z.null(),
+    ])
+    .optional()
+    .transform((v) => (Array.isArray(v) ? v.filter((s) => s.label.length > 0) : [])),
 
   agenda_recommendation: z
     .object({
@@ -617,7 +638,14 @@ const aiProvider: AnalysisProvider = {
     }
     const parsed = parseAnalysis((payload as Record<string, unknown>)["analysis"] ?? payload);
     if (!parsed.ok) return parsed;
-    return { ...parsed, rawAiResponse: result.rawAnalysisJson ?? null };
+    // Este caminho não passa pela edição humana do mapa de falantes (sem
+    // etapa de preview própria) — aplica direto o speaker_map que a própria
+    // IA devolveu, confiança alta/média, esvaziando o que não tiver mapa.
+    const cleaned = applySpeakerMapToAnalysis(
+      parsed.analysis,
+      toSpeakerMapEntries(parsed.analysis.speaker_map),
+    );
+    return { ...parsed, analysis: cleaned, rawAiResponse: result.rawAnalysisJson ?? null };
   },
 };
 
