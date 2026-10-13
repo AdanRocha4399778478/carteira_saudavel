@@ -39,7 +39,9 @@ import { normalizeProjectProposal } from "@/lib/project-proposal";
 import { parseAnalysis, type MeetingAnalysis } from "@/lib/meeting-analysis";
 import {
   applySpeakerMapToAnalysis,
+  nextParticipantsValue,
   participantsFromSpeakerMap,
+  speakerLabelsNeedingName,
   type SpeakerMapEntry,
 } from "@/lib/speaker-map";
 import { SpeakerMapEditor } from "@/components/painel/SpeakerMapEditor";
@@ -205,6 +207,9 @@ function SmartMeetingPage() {
   const [meetingDate, setMeetingDate] = useState("");
   const [meetingType, setMeetingType] = useState<string>("");
   const [participants, setParticipants] = useState("");
+  // B3: enquanto false, Participantes acompanha o mapa de falantes
+  // (ver efeito abaixo); true assim que o consultor editar o campo à mão.
+  const [participantsEditedManually, setParticipantsEditedManually] = useState(false);
   const [speakerMap, setSpeakerMap] = useState<SpeakerMapEntry[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
 
@@ -256,6 +261,19 @@ function SmartMeetingPage() {
       alive = false;
     };
   }, [step, transcript]);
+
+  /**
+   * B3: Participantes acompanha o mapa de falantes enquanto o consultor não
+   * editar o campo à mão (ver nextParticipantsValue em speaker-map.ts, que
+   * mantém o valor atual tanto na edição manual quanto quando o mapa não
+   * tem nenhum nome usável ainda).
+   */
+  useEffect(() => {
+    const consultantNameForMap = access?.profile?.full_name?.trim() || undefined;
+    setParticipants((current) =>
+      nextParticipantsValue(speakerMap, consultantNameForMap, current, participantsEditedManually),
+    );
+  }, [speakerMap, participantsEditedManually, access?.profile?.full_name]);
 
   const alreadyProcessed = useQuery({
     queryKey: ["meetings", "hash", hash, clientId, projectId],
@@ -443,6 +461,9 @@ function SmartMeetingPage() {
         participantsFromSpeakerMap(map, consultantNameForMap) ||
           cleanParticipants(identification.participants.join(", ")),
       );
+      // Nova análise: a edição manual de Participantes da reunião anterior
+      // não deve bloquear o acompanhamento reativo desta (ver B3 abaixo).
+      setParticipantsEditedManually(false);
       setStep("identificacao");
     },
     onError: (e: Error) => setErrors(e.message.split("\n")),
@@ -946,7 +967,10 @@ function SmartMeetingPage() {
                   id="participantes"
                   placeholder="Nomes separados por vírgula"
                   value={participants}
-                  onChange={(e) => setParticipants(e.target.value)}
+                  onChange={(e) => {
+                    setParticipants(e.target.value);
+                    setParticipantsEditedManually(true);
+                  }}
                 />
               </div>
             </div>
@@ -957,6 +981,19 @@ function SmartMeetingPage() {
               items={speakerMap}
               onChange={setSpeakerMap}
             />
+
+            {(() => {
+              const labelsNeedingName = speakerLabelsNeedingName(speakerMap);
+              if (labelsNeedingName.length === 0) return null;
+              return (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                  <p className="font-medium">
+                    Falante sem nome: preencha o nome de {labelsNeedingName.join(", ")} no mapa de
+                    falantes para atribuir os responsáveis.
+                  </p>
+                </div>
+              );
+            })()}
 
             {analysis?.meeting.executive_summary ? (
               <div className="rounded-lg bg-muted/50 p-3 text-sm">
