@@ -53,44 +53,92 @@ function normalizeLabel(label: string): string {
     .replace(/\s+/g, " ");
 }
 
-function isUsableEntry(entry: SpeakerMapEntry): boolean {
-  return (entry.confidence === "alta" || entry.confidence === "média") && entry.name.trim().length > 0;
+function hasUsableConfidence(entry: SpeakerMapEntry): boolean {
+  return entry.confidence === "alta" || entry.confidence === "média";
 }
 
-function buildLookup(map: SpeakerMapEntry[]): Map<string, string> {
-  const lookup = new Map<string, string>();
+function isUsableEntry(entry: SpeakerMapEntry): boolean {
+  return hasUsableConfidence(entry) && entry.name.trim().length > 0;
+}
+
+/**
+ * B1: confiança alta/média, papel conhecido, nome vazio — o rótulo genérico
+ * é MANTIDO como responsável (em vez de removido), já que ele pelo menos
+ * identifica QUEM (cliente ou consultor) assumiu a tarefa, mesmo sem nome.
+ * Participantes nunca usa esse caminho (ver participantsFromSpeakerMap).
+ */
+function hasKnownRoleButNoName(entry: SpeakerMapEntry): boolean {
+  return hasUsableConfidence(entry) && entry.role !== "" && entry.name.trim().length === 0;
+}
+
+function buildLookups(map: SpeakerMapEntry[]): {
+  names: Map<string, string>;
+  keepLabel: Set<string>;
+} {
+  const names = new Map<string, string>();
+  const keepLabel = new Set<string>();
   for (const entry of map) {
-    if (!isUsableEntry(entry)) continue;
-    lookup.set(normalizeLabel(entry.label), entry.name.trim());
+    const norm = normalizeLabel(entry.label);
+    if (isUsableEntry(entry)) names.set(norm, entry.name.trim());
+    else if (hasKnownRoleButNoName(entry)) keepLabel.add(norm);
   }
-  return lookup;
+  return { names, keepLabel };
 }
 
 /**
  * Resolve um token ISOLADO (sem "e" composto): se não for rótulo genérico,
- * devolve o próprio token (nome real intacto). Se for genérico, devolve o
- * nome mapeado ou `null` quando não há mapa válido (remove).
+ * devolve o próprio token (nome real intacto). Se for genérico: nome
+ * mapeado (confiança alta/média, nome preenchido); o próprio rótulo quando
+ * a entrada só tem papel conhecido sem nome (B1 — ver hasKnownRoleButNoName);
+ * ou `null` quando não há mapa válido nenhum (remove).
  */
-function resolveToken(token: string, lookup: Map<string, string>): string | null {
+function resolveToken(
+  token: string,
+  lookups: { names: Map<string, string>; keepLabel: Set<string> },
+): string | null {
   if (!isGenericSpeaker(token)) return token;
-  return lookup.get(normalizeLabel(token)) ?? null;
+  const norm = normalizeLabel(token);
+  const name = lookups.names.get(norm);
+  if (name) return name;
+  if (lookups.keepLabel.has(norm)) return token;
+  return null;
+}
+
+/**
+ * Rótulos (ex.: "Speaker 2") de entradas com papel conhecido e nome vazio —
+ * usado pela tela para avisar o consultor ANTES de gerar o preview (B1),
+ * já que esses rótulos vão sobreviver como responsável em vez de some.
+ */
+export function speakerLabelsNeedingName(map: SpeakerMapEntry[]): string[] {
+  const labels: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of map) {
+    if (!hasKnownRoleButNoName(entry)) continue;
+    const key = normalizeLabel(entry.label);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    labels.push(entry.label);
+  }
+  return labels;
 }
 
 /**
  * Reescreve um campo de texto de responsável (decisions[].owner,
  * actions[].owner_name, meeting.action_owner): rótulo genérico isolado, ou
  * dentro de um composto "X e Y", é trocado pelo nome mapeado (confidence
- * alta ou média) ou removido quando não há mapa válido, limpando o
- * conectivo solto ("Cliente e Speaker 2" sem mapeamento -> "Cliente"; com
- * Speaker 2 = Adan Rocha -> "Cliente e Adan Rocha"). Não diferencia
- * maiúsculas/minúsculas (via isGenericSpeaker). Nome real nunca é alterado.
- * Sem nada para sobrar, devolve "".
+ * alta ou média); mantido como o próprio rótulo quando a entrada só tem
+ * papel conhecido sem nome (B1 — ver hasKnownRoleButNoName); ou removido
+ * quando não há mapa válido nenhum, limpando o conectivo solto ("Cliente e
+ * Speaker 2" sem mapeamento -> "Cliente"; com Speaker 2 = Adan Rocha ->
+ * "Cliente e Adan Rocha"). Não diferencia maiúsculas/minúsculas (via
+ * isGenericSpeaker). Nome real nunca é alterado. Sem nada para sobrar,
+ * devolve "".
  */
 export function rewriteOwnerText(value: string, map: SpeakerMapEntry[]): string {
   const text = value.trim();
   if (!text) return text;
 
-  const lookup = buildLookup(map);
+  const lookup = buildLookups(map);
 
   const commaTokens = text
     .split(/[;,]/)
@@ -135,14 +183,69 @@ export function toSpeakerMapEntries(raw: MeetingAnalysis["speaker_map"]): Speake
   return raw.map((s) => ({ ...s, confirmed: false }));
 }
 
+function normalizeForPrefixMatch(text: string): string {
+  return text.trim().normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+
+const CLIENT_DEVE_PREFIX = /^cliente\s+deve\b/;
+const CONSULTANT_DEVE_PREFIX = /^consultor\s+deve\b/;
+
+/**
+ * Nome (ou, sem nome, o rótulo — mesma condição de B1) da ÚNICA entrada do
+ * mapa com esse papel. Com zero ou mais de uma entrada do papel, `null`.
+ * Confiança baixa na única entrada também devolve `null` — na dúvida fica
+ * vazio, tanto para usar o nome quanto para usar o rótulo.
+ */
+function ownerNameForRole(map: SpeakerMapEntry[], role: "cliente" | "consultor"): string | null {
+  const matches = map.filter((entry) => entry.role === role);
+  if (matches.length !== 1) return null;
+  const entry = matches[0]!;
+  if (!hasUsableConfidence(entry)) return null;
+  const name = entry.name.trim();
+  if (name) return name;
+  return hasKnownRoleButNoName(entry) ? entry.label : null;
+}
+
+/**
+ * B2: ação com owner_name vazio cujo texto começa com "Cliente deve" ou
+ * "Consultor deve" (sem diferenciar maiúscula/acento) recebe o responsável
+ * do papel correspondente, SÓ quando existir exatamente uma entrada desse
+ * papel no mapa, com confiança alta ou média (ver ownerNameForRole — baixa
+ * fica vazio, mesmo com nome preenchido). Nunca sobrescreve um owner_name
+ * já preenchido pela IA. Roda ANTES de rewriteOwnerText (ver
+ * applySpeakerMapToAnalysis) — por isso o nome aqui ainda pode ser um nome
+ * real ou, por B1, o próprio rótulo (que rewriteOwnerText depois mantém,
+ * de forma consistente).
+ */
+export function fillActionOwnerByRole<T extends { description: string; owner_name: string }>(
+  actions: T[],
+  map: SpeakerMapEntry[],
+): T[] {
+  return actions.map((action) => {
+    if (action.owner_name.trim()) return action;
+    const norm = normalizeForPrefixMatch(action.description);
+    const role = CLIENT_DEVE_PREFIX.test(norm)
+      ? "cliente"
+      : CONSULTANT_DEVE_PREFIX.test(norm)
+        ? "consultor"
+        : null;
+    if (!role) return action;
+    const owner = ownerNameForRole(map, role);
+    return owner ? { ...action, owner_name: owner } : action;
+  });
+}
+
 /**
  * Aplica o mapa confirmado aos 3 campos de responsável da análise, de uma
- * só vez. Devolve um objeto NOVO — `analysis` recebido não é mutado.
+ * só vez. Devolve um objeto NOVO — `analysis` recebido não é mutado. B2
+ * (fillActionOwnerByRole) roda ANTES da reescrita de rótulo por nome, para
+ * as ações com owner_name vazio ainda poderem ser atribuídas por papel.
  */
 export function applySpeakerMapToAnalysis(
   analysis: MeetingAnalysis,
   map: SpeakerMapEntry[],
 ): MeetingAnalysis {
+  const actionsWithRoleOwner = fillActionOwnerByRole(analysis.actions, map);
   return {
     ...analysis,
     meeting: {
@@ -150,7 +253,7 @@ export function applySpeakerMapToAnalysis(
       action_owner: rewriteOwnerText(analysis.meeting.action_owner, map),
     },
     decisions: analysis.decisions.map((d) => ({ ...d, owner: rewriteOwnerText(d.owner, map) })),
-    actions: analysis.actions.map((a) => ({ ...a, owner_name: rewriteOwnerText(a.owner_name, map) })),
+    actions: actionsWithRoleOwner.map((a) => ({ ...a, owner_name: rewriteOwnerText(a.owner_name, map) })),
   };
 }
 
@@ -174,4 +277,21 @@ export function participantsFromSpeakerMap(map: SpeakerMapEntry[], consultantNam
   }
 
   return names.join(", ");
+}
+
+/**
+ * B3: valor de Participantes depois de uma mudança no mapa de falantes.
+ * Nunca sobrescreve uma edição manual do consultor (editedManually). Sem
+ * isso, recalcula a partir do mapa ATUAL; se o mapa não tiver nenhum nome
+ * usável (participantsFromSpeakerMap devolve ""), mantém o valor atual em
+ * vez de esvaziar o campo. Função pura — não lê nem grava estado de tela.
+ */
+export function nextParticipantsValue(
+  map: SpeakerMapEntry[],
+  consultantName: string | undefined,
+  currentValue: string,
+  editedManually: boolean,
+): string {
+  if (editedManually) return currentValue;
+  return participantsFromSpeakerMap(map, consultantName) || currentValue;
 }
