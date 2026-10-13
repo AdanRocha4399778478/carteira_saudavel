@@ -55,6 +55,12 @@ describe("GATE 10A — review-blocks: classificação de verdict", () => {
     // Override manual do consultor ainda sobrepõe, igual ao POSSIBLE_DUPLICATE.
     expect(needsReview(item(0, "UPDATE_EXISTING", "update", true, "recurrence"))).toBe(false);
   });
+
+  test("item com foreignClientFlag (ver client-isolation-guard.ts) conta como 'requer revisão', mesmo com verdict NEW", () => {
+    expect(needsReview({ ...item(0, "NEW", "create", false), foreignClientFlag: true })).toBe(true);
+    // Override manual do consultor ainda sobrepõe, igual aos outros sinais.
+    expect(needsReview({ ...item(0, "NEW", "create", true), foreignClientFlag: true })).toBe(false);
+  });
 });
 
 describe("GATE 10A — contagem por bloco", () => {
@@ -139,6 +145,17 @@ describe("GATE 10A — Aplicar sugestões seguras / Aprovar bloco (applySafeReso
     expect(patch).toEqual({ 2: "create" });
     expect(patch).not.toHaveProperty("0");
     expect(patch).not.toHaveProperty("1");
+  });
+
+  test("nunca autoaprova item com foreignClientFlag, mesmo com verdict seguro (NEW)", () => {
+    const items: ReviewBlockItem<number>[] = [
+      { ...item(0, "NEW", "create", false), foreignClientFlag: true },
+      item(1, "NEW", "create", false),
+    ];
+    const patch = applySafeResolutions(items);
+    // Só o item sem foreignClientFlag recebe patch.
+    expect(patch).toEqual({ 1: "create" });
+    expect(patch).not.toHaveProperty("0");
   });
 
   test("itens já seguros mas com override diferente do default continuam preservados", () => {

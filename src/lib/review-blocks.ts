@@ -28,6 +28,8 @@ export type ReviewBlockItem<K extends string | number = string | number> = {
    * veredito de similaridade por si só seria seguro.
    */
   statusSignal?: StatusSignal;
+  /** Ver client-isolation-guard.ts — evidência/descrição sugere dado de OUTRO cliente. */
+  foreignClientFlag?: boolean;
 };
 
 export type ReviewBlockCounts = {
@@ -48,10 +50,16 @@ export type ReviewBlockCounts = {
  * melhor match, e isso também precisa de decisão explícita, nunca silenciosa.
  */
 export function needsReview(
-  item: Pick<ReviewBlockItem, "verdict" | "hasOverride" | "historyFlag" | "statusSignal">,
+  item: Pick<
+    ReviewBlockItem,
+    "verdict" | "hasOverride" | "historyFlag" | "statusSignal" | "foreignClientFlag"
+  >,
 ): boolean {
   return (
-    (item.verdict === "POSSIBLE_DUPLICATE" || !!item.historyFlag || !!item.statusSignal) &&
+    (item.verdict === "POSSIBLE_DUPLICATE" ||
+      !!item.historyFlag ||
+      !!item.statusSignal ||
+      !!item.foreignClientFlag) &&
     !item.hasOverride
   );
 }
@@ -108,8 +116,9 @@ export function formatBlockSummary(counts: ReviewBlockCounts): string {
  * consultor ainda não decidiu manualmente. Nunca toca em POSSIBLE_DUPLICATE,
  * em item com `historyFlag` (vencedor concluído/cancelado — ver `needsReview`),
  * em item com `statusSignal` (mudança de estado só por regex de linguagem
- * natural — ver `ReviewBlockItem.statusSignal`) nem em item com override —
- * devolve só o patch para itens realmente afetados.
+ * natural — ver `ReviewBlockItem.statusSignal`), em item com `foreignClientFlag`
+ * (ver client-isolation-guard.ts) nem em item com override — devolve só o
+ * patch para itens realmente afetados.
  */
 export function applySafeResolutions<K extends string | number>(
   items: ReviewBlockItem<K>[],
@@ -120,6 +129,7 @@ export function applySafeResolutions<K extends string | number>(
     if (!isSafeVerdict(item.verdict)) continue;
     if (item.historyFlag) continue;
     if (item.statusSignal) continue;
+    if (item.foreignClientFlag) continue;
     patch[item.key] = defaultModeForVerdict(item.verdict);
   }
   return patch;

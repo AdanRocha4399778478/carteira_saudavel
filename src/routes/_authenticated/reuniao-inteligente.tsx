@@ -1019,6 +1019,9 @@ function SmartMeetingPage() {
           const name = (clients.data ?? []).find((c) => c.id === meeting?.client_id)?.company_name;
           return name ? { clientName: name } : {};
         })()}
+        otherClientNames={(clients.data ?? [])
+          .filter((c) => c.id !== meeting?.client_id)
+          .map((c) => c.company_name)}
         opportunities={(opportunities.data ?? []).filter((o) => o.client_id === meeting?.client_id)}
         initialAnalysis={analysis}
         rawAiResponse={rawAiResponse}

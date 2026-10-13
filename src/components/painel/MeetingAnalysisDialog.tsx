@@ -56,6 +56,7 @@ import {
   type SemanticConsolidation,
 } from "@/lib/meeting-analysis";
 import { applySpeakerMapToAnalysis, toSpeakerMapEntries } from "@/lib/speaker-map";
+import { flagForeignClientItems } from "@/lib/client-isolation-guard";
 import {
   annotateOrigin,
   applyChronologyGuard,
@@ -190,6 +191,7 @@ function buildRow<T, K extends string | number>(
 function toReviewItems<K extends string | number>(
   rows: { key: K; match: DedupeMatch<unknown>; mode: ResolutionMode }[],
   sel: Record<K, ResolutionMode>,
+  foreignClientFlags?: Record<number, string>,
 ): ReviewBlockItem<K>[] {
   return rows.map((r) => ({
     key: r.key,
@@ -198,6 +200,7 @@ function toReviewItems<K extends string | number>(
     hasOverride: sel[r.key] !== undefined,
     historyFlag: r.match.historyFlag ?? null,
     statusSignal: r.match.statusSignal ?? null,
+    foreignClientFlag: foreignClientFlags?.[r.key as number] !== undefined,
   }));
 }
 
@@ -249,6 +252,7 @@ export function MeetingAnalysisDialog({
   clientMeetings = [],
   clientProjects = [],
   clientName,
+  otherClientNames = [],
   opportunities = [],
   initialAnalysis = null,
   rawAiResponse = null,
@@ -282,6 +286,8 @@ export function MeetingAnalysisDialog({
   clientProjects?: { id: string; name: string }[];
   /** Nome do cliente — só para o cabeçalho do relatório de duplicidade copiável. */
   clientName?: string;
+  /** Nome dos OUTROS clientes cadastrados — trava de isolamento (ver client-isolation-guard.ts). */
+  otherClientNames?: string[];
   /** Oportunidades do cliente — escopo da checagem antiduplicidade. */
   opportunities?: OpportunityItem[];
   /** Reuniões do projeto — restringe a busca de duplicidade ao escopo do projeto. */
@@ -603,16 +609,71 @@ export function MeetingAnalysisDialog({
     ],
   );
 
+  /* ---------------- trava de isolamento de cliente (client-isolation-guard.ts) ---------------- */
+
+  const decisionForeignFlags = useMemo(
+    () =>
+      flagForeignClientItems(
+        analysis?.decisions ?? [],
+        (d) => [d.title, d.description, d.reason],
+        clientName ?? "",
+        otherClientNames,
+      ),
+    [analysis, clientName, otherClientNames],
+  );
+  const actionForeignFlags = useMemo(
+    () =>
+      flagForeignClientItems(
+        analysis?.actions ?? [],
+        (a) => [a.description, a.evidence],
+        clientName ?? "",
+        otherClientNames,
+      ),
+    [analysis, clientName, otherClientNames],
+  );
+  const riskForeignFlags = useMemo(
+    () =>
+      flagForeignClientItems(
+        analysis?.risks ?? [],
+        (r) => [r.description, r.evidence],
+        clientName ?? "",
+        otherClientNames,
+      ),
+    [analysis, clientName, otherClientNames],
+  );
+  const oppForeignFlags = useMemo(
+    () =>
+      flagForeignClientItems(
+        analysis?.opportunities ?? [],
+        (o) => [o.description, o.evidence],
+        clientName ?? "",
+        otherClientNames,
+      ),
+    [analysis, clientName, otherClientNames],
+  );
+
   /* ---------------- GATE 10A — revisão em blocos ---------------- */
 
   const contextItemsByGroup = useMemo(
     () => contextRows.map((g) => ({ list: g.list, items: toReviewItems(g.rows, contextSel) })),
     [contextRows, contextSel],
   );
-  const decisionItems = useMemo(() => toReviewItems(decisionRows, decisionSel), [decisionRows, decisionSel]);
-  const actionItems = useMemo(() => toReviewItems(actionRows, actionSel), [actionRows, actionSel]);
-  const riskItems = useMemo(() => toReviewItems(riskRows, riskSel), [riskRows, riskSel]);
-  const oppItems = useMemo(() => toReviewItems(oppRows, oppSel), [oppRows, oppSel]);
+  const decisionItems = useMemo(
+    () => toReviewItems(decisionRows, decisionSel, decisionForeignFlags),
+    [decisionRows, decisionSel, decisionForeignFlags],
+  );
+  const actionItems = useMemo(
+    () => toReviewItems(actionRows, actionSel, actionForeignFlags),
+    [actionRows, actionSel, actionForeignFlags],
+  );
+  const riskItems = useMemo(
+    () => toReviewItems(riskRows, riskSel, riskForeignFlags),
+    [riskRows, riskSel, riskForeignFlags],
+  );
+  const oppItems = useMemo(
+    () => toReviewItems(oppRows, oppSel, oppForeignFlags),
+    [oppRows, oppSel, oppForeignFlags],
+  );
 
   const allReviewItems = useMemo(
     () => [
@@ -1615,6 +1676,7 @@ export function MeetingAnalysisDialog({
                         ].filter((d) => d.value)}
                         classification={r.item.classification}
                         row={r}
+                        foreignClientSnippet={decisionForeignFlags[r.key]}
                         onChange={(mode) => setDecisionSel((s) => ({ ...s, [r.key]: mode }))}
                       />
                     ))}
@@ -1652,6 +1714,7 @@ export function MeetingAnalysisDialog({
                         details={[{ label: "Área ERP", value: r.item.erp_area }].filter((d) => d.value)}
                         classification={r.item.classification}
                         row={r}
+                        foreignClientSnippet={actionForeignFlags[r.key]}
                         onChange={(mode) => setActionSel((s) => ({ ...s, [r.key]: mode }))}
                       />
                     ))}
@@ -1687,6 +1750,7 @@ export function MeetingAnalysisDialog({
                         ].filter((d) => d.value)}
                         classification={r.item.classification}
                         row={r}
+                        foreignClientSnippet={riskForeignFlags[r.key]}
                         onChange={(mode) => setRiskSel((s) => ({ ...s, [r.key]: mode }))}
                       />
                     ))}
@@ -1722,6 +1786,7 @@ export function MeetingAnalysisDialog({
                         details={[{ label: "Evidência", value: r.item.evidence }].filter((d) => d.value)}
                         classification={r.item.classification}
                         row={r}
+                        foreignClientSnippet={oppForeignFlags[r.key]}
                         onChange={(mode) => setOppSel((s) => ({ ...s, [r.key]: mode }))}
                       />
                     ))}
@@ -1909,12 +1974,15 @@ function ResolutionControls({
   resolution,
   mode,
   hasOverride,
+  foreignClientSnippet,
   onChange,
 }: {
   resolution: ItemResolution;
   mode: ResolutionMode;
   /** false = ainda não há escolha explícita do consultor para este item. */
   hasOverride: boolean;
+  /** Ver client-isolation-guard.ts — presente (mesmo vazio) quando o item está marcado. */
+  foreignClientSnippet?: string | undefined;
   onChange: (mode: ResolutionMode) => void;
 }) {
   const isPosterior = resolution.chronology === "posterior";
@@ -1941,6 +2009,12 @@ function ResolutionControls({
           {resolution.historyFlag === "recurrence" ? "Já concluído anteriormente" : "Cancelado/descartado anteriormente"}
           {resolution.candidateMeetingDate ? ` (${formatDate(resolution.candidateMeetingDate)})` : ""} — confirme antes de{" "}
           {resolution.historyFlag === "recurrence" ? "reabrir" : "recriar"}.
+        </p>
+      )}
+      {foreignClientSnippet !== undefined && (
+        <p className="text-xs text-muted-foreground">
+          Possível dado de outro cliente: confira a evidência antes de aprovar.
+          {foreignClientSnippet ? ` Trecho: "${foreignClientSnippet}"` : ""}
         </p>
       )}
       {unresolved && (
@@ -1985,6 +2059,7 @@ function ReviewRow({
   details,
   classification,
   row,
+  foreignClientSnippet,
   onChange,
 }: {
   primary: string;
@@ -1999,6 +2074,8 @@ function ReviewRow({
   details?: { label: string; value: string }[];
   classification: string;
   row: { match: DedupeMatch<unknown>; mode: ResolutionMode; resolution: ItemResolution; hasOverride: boolean };
+  /** Ver client-isolation-guard.ts — repassado direto a ResolutionControls, nunca via `resolution`. */
+  foreignClientSnippet?: string | undefined;
   onChange: (mode: ResolutionMode) => void;
 }) {
   return (
@@ -2032,6 +2109,7 @@ function ReviewRow({
             resolution={row.resolution}
             mode={row.mode}
             hasOverride={row.hasOverride}
+            foreignClientSnippet={foreignClientSnippet}
             onChange={onChange}
           />
         </div>
