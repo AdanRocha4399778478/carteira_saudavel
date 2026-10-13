@@ -37,6 +37,12 @@ import { isValidErpTriple } from "@/lib/erp-hierarchy";
 import { normalizeProjectProposal } from "@/lib/project-proposal";
 
 import { parseAnalysis, type MeetingAnalysis } from "@/lib/meeting-analysis";
+import {
+  applySpeakerMapToAnalysis,
+  participantsFromSpeakerMap,
+  type SpeakerMapEntry,
+} from "@/lib/speaker-map";
+import { SpeakerMapEditor } from "@/components/painel/SpeakerMapEditor";
 import { transcriptHash, transcriptKey } from "@/lib/transcript-fingerprint";
 import { analyzeMeetingWithAI } from "@/lib/intelligent-meeting.functions";
 import {
@@ -178,6 +184,11 @@ function SmartMeetingPage() {
   const [source, setSource] = useState<TranscriptSource | null>(null);
   const [showFullTranscript, setShowFullTranscript] = useState(false);
   const [analysis, setAnalysis] = useState<MeetingAnalysis | null>(null);
+  // Análise ORIGINAL da IA, sem reescrita de mapa — único ponto em que
+  // `analysis` nasce (runAnalysis.onSuccess); não há outro ponto no
+  // arquivo que zere/troque `analysis` a não ser createAndReview, que só
+  // aplica o mapa por cima, nunca substitui esta cópia.
+  const [originalAnalysis, setOriginalAnalysis] = useState<MeetingAnalysis | null>(null);
   const [rawAiResponse, setRawAiResponse] = useState<string | null>(null);
   const [ident, setIdent] = useState<Identification | null>(null);
   const [clientId, setClientId] = useState(preset.clientId ?? "");
@@ -194,6 +205,7 @@ function SmartMeetingPage() {
   const [meetingDate, setMeetingDate] = useState("");
   const [meetingType, setMeetingType] = useState<string>("");
   const [participants, setParticipants] = useState("");
+  const [speakerMap, setSpeakerMap] = useState<SpeakerMapEntry[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
 
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -385,6 +397,7 @@ function SmartMeetingPage() {
     onSuccess: ({ analysis: a, identification, rawAiResponse: rawResp }) => {
       setErrors([]);
       setAnalysis(a);
+      setOriginalAnalysis(a);
       setIdent(identification);
       setRawAiResponse(rawResp);
       // Confiança insuficiente não seleciona automaticamente — o consultor decide.
@@ -407,7 +420,23 @@ function SmartMeetingPage() {
           : new Date().toISOString().slice(0, 10),
       );
       setMeetingType(normalizeMeetingType(identification.meeting_type));
-      setParticipants(cleanParticipants(identification.participants.join(", ")));
+      // Mapa de falantes: a linha do consultor sem nome recebe o consultor
+      // logado, já como confiança "alta" (decisão já tomada, não é
+      // sugestão da IA). Participantes passa a vir do mapa, não mais só de
+      // identification.participants.
+      const consultantNameForMap = access?.profile?.full_name?.trim() || undefined;
+      const map: SpeakerMapEntry[] = a.speaker_map.map((s) =>
+        s.role === "consultor" && !s.name && consultantNameForMap
+          ? { ...s, name: consultantNameForMap, confidence: "alta", confirmed: true }
+          : { ...s, confirmed: false },
+      );
+      setSpeakerMap(map);
+      // Sem nome usável no mapa (vazio ou baixa confiança em tudo), cai no
+      // que a IA já tinha deduzido para identification.participants.
+      setParticipants(
+        participantsFromSpeakerMap(map, consultantNameForMap) ||
+          cleanParticipants(identification.participants.join(", ")),
+      );
       setStep("identificacao");
     },
     onError: (e: Error) => setErrors(e.message.split("\n")),
@@ -428,6 +457,13 @@ function SmartMeetingPage() {
       if (!clientId) throw new Error("Selecione o cliente da reunião.");
       if (!meetingType) throw new Error("Escolha o tipo da reunião.");
       if (!analysis) throw new Error("Nenhuma análise disponível.");
+
+      // "Gerar preview" é a confirmação do mapa de falantes (sem botão
+      // extra): aplica-o UMA vez aqui, SEMPRE a partir da análise ORIGINAL
+      // (nunca de uma já reescrita), para reabrir/editar o mapa e gerar de
+      // novo reaplicar do zero. Fallback para `analysis` só se a original
+      // nunca tiver sido preenchida.
+      const mappedAnalysis = applySpeakerMapToAnalysis(originalAnalysis ?? analysis, speakerMap);
 
       let target = clientProjects.find((p) => p.id === projectId) ?? null;
       if (!target) {
@@ -471,13 +507,14 @@ function SmartMeetingPage() {
       };
 
       const ctx = await ensureProjectContext(target.id);
-      return { project: target, context: ctx, info };
+      return { project: target, context: ctx, info, mappedAnalysis };
     },
-    onSuccess: ({ project: p, context: c, info }) => {
+    onSuccess: ({ project: p, context: c, info, mappedAnalysis }) => {
       setErrors([]);
       setProject(p);
       setContext(c);
       setDraftInfo(info);
+      setAnalysis(mappedAnalysis);
       setMeeting(
         normalizeMeeting({
           client_id: info.clientId,
@@ -485,7 +522,7 @@ function SmartMeetingPage() {
           meeting_date: info.meetingDate,
           meeting_type: info.meetingType,
           participants: info.participants,
-          executive_summary: analysis?.meeting.executive_summary ?? "",
+          executive_summary: mappedAnalysis.meeting.executive_summary ?? "",
         }),
       );
       setReviewOpen(true);
@@ -894,6 +931,13 @@ function SmartMeetingPage() {
               </div>
             </div>
 
+            <SpeakerMapEditor
+              label="Mapa de falantes"
+              description="Sugestão da IA de quem é cada falante da transcrição. Edite o nome ou o papel quando a sugestão estiver errada ou vazia."
+              items={speakerMap}
+              onChange={setSpeakerMap}
+            />
+
             {analysis?.meeting.executive_summary ? (
               <div className="rounded-lg bg-muted/50 p-3 text-sm">
                 <span className="font-semibold">Resumo executivo: </span>
@@ -975,6 +1019,9 @@ function SmartMeetingPage() {
           const name = (clients.data ?? []).find((c) => c.id === meeting?.client_id)?.company_name;
           return name ? { clientName: name } : {};
         })()}
+        otherClientNames={(clients.data ?? [])
+          .filter((c) => c.id !== meeting?.client_id)
+          .map((c) => c.company_name)}
         opportunities={(opportunities.data ?? []).filter((o) => o.client_id === meeting?.client_id)}
         initialAnalysis={analysis}
         rawAiResponse={rawAiResponse}

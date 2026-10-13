@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cleanParticipants, normalizeMeetingType } from "@/lib/identification-clean";
+import { cleanParticipants, isGenericSpeaker, normalizeMeetingType } from "@/lib/identification-clean";
 import { MEETING_TYPES } from "@/lib/domain";
 
 describe("normalizeMeetingType", () => {
@@ -54,5 +54,20 @@ describe("cleanParticipants", () => {
 
   test("'e' só separa quando um dos lados é genérico", () => {
     expect(cleanParticipants("Adan e Speaker 2")).toBe("Adan");
+  });
+});
+
+describe("isGenericSpeaker", () => {
+  test("reconhece Speaker/Falante/Participante seguido de número, com ou sem ponto final", () => {
+    expect(isGenericSpeaker("Speaker 1")).toBe(true);
+    expect(isGenericSpeaker("Speaker 1.")).toBe(true);
+    expect(isGenericSpeaker("Falante 2")).toBe(true);
+    expect(isGenericSpeaker("Participante 3")).toBe(true);
+    expect(isGenericSpeaker("Unknown")).toBe(true);
+  });
+
+  test("nome real não é reconhecido como rótulo genérico", () => {
+    expect(isGenericSpeaker("Adan")).toBe(false);
+    expect(isGenericSpeaker("Ana")).toBe(false);
   });
 });

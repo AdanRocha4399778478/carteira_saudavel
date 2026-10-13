@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { queryOptions } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase/client";
+import { applySpeakerMapToAnalysis, toSpeakerMapEntries } from "./speaker-map";
 import { logDbError, recalculateClient } from "./api";
 import { analyzeMeetingWithAI } from "./intelligent-meeting.functions";
 import {
@@ -334,6 +335,35 @@ const analysisSchema = z.object({
     .optional()
     .transform((v) => (Array.isArray(v) ? v.filter((o) => o.description.length > 0) : [])),
 
+  /**
+   * Mapa de falantes sugerido pela IA (rótulo -> nome real), usado só para
+   * reescrever rótulos genéricos nos campos de responsável (ver
+   * applySpeakerMapToAnalysis em speaker-map.ts) — nunca persistido como
+   * está aqui. role/confidence fora da lista esperada caem no fallback em
+   * vez de quebrar o parse (análises antigas sem este campo viram []).
+   */
+  speaker_map: z
+    .union([
+      z.array(
+        z.object({
+          label: txt,
+          name: txt,
+          role: z
+            .union([z.string(), z.null()])
+            .optional()
+            .transform((v) => (v === "consultor" || v === "cliente" ? v : "")),
+          confidence: z
+            .union([z.string(), z.null()])
+            .optional()
+            .transform((v) => (v === "alta" || v === "média" ? v : "baixa")),
+          evidence: txt,
+        }),
+      ),
+      z.null(),
+    ])
+    .optional()
+    .transform((v) => (Array.isArray(v) ? v.filter((s) => s.label.length > 0) : [])),
+
   agenda_recommendation: z
     .object({
       objective: txt,
@@ -608,7 +638,14 @@ const aiProvider: AnalysisProvider = {
     }
     const parsed = parseAnalysis((payload as Record<string, unknown>)["analysis"] ?? payload);
     if (!parsed.ok) return parsed;
-    return { ...parsed, rawAiResponse: result.rawAnalysisJson ?? null };
+    // Este caminho não passa pela edição humana do mapa de falantes (sem
+    // etapa de preview própria) — aplica direto o speaker_map que a própria
+    // IA devolveu, confiança alta/média, esvaziando o que não tiver mapa.
+    const cleaned = applySpeakerMapToAnalysis(
+      parsed.analysis,
+      toSpeakerMapEntries(parsed.analysis.speaker_map),
+    );
+    return { ...parsed, analysis: cleaned, rawAiResponse: result.rawAnalysisJson ?? null };
   },
 };
 

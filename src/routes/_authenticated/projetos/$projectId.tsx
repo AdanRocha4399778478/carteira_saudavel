@@ -895,6 +895,9 @@ function ProjectDetailPage() {
         clientMeetings={clientMeetings.data ?? []}
         clientProjects={clientProjectNames.data ?? []}
         {...(client.data?.company_name ? { clientName: client.data.company_name } : {})}
+        otherClientNames={(clients.data ?? [])
+          .filter((c) => c.id !== p.client_id)
+          .map((c) => c.company_name)}
         opportunities={(opportunities.data ?? []).filter((o) => o.client_id === p.client_id)}
         projectMeetingIds={(meetings.data ?? []).map((m) => m.id)}
       />
