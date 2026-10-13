@@ -1,5 +1,4 @@
 import type { SpeakerMapEntry } from "./speaker-map";
-import { similarity } from "./deduplication";
 
 /* ------------------------------------------------------------------ *
  * Sinalizações para revisão humana (nunca decide sozinho — ver
@@ -8,9 +7,6 @@ import { similarity } from "./deduplication";
  * E1) AÇÃO CONDICIONAL: ação do CLIENTE cujo texto indica opção ou
  *     condição da vontade de quem executa ("caso queira", "se preferir",
  *     "pode enviar"...). Nunca sinaliza ação do consultor.
- * E2) DECISÃO QUE REPETE AÇÃO: decisão com o mesmo conteúdo de uma ação
- *     da MESMA análise (por similaridade textual), exceto pendência
- *     condicionada ("Definir..."/"Decidir se...").
  *
  * Funções puras, sem import de servidor.
  * ------------------------------------------------------------------ */
@@ -71,43 +67,4 @@ export function isConditionalClientAction(
 ): boolean {
   if (!isConditionalActionText(description)) return false;
   return startsWithClientSubject(description) || isOwnerResolvedToClientRole(ownerName, speakerMap);
-}
-
-const EXCLUDED_DECISION_TITLE_PREFIXES = [/^definir\b/, /^decidir\s+se\b/];
-
-/**
- * calibrado com casos reais em que a similaridade textual entre decisão e
- * ação repetida ficou entre 0,37 e 0,67, e entre decisões e ações sem
- * relação, até 0,20; valor provisório.
- */
-export const REPEATED_ACTION_THRESHOLD = 0.3;
-
-/**
- * E2: decisão que repete o conteúdo de alguma ação da MESMA análise. Usa
- * REPEATED_ACTION_THRESHOLD (próprio, calibrado com casos reais) — NUNCA
- * DEDUPE_THRESHOLDS.review, que é do sistema antiduplicidade entre
- * reuniões, não entre decisão e ação da mesma análise. Exclui pendência
- * condicionada ("Definir...", "Decidir se..." — decisão e ação têm
- * conteúdos diferentes nesse caso). Devolve o texto da ação repetida, ou
- * null se não encontrar.
- */
-export function findRepeatedActionForDecision(
-  decisionTitle: string,
-  decisionDescription: string | null,
-  actionDescriptions: string[],
-  threshold: number = REPEATED_ACTION_THRESHOLD,
-): string | null {
-  const normTitle = normalize(decisionTitle.trim());
-  if (EXCLUDED_DECISION_TITLE_PREFIXES.some((p) => p.test(normTitle))) return null;
-
-  const decisionText = [decisionTitle, decisionDescription ?? ""].filter(Boolean).join(" ").trim();
-  if (!decisionText) return null;
-
-  let best: { text: string; score: number } | null = null;
-  for (const actionText of actionDescriptions) {
-    if (!actionText.trim()) continue;
-    const score = similarity(decisionText, actionText);
-    if (score >= threshold && (!best || score > best.score)) best = { text: actionText, score };
-  }
-  return best ? best.text : null;
 }

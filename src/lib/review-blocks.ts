@@ -32,8 +32,6 @@ export type ReviewBlockItem<K extends string | number = string | number> = {
   foreignClientFlag?: boolean;
   /** Ver decision-action-flags.ts (E1) — ação do cliente com texto condicional ("caso queira"...). */
   conditionalActionFlag?: boolean;
-  /** Ver decision-action-flags.ts (E2) — decisão com o mesmo conteúdo de uma ação da mesma análise. */
-  repeatsActionFlag?: boolean;
 };
 
 export type ReviewBlockCounts = {
@@ -62,7 +60,6 @@ export function needsReview(
     | "statusSignal"
     | "foreignClientFlag"
     | "conditionalActionFlag"
-    | "repeatsActionFlag"
   >,
 ): boolean {
   return (
@@ -70,8 +67,7 @@ export function needsReview(
       !!item.historyFlag ||
       !!item.statusSignal ||
       !!item.foreignClientFlag ||
-      !!item.conditionalActionFlag ||
-      !!item.repeatsActionFlag) &&
+      !!item.conditionalActionFlag) &&
     !item.hasOverride
   );
 }
@@ -143,7 +139,6 @@ export function applySafeResolutions<K extends string | number>(
     if (item.statusSignal) continue;
     if (item.foreignClientFlag) continue;
     if (item.conditionalActionFlag) continue;
-    if (item.repeatsActionFlag) continue;
     patch[item.key] = defaultModeForVerdict(item.verdict);
   }
   return patch;
