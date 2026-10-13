@@ -122,6 +122,41 @@ describe("GATE 12 — classificação action-first (10, 11, 12, 13, 14)", () => 
   });
 });
 
+describe("GATE 12 — 'acompanhar/monitorar a evolução' é estratégico (caso estreito, decisão do dono)", () => {
+  test("'Acompanhar a evolução do estoque nos próximos ciclos' é estratégico (exemplo de next_step da própria regra do prompt)", () => {
+    expect(classifyExecutionItem("Acompanhar a evolução do estoque nos próximos ciclos")).toBe(
+      "strategic",
+    );
+  });
+
+  test("'Monitorar a evolução das vendas' é estratégico", () => {
+    expect(classifyExecutionItem("Monitorar a evolução das vendas")).toBe("strategic");
+  });
+
+  test("'Analisar a evolução das vendas e enviar o relatório' NÃO é estratégico (outro verbo operacional presente — comportamento atual mantido)", () => {
+    expect(classifyExecutionItem("Analisar a evolução das vendas e enviar o relatório")).not.toBe(
+      "strategic",
+    );
+  });
+
+  test("'Enviar o relatório de vendas' continua inalterado (executável, sem marcador estratégico)", () => {
+    expect(classifyExecutionItem("Enviar o relatório de vendas")).toBe("executable");
+  });
+
+  test("'Acompanhar a evolução...' continua contando em strategicNextSteps+pendingNextSteps (próximo passo não se perde)", () => {
+    const result = normalizeExecutionItems<string, string>(
+      ["Acompanhar a evolução do estoque nos próximos ciclos"],
+      (s) => s,
+      [],
+      (a) => a,
+      (s) => s,
+    );
+    expect(result.strategicNextSteps).toEqual(["Acompanhar a evolução do estoque nos próximos ciclos"]);
+    expect(result.pendingNextSteps).toEqual([]);
+    expect(result.proposedActions).toEqual([]);
+  });
+});
+
 describe("GATE 12 — action-first: next_steps -> actions (5, 6, 7, 8, 9)", () => {
   test("next_step executável sem action correspondente gera action proposta", () => {
     const result = normalizeExecutionItems<string, string>(

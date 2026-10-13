@@ -148,10 +148,39 @@ const EXECUTABLE_VERB_STEMS = [
  * Marcadores de continuidade/estratégia: presença forte de "sem fim
  * definido", contínuo entre reuniões — não é uma tarefa que se conclui uma
  * vez. Downgrade para "ambiguous" mesmo com verbo operacional (ex.:
- * "acompanhar evolução da saúde financeira ao longo dos próximos ciclos").
+ * "acompanhar evolução da saúde financeira ao longo dos próximos ciclos")
+ * — EXCETO o caso estreito de MONITORING_MARKER_RE abaixo, que vira
+ * "strategic" direto (ver classifyExecutionItem).
  */
 const STRATEGIC_MARKER_RE =
   /\b(ao longo|evolu[cç][aã]o|tendenci|em geral|continuamente|de forma continua|proximos ciclos|manter o foco|no dia a dia)\b/;
+
+/**
+ * Caso estreito (decisão do dono): "acompanhar/monitorar a evolução de X"
+ * é puramente estratégico, nunca executável nem pendente — mesmo exemplo
+ * que o próprio SYSTEM_PROMPT usa para next_steps. Só estes dois
+ * radicais de verbo (nunca ampliar) + a palavra "evolução"/"evolucao".
+ * Radicais de monitoramento SEPARADOS de EXECUTABLE_VERB_STEMS: "acompanh"
+ * já está na lista geral (não removido de lá — continua contando como
+ * verbo operacional para o resto da função); "monitor" NÃO está na lista
+ * geral e não é adicionado nela, para não virar "executable" sozinho em
+ * nenhum outro texto sem "evolução".
+ */
+const MONITORING_VERB_STEMS = ["acompanh", "monitor"];
+const EVOLUTION_MARKER_RE = /\bevolu[cç][aã]o\b/;
+
+/**
+ * true quando o(s) único(s) radical(is) de verbo operacional encontrado(s)
+ * no texto (dentre EXECUTABLE_VERB_STEMS ∪ MONITORING_VERB_STEMS) pertence
+ * só a MONITORING_VERB_STEMS — nenhum OUTRO verbo operacional (enviar,
+ * preparar, analisar, entregar, revisar...) presente no mesmo texto.
+ */
+function hasOnlyMonitoringVerb(words: string[]): boolean {
+  const otherStems = EXECUTABLE_VERB_STEMS.filter((stem) => !MONITORING_VERB_STEMS.includes(stem));
+  const hasOtherOperationalVerb = otherStems.some((stem) => words.some((w) => w.startsWith(stem)));
+  if (hasOtherOperationalVerb) return false;
+  return MONITORING_VERB_STEMS.some((stem) => words.some((w) => w.startsWith(stem)));
+}
 
 /**
  * Objeto abstrato/conceitual (não uma tarefa concreta e limitada) — ex.:
@@ -172,7 +201,10 @@ export function classifyExecutionItem(text: string): ExecutionClassification {
   const words = t.split(" ");
   const hasOperationalVerb = EXECUTABLE_VERB_STEMS.some((stem) => words.some((w) => w.startsWith(stem)));
   if (!hasOperationalVerb) return "strategic";
-  if (STRATEGIC_MARKER_RE.test(t)) return "ambiguous";
+  if (STRATEGIC_MARKER_RE.test(t)) {
+    if (EVOLUTION_MARKER_RE.test(t) && hasOnlyMonitoringVerb(words)) return "strategic";
+    return "ambiguous";
+  }
   if (ABSTRACT_OBJECT_RE.test(t)) return "ambiguous";
   return "executable";
 }
