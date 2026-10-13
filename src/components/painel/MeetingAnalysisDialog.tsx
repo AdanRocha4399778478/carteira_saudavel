@@ -58,6 +58,10 @@ import {
 import { applySpeakerMapToAnalysis, toSpeakerMapEntries } from "@/lib/speaker-map";
 import { flagForeignClientItems } from "@/lib/client-isolation-guard";
 import {
+  findRepeatedActionForDecision,
+  isConditionalClientAction,
+} from "@/lib/decision-action-flags";
+import {
   annotateOrigin,
   applyChronologyGuard,
   chronologyOf,
@@ -192,6 +196,8 @@ function toReviewItems<K extends string | number>(
   rows: { key: K; match: DedupeMatch<unknown>; mode: ResolutionMode }[],
   sel: Record<K, ResolutionMode>,
   foreignClientFlags?: Record<number, string>,
+  conditionalActionFlags?: Record<number, true>,
+  repeatsActionFlags?: Record<number, string>,
 ): ReviewBlockItem<K>[] {
   return rows.map((r) => ({
     key: r.key,
@@ -201,6 +207,8 @@ function toReviewItems<K extends string | number>(
     historyFlag: r.match.historyFlag ?? null,
     statusSignal: r.match.statusSignal ?? null,
     foreignClientFlag: foreignClientFlags?.[r.key as number] !== undefined,
+    conditionalActionFlag: conditionalActionFlags?.[r.key as number] !== undefined,
+    repeatsActionFlag: repeatsActionFlags?.[r.key as number] !== undefined,
   }));
 }
 
@@ -652,6 +660,34 @@ export function MeetingAnalysisDialog({
     [analysis, clientName, otherClientNames],
   );
 
+  /* ---------------- E1/E2 — decisão-ou-ação (decision-action-flags.ts) ---------------- */
+
+  const speakerMapEntries = useMemo(
+    () => (analysis ? toSpeakerMapEntries(analysis.speaker_map) : []),
+    [analysis],
+  );
+
+  /** E1: ação do cliente cujo texto indica opção/condição da vontade de quem executa. */
+  const actionConditionalFlags = useMemo(() => {
+    const result: Record<number, true> = {};
+    (analysis?.actions ?? []).forEach((a, i) => {
+      if (isConditionalClientAction(a.description, a.owner_name, speakerMapEntries))
+        result[i] = true;
+    });
+    return result;
+  }, [analysis, speakerMapEntries]);
+
+  /** E2: decisão com o mesmo conteúdo de uma ação da mesma análise (nunca a ação). */
+  const decisionRepeatsActionFlags = useMemo(() => {
+    const result: Record<number, string> = {};
+    const actionDescriptions = (analysis?.actions ?? []).map((a) => a.description);
+    (analysis?.decisions ?? []).forEach((d, i) => {
+      const repeated = findRepeatedActionForDecision(d.title, d.description, actionDescriptions);
+      if (repeated) result[i] = repeated;
+    });
+    return result;
+  }, [analysis?.decisions, analysis?.actions]);
+
   /* ---------------- GATE 10A — revisão em blocos ---------------- */
 
   const contextItemsByGroup = useMemo(
@@ -659,12 +695,19 @@ export function MeetingAnalysisDialog({
     [contextRows, contextSel],
   );
   const decisionItems = useMemo(
-    () => toReviewItems(decisionRows, decisionSel, decisionForeignFlags),
-    [decisionRows, decisionSel, decisionForeignFlags],
+    () =>
+      toReviewItems(
+        decisionRows,
+        decisionSel,
+        decisionForeignFlags,
+        undefined,
+        decisionRepeatsActionFlags,
+      ),
+    [decisionRows, decisionSel, decisionForeignFlags, decisionRepeatsActionFlags],
   );
   const actionItems = useMemo(
-    () => toReviewItems(actionRows, actionSel, actionForeignFlags),
-    [actionRows, actionSel, actionForeignFlags],
+    () => toReviewItems(actionRows, actionSel, actionForeignFlags, actionConditionalFlags),
+    [actionRows, actionSel, actionForeignFlags, actionConditionalFlags],
   );
   const riskItems = useMemo(
     () => toReviewItems(riskRows, riskSel, riskForeignFlags),
@@ -1677,6 +1720,7 @@ export function MeetingAnalysisDialog({
                         classification={r.item.classification}
                         row={r}
                         foreignClientSnippet={decisionForeignFlags[r.key]}
+                        repeatsActionSnippet={decisionRepeatsActionFlags[r.key]}
                         onChange={(mode) => setDecisionSel((s) => ({ ...s, [r.key]: mode }))}
                       />
                     ))}
@@ -1715,6 +1759,7 @@ export function MeetingAnalysisDialog({
                         classification={r.item.classification}
                         row={r}
                         foreignClientSnippet={actionForeignFlags[r.key]}
+                        conditionalActionFlag={actionConditionalFlags[r.key] !== undefined}
                         onChange={(mode) => setActionSel((s) => ({ ...s, [r.key]: mode }))}
                       />
                     ))}
@@ -1975,6 +2020,8 @@ function ResolutionControls({
   mode,
   hasOverride,
   foreignClientSnippet,
+  conditionalActionFlag,
+  repeatsActionSnippet,
   onChange,
 }: {
   resolution: ItemResolution;
@@ -1983,6 +2030,10 @@ function ResolutionControls({
   hasOverride: boolean;
   /** Ver client-isolation-guard.ts — presente (mesmo vazio) quando o item está marcado. */
   foreignClientSnippet?: string | undefined;
+  /** Ver decision-action-flags.ts (E1) — ação condicional do cliente. */
+  conditionalActionFlag?: boolean | undefined;
+  /** Ver decision-action-flags.ts (E2) — texto curto da ação repetida pela decisão. */
+  repeatsActionSnippet?: string | undefined;
   onChange: (mode: ResolutionMode) => void;
 }) {
   const isPosterior = resolution.chronology === "posterior";
@@ -2016,6 +2067,12 @@ function ResolutionControls({
           Possível dado de outro cliente: confira a evidência antes de aprovar.
           {foreignClientSnippet ? ` Trecho: "${foreignClientSnippet}"` : ""}
         </p>
+      )}
+      {conditionalActionFlag && (
+        <p className="text-xs text-muted-foreground">ação condicional: revise.</p>
+      )}
+      {repeatsActionSnippet !== undefined && (
+        <p className="text-xs text-muted-foreground">repete a ação: "{repeatsActionSnippet}"</p>
       )}
       {unresolved && (
         <p className="text-xs font-medium text-destructive">Escolha uma opção antes de aprovar.</p>
@@ -2060,6 +2117,8 @@ function ReviewRow({
   classification,
   row,
   foreignClientSnippet,
+  conditionalActionFlag,
+  repeatsActionSnippet,
   onChange,
 }: {
   primary: string;
@@ -2076,6 +2135,10 @@ function ReviewRow({
   row: { match: DedupeMatch<unknown>; mode: ResolutionMode; resolution: ItemResolution; hasOverride: boolean };
   /** Ver client-isolation-guard.ts — repassado direto a ResolutionControls, nunca via `resolution`. */
   foreignClientSnippet?: string | undefined;
+  /** Ver decision-action-flags.ts (E1) — repassado direto a ResolutionControls. */
+  conditionalActionFlag?: boolean | undefined;
+  /** Ver decision-action-flags.ts (E2) — repassado direto a ResolutionControls. */
+  repeatsActionSnippet?: string | undefined;
   onChange: (mode: ResolutionMode) => void;
 }) {
   return (
@@ -2110,6 +2173,8 @@ function ReviewRow({
             mode={row.mode}
             hasOverride={row.hasOverride}
             foreignClientSnippet={foreignClientSnippet}
+            conditionalActionFlag={conditionalActionFlag}
+            repeatsActionSnippet={repeatsActionSnippet}
             onChange={onChange}
           />
         </div>

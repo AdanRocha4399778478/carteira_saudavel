@@ -30,6 +30,10 @@ export type ReviewBlockItem<K extends string | number = string | number> = {
   statusSignal?: StatusSignal;
   /** Ver client-isolation-guard.ts — evidência/descrição sugere dado de OUTRO cliente. */
   foreignClientFlag?: boolean;
+  /** Ver decision-action-flags.ts (E1) — ação do cliente com texto condicional ("caso queira"...). */
+  conditionalActionFlag?: boolean;
+  /** Ver decision-action-flags.ts (E2) — decisão com o mesmo conteúdo de uma ação da mesma análise. */
+  repeatsActionFlag?: boolean;
 };
 
 export type ReviewBlockCounts = {
@@ -52,14 +56,22 @@ export type ReviewBlockCounts = {
 export function needsReview(
   item: Pick<
     ReviewBlockItem,
-    "verdict" | "hasOverride" | "historyFlag" | "statusSignal" | "foreignClientFlag"
+    | "verdict"
+    | "hasOverride"
+    | "historyFlag"
+    | "statusSignal"
+    | "foreignClientFlag"
+    | "conditionalActionFlag"
+    | "repeatsActionFlag"
   >,
 ): boolean {
   return (
     (item.verdict === "POSSIBLE_DUPLICATE" ||
       !!item.historyFlag ||
       !!item.statusSignal ||
-      !!item.foreignClientFlag) &&
+      !!item.foreignClientFlag ||
+      !!item.conditionalActionFlag ||
+      !!item.repeatsActionFlag) &&
     !item.hasOverride
   );
 }
@@ -130,6 +142,8 @@ export function applySafeResolutions<K extends string | number>(
     if (item.historyFlag) continue;
     if (item.statusSignal) continue;
     if (item.foreignClientFlag) continue;
+    if (item.conditionalActionFlag) continue;
+    if (item.repeatsActionFlag) continue;
     patch[item.key] = defaultModeForVerdict(item.verdict);
   }
   return patch;
