@@ -294,6 +294,11 @@ function SmartMeetingPage() {
     [projects.data, projectId],
   );
   const contextKnown = !!preset.clientId && clientId === preset.clientId;
+  /** Sugestão não vinculante da IA para o tipo — o campo nunca é preenchido sozinho. */
+  const suggestedMeetingType = useMemo(
+    () => (ident ? normalizeMeetingType(ident.meeting_type) : ""),
+    [ident],
+  );
 
   /**
    * Aviso antiduplicidade antes de propor um novo projeto. Nomes gerados por
@@ -419,7 +424,8 @@ function SmartMeetingPage() {
           ? identification.meeting_date
           : new Date().toISOString().slice(0, 10),
       );
-      setMeetingType(normalizeMeetingType(identification.meeting_type));
+      // Tipo da reunião NUNCA é preenchido automaticamente pela IA — fica só
+      // como sugestão não vinculante ao lado do campo (ver suggestedMeetingType).
       // Mapa de falantes: a linha do consultor sem nome recebe o consultor
       // logado, já como confiança "alta" (decisão já tomada, não é
       // sugestão da IA). Participantes passa a vir do mapa, não mais só de
@@ -917,6 +923,20 @@ function SmartMeetingPage() {
                 {!meetingType ? (
                   <p className="text-xs text-muted-foreground">
                     Obrigatório: escolha o tipo da reunião.
+                  </p>
+                ) : null}
+                {suggestedMeetingType ? (
+                  <p className="text-xs text-muted-foreground">
+                    IA sugere: {suggestedMeetingType}{" "}
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 align-baseline"
+                      onClick={() => setMeetingType(suggestedMeetingType)}
+                    >
+                      Usar
+                    </Button>
                   </p>
                 ) : null}
               </div>
