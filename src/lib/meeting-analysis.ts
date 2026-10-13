@@ -2,6 +2,7 @@ import { z } from "zod";
 import { queryOptions } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase/client";
 import { applySpeakerMapToAnalysis, toSpeakerMapEntries } from "./speaker-map";
+import { initialDecisionStatus } from "./decision-status";
 import { logDbError, recalculateClient } from "./api";
 import { analyzeMeetingWithAI } from "./intelligent-meeting.functions";
 import {
@@ -1316,7 +1317,7 @@ export async function applyApprovedAnalysis(params: {
         reason: d.reason || null,
         owner: d.owner || null,
         due_date: d.due_date || null,
-        status: "pendente",
+        status: initialDecisionStatus(d.title),
         created_by: userId,
         supersedes_decision_id: supersedesId,
         embedding: d.embedding ?? null,
