@@ -279,7 +279,7 @@ describe("GATE 12B.1 — Action First preservado (8, 13, 14, 15, 16)", () => {
         context_updates: {
           objectives: [], problems: [], root_causes: [], priorities: [], hypotheses: [], constraints: [], results: [],
           next_steps: [
-            { content: "Acompanhar a evolução da saúde financeira ao longo dos próximos ciclos", classification: "suggestion", __embedding: unit(0) },
+            { content: "Analisar a evolução da saúde financeira ao longo dos próximos ciclos", classification: "suggestion", __embedding: unit(0) },
           ],
         },
         decisions: [], actions: [], risks: [], opportunities: [],
@@ -288,6 +288,30 @@ describe("GATE 12B.1 — Action First preservado (8, 13, 14, 15, 16)", () => {
     const { quality } = consolidateAnalysisSemantically(raw);
     expect(quality.pendingWithoutAction).toBe(1);
     expect(quality.proposedActions).toBe(0);
+  });
+
+  test("'acompanhar/monitorar a evolução', caso estreito da Parte 2: não conta em pendingWithoutAction, permanece como próximo passo estratégico", () => {
+    const raw = {
+      identification: {},
+      analysis: {
+        context_updates: {
+          objectives: [], problems: [], root_causes: [], priorities: [], hypotheses: [], constraints: [], results: [],
+          next_steps: [
+            { content: "Acompanhar a evolução da saúde financeira ao longo dos próximos ciclos", classification: "suggestion", __embedding: unit(0) },
+          ],
+        },
+        decisions: [], actions: [], risks: [], opportunities: [],
+      },
+    };
+    const { result, quality } = consolidateAnalysisSemantically(raw);
+    expect(quality.pendingWithoutAction).toBe(0);
+    expect(quality.proposedActions).toBe(0);
+    expect(quality.pendingNextSteps).toEqual([]);
+    const nextSteps = (result as { analysis: { context_updates: { next_steps: { content: string }[] } } })
+      .analysis.context_updates.next_steps;
+    expect(nextSteps.map((s) => s.content)).toContain(
+      "Acompanhar a evolução da saúde financeira ao longo dos próximos ciclos",
+    );
   });
 
   test("nenhum owner/prazo inventado ao promover next_step executável em action", () => {

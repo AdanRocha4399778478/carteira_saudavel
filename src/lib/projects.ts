@@ -476,6 +476,25 @@ export function classifyProjectMatch(name: string, candidates: Project[]): Proje
   return { kind: "NEW_PROJECT", existing: null, confidence: match.confidence, reason: "" };
 }
 
+/**
+ * Decide se o aviso de projeto semelhante/já existente deve aparecer na
+ * tela. Falso (sem aviso) quando o projeto encontrado por
+ * `classifyProjectMatch` é EXATAMENTE o que o preview atual já criou ou
+ * reaproveitou (`previewProjectId`) — nesse caso o aviso é enganoso, pois
+ * não há duplicidade real: a aprovação usa esse mesmo projeto, nunca cria
+ * outro. Sem projeto do preview ainda (`previewProjectId` null/vazio),
+ * continua mostrando como hoje.
+ */
+export function shouldShowProjectMatchWarning(
+  matchKind: ProjectMatchKind,
+  matchExistingId: string | null | undefined,
+  previewProjectId: string | null | undefined,
+): boolean {
+  if (matchKind === "NEW_PROJECT") return false;
+  if (previewProjectId && matchExistingId === previewProjectId) return false;
+  return true;
+}
+
 export type GetOrCreateProjectResult = { project_id: string; reused: boolean; reason: string };
 
 /**

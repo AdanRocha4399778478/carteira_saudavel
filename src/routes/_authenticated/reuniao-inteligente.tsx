@@ -29,6 +29,7 @@ import {
   ensureProjectContext,
   getOrCreateProjectErp,
   projectsQuery,
+  shouldShowProjectMatchWarning,
   type Project,
   type ProjectContext,
 } from "@/lib/projects";
@@ -464,6 +465,11 @@ function SmartMeetingPage() {
       // Nova análise: a edição manual de Participantes da reunião anterior
       // não deve bloquear o acompanhamento reativo desta (ver B3 abaixo).
       setParticipantsEditedManually(false);
+      // Projeto/draftInfo do preview anterior não valem para esta nova
+      // análise — sem isso, a supressão do aviso de projeto já existente
+      // (por id) ficaria presa ao projeto da reunião anterior.
+      setProject(null);
+      setDraftInfo(null);
       setStep("identificacao");
     },
     onError: (e: Error) => setErrors(e.message.split("\n")),
@@ -881,7 +887,12 @@ function SmartMeetingPage() {
               </div>
             ) : null}
 
-            {!projectId && projectMatch.kind !== "NEW_PROJECT" ? (
+            {!projectId &&
+            shouldShowProjectMatchWarning(
+              projectMatch.kind,
+              projectMatch.existing?.id,
+              project?.id,
+            ) ? (
               <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
                 <p className="font-medium">
                   {projectMatch.kind === "EXACT_MATCH"
