@@ -2,7 +2,7 @@ import { z } from "zod";
 import { queryOptions } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase/client";
 import { applySpeakerMapToAnalysis, toSpeakerMapEntries } from "./speaker-map";
-import { initialDecisionStatus } from "./decision-status";
+import { resolveNewActionStatus, resolveNewDecisionStatus } from "./regra-b";
 import { logDbError, recalculateClient } from "./api";
 import { analyzeMeetingWithAI } from "./intelligent-meeting.functions";
 import {
@@ -1002,6 +1002,8 @@ export type ApprovedSelection = {
     due_date: string;
     resolution?: ItemResolution;
     embedding?: number[] | null;
+    /** Regra B — caixa "Concluída" da tela; só tem efeito quando a resolução é "Criar novo". */
+    completed?: boolean;
   }[];
   actions: {
     description: string;
@@ -1012,6 +1014,8 @@ export type ApprovedSelection = {
     evidence: string;
     resolution?: ItemResolution;
     embedding?: number[] | null;
+    /** Regra B — caixa "Concluída" da tela; só tem efeito quando a resolução é "Criar novo". */
+    completed?: boolean;
   }[];
   risks: { description: string; level: string; resolution?: ItemResolution; embedding?: number[] | null }[];
   opportunities: {
@@ -1317,7 +1321,8 @@ export async function applyApprovedAnalysis(params: {
         reason: d.reason || null,
         owner: d.owner || null,
         due_date: d.due_date || null,
-        status: initialDecisionStatus(d.title),
+        // Regra B: caixa "Concluída" marcada (prazo vencido ou override manual) => "implementada".
+        status: resolveNewDecisionStatus(d.completed === true, d.title),
         created_by: userId,
         supersedes_decision_id: supersedesId,
         embedding: d.embedding ?? null,
@@ -1436,7 +1441,8 @@ export async function applyApprovedAnalysis(params: {
         owner_name: a.owner_name || null,
         deadline: a.deadline || null,
         priority: a.priority || "média",
-        status: "não iniciada",
+        // Regra B: caixa "Concluída" marcada (prazo vencido ou override manual) => "concluída".
+        status: resolveNewActionStatus(a.completed === true),
         erp_area: a.erp_area || null,
         embedding: a.embedding ?? null,
         evidence: a.evidence || null,
