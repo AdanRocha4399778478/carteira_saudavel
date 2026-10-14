@@ -284,7 +284,7 @@ describe("B2 — fillActionOwnerByRole", () => {
     expect(result[0]!.owner_name).toBe("");
   });
 
-  test("'Consultor irá...' não é tocado (fora do escopo de B2, só 'deve')", () => {
+  test("'Consultor irá...' agora é reconhecido (qualquer verbo, não só 'deve')", () => {
     const map = [
       entry({ label: "Speaker 2", role: "consultor", name: "Adan Rocha", confidence: "alta" }),
     ];
@@ -292,7 +292,7 @@ describe("B2 — fillActionOwnerByRole", () => {
       [action({ description: "Consultor irá preparar a proposta" })],
       map,
     );
-    expect(result[0]!.owner_name).toBe("");
+    expect(result[0]!.owner_name).toBe("Adan Rocha");
   });
 
   test("nunca altera o texto da descrição, só o owner_name", () => {
@@ -331,10 +331,7 @@ describe("B2 — fillActionOwnerByRole", () => {
     expect(result[0]!.owner_name).toBe("Ana");
   });
 
-  // Limitação conhecida, documentada sem alterar a regex (CLIENT_DEVE_PREFIX
-  // exige o início exato "cliente deve" — "O cliente deve"/"A cliente deve"
-  // têm uma palavra antes de "cliente" e por isso NÃO casam hoje).
-  test("'O cliente deve...' e 'A cliente deve...' não são reconhecidos (limitação conhecida, owner continua vazio)", () => {
+  test("'O cliente deve...' e 'A cliente deve...' agora são reconhecidos", () => {
     const map = [entry({ label: "Speaker 1", role: "cliente", name: "Ana", confidence: "alta" })];
     const resultO = fillActionOwnerByRole(
       [action({ description: "O cliente deve enviar o catálogo até sexta" })],
@@ -344,8 +341,87 @@ describe("B2 — fillActionOwnerByRole", () => {
       [action({ description: "A cliente deve enviar o catálogo até sexta" })],
       map,
     );
-    expect(resultO[0]!.owner_name).toBe("");
-    expect(resultA[0]!.owner_name).toBe("");
+    expect(resultO[0]!.owner_name).toBe("Ana");
+    expect(resultA[0]!.owner_name).toBe("Ana");
+  });
+});
+
+describe("B2 — fillActionOwnerByRole com qualquer verbo (decisão do dono, não só 'deve')", () => {
+  function action(overrides: { description: string; owner_name?: string }) {
+    return { description: overrides.description, owner_name: overrides.owner_name ?? "" };
+  }
+
+  test("'Cliente envia o catálogo' com uma entrada de cliente: preenche com o nome", () => {
+    const map = [entry({ label: "Speaker 1", role: "cliente", name: "Ana", confidence: "alta" })];
+    const result = fillActionOwnerByRole([action({ description: "Cliente envia o catálogo" })], map);
+    expect(result[0]!.owner_name).toBe("Ana");
+  });
+
+  test("'O cliente levanta os dados': preenche com o nome", () => {
+    const map = [entry({ label: "Speaker 1", role: "cliente", name: "Ana", confidence: "alta" })];
+    const result = fillActionOwnerByRole(
+      [action({ description: "O cliente levanta os dados" })],
+      map,
+    );
+    expect(result[0]!.owner_name).toBe("Ana");
+  });
+
+  test("'Consultor prepara a planilha': preenche com o nome", () => {
+    const map = [
+      entry({ label: "Speaker 2", role: "consultor", name: "Adan Rocha", confidence: "alta" }),
+    ];
+    const result = fillActionOwnerByRole(
+      [action({ description: "Consultor prepara a planilha" })],
+      map,
+    );
+    expect(result[0]!.owner_name).toBe("Adan Rocha");
+  });
+
+  test("dois clientes no mapa: owner continua vazio (ambíguo)", () => {
+    const map = [
+      entry({ label: "Speaker 1", role: "cliente", name: "Ana", confidence: "alta" }),
+      entry({ label: "Speaker 3", role: "cliente", name: "Beto", confidence: "média" }),
+    ];
+    const result = fillActionOwnerByRole([action({ description: "Cliente envia o catálogo" })], map);
+    expect(result[0]!.owner_name).toBe("");
+  });
+
+  test("confiança baixa na única entrada: owner continua vazio", () => {
+    const map = [entry({ label: "Speaker 1", role: "cliente", name: "Ana", confidence: "baixa" })];
+    const result = fillActionOwnerByRole([action({ description: "Cliente envia o catálogo" })], map);
+    expect(result[0]!.owner_name).toBe("");
+  });
+
+  test("'Cliente e consultor definem o prazo': ambíguo, owner continua vazio pros dois papéis", () => {
+    const mapCliente = [entry({ label: "Speaker 1", role: "cliente", name: "Ana", confidence: "alta" })];
+    const mapConsultor = [
+      entry({ label: "Speaker 2", role: "consultor", name: "Adan Rocha", confidence: "alta" }),
+    ];
+    const resultCliente = fillActionOwnerByRole(
+      [action({ description: "Cliente e consultor definem o prazo" })],
+      mapCliente,
+    );
+    const resultConsultor = fillActionOwnerByRole(
+      [action({ description: "Cliente e consultor definem o prazo" })],
+      mapConsultor,
+    );
+    expect(resultCliente[0]!.owner_name).toBe("");
+    expect(resultConsultor[0]!.owner_name).toBe("");
+  });
+
+  test("'Clientes enviam...' no plural não conta — owner continua vazio", () => {
+    const map = [entry({ label: "Speaker 1", role: "cliente", name: "Ana", confidence: "alta" })];
+    const result = fillActionOwnerByRole([action({ description: "Clientes enviam o catálogo" })], map);
+    expect(result[0]!.owner_name).toBe("");
+  });
+
+  test("owner já preenchido pela IA não muda, mesmo com o novo padrão de verbo", () => {
+    const map = [entry({ label: "Speaker 1", role: "cliente", name: "Ana", confidence: "alta" })];
+    const result = fillActionOwnerByRole(
+      [action({ description: "Cliente envia o catálogo", owner_name: "Outro Nome" })],
+      map,
+    );
+    expect(result[0]!.owner_name).toBe("Outro Nome");
   });
 });
 
