@@ -48,7 +48,9 @@ describe("GATE 10A — nenhuma alteração em thresholds/dedupe/backend", () => 
 
   test("submitApproval mantém a trava contra clique duplo (idempotência de UI preservada)", () => {
     expect(dialogSource).toContain("const submitApproval = () => {");
-    expect(dialogSource).toContain("if (submitting.current || approve.isPending || approved) return;");
+    expect(dialogSource).toContain(
+      "if (submitting.current || approve.isPending || approved || overallCounts.reviewCount > 0) return;",
+    );
   });
 
   test("closeOnApproved e REFRESH_KEYS continuam presentes e intocados", () => {
@@ -83,9 +85,9 @@ describe("GATE 10A — resumo geral (nível 1)", () => {
     expect(dialogSource).toContain("{overallCounts.updateCount}{\" \"}\n                    atualização(ões)");
     expect(dialogSource).toContain("{overallCounts.ignoredCount} ignorado(s)");
     expect(dialogSource).toContain("{overallCounts.reviewCount}{\" \"}\n                    para revisar");
-    // PR 1: além do aviso em texto, o botão principal agora TRAVA com itens pendentes
-    // (ver describe "PR 1" abaixo) — aprovar sem revisar deixava de ser possível.
-    expect(dialogSource).toMatch(/disabled=\{[^}]*reviewCount/);
+    // PR 1: além do aviso em texto, o botão principal nunca aprova com itens
+    // pendentes (ver describe "PR 1" abaixo) — só navega até o primeiro deles.
+    expect(dialogSource).toMatch(/overallCounts\.reviewCount > 0 \? goToFirstItemNeedingReview : submitApproval/);
   });
 });
 
@@ -189,14 +191,30 @@ describe("GATE 10A — revisão individual (nível 3)", () => {
 });
 
 describe("PR 1 — item em revisão nasce sem modo escolhido; aprovar trava com pendências", () => {
-  test("o botão principal desabilita quando há itens em revisão, com o motivo visível", () => {
+  test("o botão principal continua desabilitado por pending/approved/isApproved; com itens em revisão, clicar só navega (não aprova)", () => {
     expect(dialogSource).toContain(
-      "disabled={approve.isPending || approved || isApproved || overallCounts.reviewCount > 0}",
+      "disabled={approve.isPending || approved || isApproved}",
     );
     expect(dialogSource).toContain(
-      '"Escolha uma opção para cada item em revisão antes de aprovar."',
+      '"Clique para ir até o primeiro item que precisa de revisão."',
     );
     expect(dialogSource).toContain("`Revise ${overallCounts.reviewCount}");
+    expect(dialogSource).toContain(
+      "onClick={overallCounts.reviewCount > 0 ? goToFirstItemNeedingReview : submitApproval}",
+    );
+  });
+
+  test("trava extra: submitApproval nunca aprova nem grava com item em revisão, mesmo chamada por outro caminho", () => {
+    const submitApprovalStart = dialogSource.indexOf("const submitApproval = () => {");
+    expect(submitApprovalStart).toBeGreaterThan(-1);
+    const submitApprovalBody = dialogSource.slice(submitApprovalStart, submitApprovalStart + 400);
+    expect(submitApprovalBody).toContain(
+      "if (submitting.current || approve.isPending || approved || overallCounts.reviewCount > 0) return;",
+    );
+    // A guarda vem ANTES de approve.mutate() — item em revisão nunca chega a disparar a mutation.
+    expect(submitApprovalBody.indexOf("overallCounts.reviewCount > 0")).toBeLessThan(
+      submitApprovalBody.indexOf("approve.mutate()"),
+    );
   });
 
   test("ResolutionControls não marca nenhum botão como selecionado em POSSIBLE_DUPLICATE sem escolha explícita do consultor", () => {

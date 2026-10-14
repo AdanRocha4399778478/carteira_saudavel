@@ -86,6 +86,7 @@ import {
   applySafeResolutions,
   computeBlockStatus,
   countReviewBlock,
+  firstItemNeedingReview,
   formatBlockSummary,
   snapshotAfterPatch,
   type BlockDecisionRecord,
@@ -719,6 +720,20 @@ export function MeetingAnalysisDialog({
   );
   const overallCounts = useMemo(() => countReviewBlock(allReviewItems), [allReviewItems]);
 
+  /** Mesma ordem em que os blocos aparecem na tela — ver firstItemNeedingReview. */
+  const orderedReviewBlocks = useMemo<
+    { blockId: string; items: ReviewBlockItem<string | number>[] }[]
+  >(
+    () => [
+      ...contextItemsByGroup.map((g) => ({ blockId: `context:${g.list}`, items: g.items })),
+      { blockId: "decisions", items: decisionItems },
+      { blockId: "actions", items: actionItems },
+      { blockId: "risks", items: riskItems },
+      { blockId: "opportunities", items: oppItems },
+    ],
+    [contextItemsByGroup, decisionItems, actionItems, riskItems, oppItems],
+  );
+
   /**
    * Autoavaliação da consultoria sobre a própria reunião — calculada a
    * partir do que a IA extraiu no preview, antes de qualquer aprovação.
@@ -980,6 +995,33 @@ export function MeetingAnalysisDialog({
 
   /** Expand/recolher por bloco — o default (aberto se precisa revisão) é fixado uma vez por análise carregada. */
   const [blockOpen, setBlockOpen] = useState<Record<string, boolean>>({});
+  /**
+   * Alvo pendente de rolagem (botão "Revise N item(ns)") — setado junto com
+   * blockOpen; o efeito abaixo rola até a linha depois que o bloco abrir.
+   */
+  const [pendingReviewScroll, setPendingReviewScroll] = useState<{
+    blockId: string;
+    key: string | number;
+  } | null>(null);
+  useEffect(() => {
+    if (!pendingReviewScroll) return;
+    const el = document.getElementById(
+      `review-row-${pendingReviewScroll.blockId}-${pendingReviewScroll.key}`,
+    );
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setPendingReviewScroll(null);
+  }, [pendingReviewScroll]);
+  /**
+   * Clique do botão final quando ainda há itens em revisão: NUNCA aprova —
+   * só abre o bloco do primeiro item pendente (mesma ordem da tela) e rola
+   * até a linha dele.
+   */
+  const goToFirstItemNeedingReview = () => {
+    const target = firstItemNeedingReview(orderedReviewBlocks);
+    if (!target) return;
+    setBlockOpen((s) => ({ ...s, [target.blockId]: true }));
+    setPendingReviewScroll(target);
+  };
   /**
    * GATE 10D — decisão explícita de "Aprovar bloco"/"Ignorar bloco", por
    * bloco. Não é redundante com contextSel/decisionSel/…: aqueles guardam a
@@ -1364,9 +1406,14 @@ export function MeetingAnalysisDialog({
     },
   });
 
-  /** Uma submissão por vez: o backend já é idempotente, aqui evitamos o retrabalho. */
+  /**
+   * Uma submissão por vez: o backend já é idempotente, aqui evitamos o
+   * retrabalho. Trava extra (defesa em profundidade, além do botão só
+   * navegar nesse estado): com item em revisão, nunca aprova nem grava —
+   * mesmo se chamada por outro caminho.
+   */
   const submitApproval = () => {
-    if (submitting.current || approve.isPending || approved) return;
+    if (submitting.current || approve.isPending || approved || overallCounts.reviewCount > 0) return;
     submitting.current = true;
     approve.mutate();
   };
@@ -1672,6 +1719,7 @@ export function MeetingAnalysisDialog({
                         {group.rows.map((r) => (
                           <ReviewRow
                             key={r.key}
+                            rowId={`review-row-${blockId}-${r.key}`}
                             primary={r.item.text}
                             secondary={OPERATION_LABEL[r.item.operation as ChangeOperation] ?? ""}
                             classification={r.item.classification}
@@ -1714,6 +1762,7 @@ export function MeetingAnalysisDialog({
                     {decisionRows.map((r) => (
                       <ReviewRow
                         key={r.key}
+                        rowId={`review-row-decisions-${r.key}`}
                         primary={r.item.title}
                         secondary={[r.item.owner, r.item.due_date].filter(Boolean).join(" · ")}
                         details={[
@@ -1760,6 +1809,7 @@ export function MeetingAnalysisDialog({
                     {actionRows.map((r) => (
                       <ReviewRow
                         key={r.key}
+                        rowId={`review-row-actions-${r.key}`}
                         primary={r.item.description}
                         secondary={[r.item.owner_name, r.item.deadline, r.item.priority]
                           .filter(Boolean)
@@ -1800,6 +1850,7 @@ export function MeetingAnalysisDialog({
                     {riskRows.map((r) => (
                       <ReviewRow
                         key={r.key}
+                        rowId={`review-row-risks-${r.key}`}
                         primary={r.item.description}
                         secondary={[r.item.level, r.item.impact, r.item.recommendation]
                           .filter(Boolean)
@@ -1842,6 +1893,7 @@ export function MeetingAnalysisDialog({
                     {oppRows.map((r) => (
                       <ReviewRow
                         key={r.key}
+                        rowId={`review-row-opportunities-${r.key}`}
                         primary={r.item.description}
                         secondary={r.item.expected_benefit}
                         details={[{ label: "Evidência", value: r.item.evidence }].filter((d) => d.value)}
@@ -1997,14 +2049,14 @@ export function MeetingAnalysisDialog({
               </Button>
               <Button
                 type="button"
-                disabled={approve.isPending || approved || isApproved || overallCounts.reviewCount > 0}
+                disabled={approve.isPending || approved || isApproved}
                 className="gap-2"
-                onClick={submitApproval}
+                onClick={overallCounts.reviewCount > 0 ? goToFirstItemNeedingReview : submitApproval}
                 title={
                   isApproved
                     ? "Reunião já aprovada — somente leitura."
                     : overallCounts.reviewCount > 0
-                      ? "Escolha uma opção para cada item em revisão antes de aprovar."
+                      ? "Clique para ir até o primeiro item que precisa de revisão."
                       : undefined
                 }
               >
@@ -2121,6 +2173,7 @@ function VerdictBadge({ resolution }: { resolution: ItemResolution }) {
 }
 
 function ReviewRow({
+  rowId,
   primary,
   secondary,
   details,
@@ -2132,6 +2185,8 @@ function ReviewRow({
   completed,
   onCompletedChange,
 }: {
+  /** Ver goToFirstItemNeedingReview — id do DOM pra rolar até esta linha. */
+  rowId?: string;
   primary: string;
   secondary: string;
   /**
@@ -2157,7 +2212,7 @@ function ReviewRow({
   onCompletedChange?: (v: boolean) => void;
 }) {
   return (
-    <li className="rounded-lg bg-muted/40 p-3">
+    <li id={rowId} className="rounded-lg bg-muted/40 p-3">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-sm">{primary}</p>

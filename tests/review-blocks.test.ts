@@ -6,6 +6,7 @@ import {
   computeBlockStatus,
   countReviewBlock,
   defaultModeForVerdict,
+  firstItemNeedingReview,
   formatBlockSummary,
   isSafeVerdict,
   needsReview,
@@ -311,5 +312,51 @@ describe("GATE 10D — snapshot e status visual do bloco", () => {
   test("status 'none' quando nenhuma decisão foi tomada ainda", () => {
     const items: ReviewBlockItem<number>[] = [item(0, "NEW", "create", false)];
     expect(computeBlockStatus(items, undefined)).toBe("none");
+  });
+});
+
+describe("firstItemNeedingReview — botão final navega até o primeiro item a revisar", () => {
+  test("sem nenhum item em revisão, devolve null", () => {
+    const blocks = [
+      { blockId: "decisions", items: [item(0, "NEW", "create", false)] },
+      { blockId: "actions", items: [item(0, "UPDATE_EXISTING", "update", false)] },
+    ];
+    expect(firstItemNeedingReview(blocks)).toBeNull();
+  });
+
+  test("devolve o primeiro por ORDEM DOS BLOCOS, não por ordem alfabética ou de contagem", () => {
+    const blocks = [
+      { blockId: "decisions", items: [item(0, "NEW", "create", false)] },
+      { blockId: "actions", items: [item(0, "POSSIBLE_DUPLICATE", "skip", false)] },
+      { blockId: "risks", items: [item(0, "POSSIBLE_DUPLICATE", "skip", false)] },
+    ];
+    expect(firstItemNeedingReview(blocks)).toEqual({ blockId: "actions", key: 0 });
+  });
+
+  test("dentro do mesmo bloco, devolve o primeiro item da lista que precisa de revisão", () => {
+    const blocks = [
+      {
+        blockId: "actions",
+        items: [
+          item(0, "NEW", "create", false),
+          item(1, "POSSIBLE_DUPLICATE", "skip", false),
+          item(2, "POSSIBLE_DUPLICATE", "skip", false),
+        ],
+      },
+    ];
+    expect(firstItemNeedingReview(blocks)).toEqual({ blockId: "actions", key: 1 });
+  });
+
+  test("item com override/escolha já feita não conta, mesmo sendo POSSIBLE_DUPLICATE", () => {
+    const blocks = [
+      {
+        blockId: "actions",
+        items: [
+          item(0, "POSSIBLE_DUPLICATE", "skip", true), // já decidido pelo consultor
+          item(1, "NEW", "create", false),
+        ],
+      },
+    ];
+    expect(firstItemNeedingReview(blocks)).toBeNull();
   });
 });

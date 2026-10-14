@@ -189,7 +189,7 @@ describe("Aprovação é definitiva — reanalisar depois nunca rebaixa status n
     expect(approveGuard).toBeGreaterThan(approveStart);
 
     expect(dialogSource).toContain(
-      "disabled={approve.isPending || approved || isApproved || overallCounts.reviewCount > 0}",
+      "disabled={approve.isPending || approved || isApproved}",
     );
   });
 });
