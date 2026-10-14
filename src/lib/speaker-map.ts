@@ -105,15 +105,28 @@ function resolveToken(
 }
 
 /**
- * Rótulos (ex.: "Speaker 2") de entradas com papel conhecido e nome vazio —
- * usado pela tela para avisar o consultor ANTES de gerar o preview (B1),
- * já que esses rótulos vão sobreviver como responsável em vez de some.
+ * Igual a `hasKnownRoleButNoName`, mas SEM exigir confiança alta/média —
+ * usada só pelo aviso da tela (abaixo). A atribuição automática de
+ * responsável (buildLookups/resolveToken, via hasKnownRoleButNoName) continua
+ * exigindo confiança alta/média; confiança baixa continua esvaziando ali.
+ */
+function hasKnownRoleNoNameAnyConfidence(entry: SpeakerMapEntry): boolean {
+  return entry.role !== "" && entry.name.trim().length === 0;
+}
+
+/**
+ * Rótulos (ex.: "Speaker 2") de entradas com papel conhecido e nome vazio,
+ * qualquer confiança — usado pela tela para avisar o consultor ANTES de
+ * gerar o preview (B1). Falante com papel desconhecido nunca entra; falante
+ * com nome preenchido nunca entra. Não exige confiança alta/média: mesmo com
+ * confiança baixa (nome ainda não revisado), o consultor precisa ser
+ * avisado, já que o rótulo genérico pode sobreviver como responsável.
  */
 export function speakerLabelsNeedingName(map: SpeakerMapEntry[]): string[] {
   const labels: string[] = [];
   const seen = new Set<string>();
   for (const entry of map) {
-    if (!hasKnownRoleButNoName(entry)) continue;
+    if (!hasKnownRoleNoNameAnyConfidence(entry)) continue;
     const key = normalizeLabel(entry.label);
     if (seen.has(key)) continue;
     seen.add(key);
