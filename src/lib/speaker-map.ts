@@ -200,8 +200,24 @@ function normalizeForPrefixMatch(text: string): string {
   return text.trim().normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
-const CLIENT_DEVE_PREFIX = /^cliente\s+deve\b/;
-const CONSULTANT_DEVE_PREFIX = /^consultor\s+deve\b/;
+const CLIENT_SUBJECT_PREFIX_RE = /^(?:o |a )?cliente\s+\w+/;
+const CONSULTANT_SUBJECT_PREFIX_RE = /^(?:o |a )?consultor\s+\w+/;
+/** Quantas palavras iniciais olhar pra detectar os dois papéis citados juntos (ambíguo). */
+const BOTH_ROLES_WORD_WINDOW = 6;
+
+/**
+ * true quando "cliente" e "consultor", como palavra inteira (não
+ * "clientes"/"consultores"), aparecem nas primeiras BOTH_ROLES_WORD_WINDOW
+ * palavras — ex.: "Cliente e consultor definem o prazo". Ambíguo demais pra
+ * atribuir a um dos dois papéis.
+ */
+function mentionsBothRolesEarly(normalizedText: string): boolean {
+  const words = normalizedText
+    .split(/\s+/)
+    .slice(0, BOTH_ROLES_WORD_WINDOW)
+    .map((w) => w.replace(/[.,;:!?]+$/, ""));
+  return words.includes("cliente") && words.includes("consultor");
+}
 
 /**
  * Nome (ou, sem nome, o rótulo — mesma condição de B1) da ÚNICA entrada do
@@ -220,11 +236,17 @@ function ownerNameForRole(map: SpeakerMapEntry[], role: "cliente" | "consultor")
 }
 
 /**
- * B2: ação com owner_name vazio cujo texto começa com "Cliente deve" ou
- * "Consultor deve" (sem diferenciar maiúscula/acento) recebe o responsável
- * do papel correspondente, SÓ quando existir exatamente uma entrada desse
- * papel no mapa, com confiança alta ou média (ver ownerNameForRole — baixa
- * fica vazio, mesmo com nome preenchido). Nunca sobrescreve um owner_name
+ * B2: ação com owner_name vazio cujo texto (normalizado, sem acento e sem
+ * diferenciar maiúscula) comece por "cliente"/"o cliente"/"a cliente" (ou,
+ * do mesmo modo, "consultor"/"o consultor"/"a consultor") seguido de espaço
+ * e de uma palavra qualquer — não só "deve", qualquer verbo — recebe o
+ * responsável do papel correspondente, SÓ quando existir exatamente uma
+ * entrada desse papel no mapa, com confiança alta ou média (ver
+ * ownerNameForRole — baixa fica vazio, mesmo com nome preenchido).
+ * "Clientes"/"consultores" no plural não contam (o \s+ exige espaço logo
+ * após a palavra do papel, "clientes" não tem). Nunca atribui quando os
+ * DOIS papéis aparecem nas primeiras palavras — ver mentionsBothRolesEarly
+ * (ex.: "Cliente e consultor definem..."). Nunca sobrescreve um owner_name
  * já preenchido pela IA. Roda ANTES de rewriteOwnerText (ver
  * applySpeakerMapToAnalysis) — por isso o nome aqui ainda pode ser um nome
  * real ou, por B1, o próprio rótulo (que rewriteOwnerText depois mantém,
@@ -237,11 +259,13 @@ export function fillActionOwnerByRole<T extends { description: string; owner_nam
   return actions.map((action) => {
     if (action.owner_name.trim()) return action;
     const norm = normalizeForPrefixMatch(action.description);
-    const role = CLIENT_DEVE_PREFIX.test(norm)
-      ? "cliente"
-      : CONSULTANT_DEVE_PREFIX.test(norm)
-        ? "consultor"
-        : null;
+    const role = mentionsBothRolesEarly(norm)
+      ? null
+      : CLIENT_SUBJECT_PREFIX_RE.test(norm)
+        ? "cliente"
+        : CONSULTANT_SUBJECT_PREFIX_RE.test(norm)
+          ? "consultor"
+          : null;
     if (!role) return action;
     const owner = ownerNameForRole(map, role);
     return owner ? { ...action, owner_name: owner } : action;
