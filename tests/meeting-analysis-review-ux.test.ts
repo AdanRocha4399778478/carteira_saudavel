@@ -219,7 +219,7 @@ describe("PR 1 — item em revisão nasce sem modo escolhido; aprovar trava com 
 
   test("ResolutionControls não marca nenhum botão como selecionado em POSSIBLE_DUPLICATE sem escolha explícita do consultor", () => {
     expect(dialogSource).toContain(
-      'const unresolved = resolution.verdict === "POSSIBLE_DUPLICATE" && !hasOverride;',
+      "const unresolved = needsReview({\n    verdict: resolution.verdict,\n    hasOverride,\n    foreignClientFlag: foreignClientSnippet !== undefined,\n    ...(resolution.historyFlag !== undefined ? { historyFlag: resolution.historyFlag } : {}),\n    ...(resolution.statusSignal !== undefined ? { statusSignal: resolution.statusSignal } : {}),\n    ...(conditionalActionFlag !== undefined ? { conditionalActionFlag } : {}),\n  });",
     );
     expect(dialogSource).toContain('variant={!unresolved && mode === o.value ? "default" : "outline"}');
     expect(dialogSource).toContain("Escolha uma opção antes de aprovar.");

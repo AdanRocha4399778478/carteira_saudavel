@@ -88,6 +88,7 @@ import {
   countReviewBlock,
   firstItemNeedingReview,
   formatBlockSummary,
+  needsReview,
   snapshotAfterPatch,
   type BlockDecisionRecord,
   type BlockStatus,
@@ -2103,9 +2104,18 @@ function ResolutionControls({
 }) {
   const isPosterior = resolution.chronology === "posterior";
   const canUpdate = !!resolution.targetId && !isPosterior;
-  // Possível duplicidade nasce sem modo escolhido — nenhum botão pode parecer
-  // selecionado até o consultor decidir, senão "Ignorar" some em silêncio.
-  const unresolved = resolution.verdict === "POSSIBLE_DUPLICATE" && !hasOverride;
+  // Nenhum botão pode parecer selecionado enquanto o item precisar de revisão
+  // (mesmo critério de needsReview — duplicidade, histórico, mudança de
+  // estado, dado de outro cliente ou ação condicional) e o consultor ainda
+  // não tiver decidido, senão a opção "escolhida" aparece por acidente.
+  const unresolved = needsReview({
+    verdict: resolution.verdict,
+    hasOverride,
+    foreignClientFlag: foreignClientSnippet !== undefined,
+    ...(resolution.historyFlag !== undefined ? { historyFlag: resolution.historyFlag } : {}),
+    ...(resolution.statusSignal !== undefined ? { statusSignal: resolution.statusSignal } : {}),
+    ...(conditionalActionFlag !== undefined ? { conditionalActionFlag } : {}),
+  });
   const options: { value: ResolutionMode; label: string; disabled?: boolean }[] = [
     { value: "create", label: "Criar novo" },
     { value: "update", label: "Atualizar existente", disabled: !canUpdate },

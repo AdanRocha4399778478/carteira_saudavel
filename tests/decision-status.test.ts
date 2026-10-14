@@ -12,6 +12,11 @@ describe("initialDecisionStatus", () => {
     ["Redefinir o escopo", "aprovada"],
     ["", "pendente"],
     ["   ", "pendente"],
+    ["Decidir se aprova o orçamento até sexta", "pendente"],
+    ["  decidir se renova o contrato", "pendente"],
+    ["DECIDIR SE muda de fornecedor", "pendente"],
+    ["Decidir se adia o lançamento", "pendente"],
+    ["Redecidir se vale a pena", "aprovada"],
   ])("%s → %s", (title, expected) => {
     expect(initialDecisionStatus(title)).toBe(expected);
   });
