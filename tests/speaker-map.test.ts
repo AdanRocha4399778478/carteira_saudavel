@@ -199,14 +199,14 @@ describe("B1 — rewriteOwnerText mantém o rótulo quando papel é conhecido e 
 });
 
 describe("B1 — speakerLabelsNeedingName", () => {
-  test("lista rótulos com papel conhecido e nome vazio (confiança alta/média)", () => {
+  test("lista rótulos com papel conhecido e nome vazio (qualquer confiança)", () => {
     const map = [
       entry({ label: "Speaker 1", role: "cliente", name: "", confidence: "alta" }),
       entry({ label: "Speaker 2", role: "consultor", name: "Adan Rocha", confidence: "alta" }),
       entry({ label: "Speaker 3", role: "", name: "", confidence: "alta" }),
       entry({ label: "Speaker 4", role: "cliente", name: "", confidence: "baixa" }),
     ];
-    expect(speakerLabelsNeedingName(map)).toEqual(["Speaker 1"]);
+    expect(speakerLabelsNeedingName(map)).toEqual(["Speaker 1", "Speaker 4"]);
   });
 
   test("sem nenhum falante pendente, devolve lista vazia", () => {
@@ -273,6 +273,15 @@ describe("B2 — fillActionOwnerByRole", () => {
       map,
     );
     expect(result[0]!.owner_name).toBe("Speaker 2");
+  });
+
+  test("entrada única do papel com nome vazio e confiança BAIXA: continua vazio (atribuição automática não muda com o aviso novo)", () => {
+    const map = [entry({ label: "Speaker 2", role: "cliente", name: "", confidence: "baixa" })];
+    const result = fillActionOwnerByRole(
+      [action({ description: "Cliente deve enviar o catálogo até sexta" })],
+      map,
+    );
+    expect(result[0]!.owner_name).toBe("");
   });
 
   test("'Consultor irá...' não é tocado (fora do escopo de B2, só 'deve')", () => {
