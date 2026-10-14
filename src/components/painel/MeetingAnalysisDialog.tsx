@@ -24,11 +24,13 @@ import {
   computeDeliveryClarity,
   formatDate,
   isOverdue,
+  todayIsoLocal,
   type ActionItem,
   type Meeting,
   type OpportunityItem,
   type RiskItem,
 } from "@/lib/domain";
+import { isNewActionPreMarkedCompleted, isNewDecisionPreMarkedCompleted } from "@/lib/regra-b";
 import {
   CONTEXT_LIST_LABEL,
   type ContextItem,
@@ -332,6 +334,13 @@ export function MeetingAnalysisDialog({
   const [contextSel, setContextSel] = useState<Record<string, ResolutionMode>>({});
   const [decisionSel, setDecisionSel] = useState<Record<number, ResolutionMode>>({});
   const [actionSel, setActionSel] = useState<Record<number, ResolutionMode>>({});
+  /**
+   * Regra B — caixa "Concluída" por item (só exibida/usada quando a
+   * resolução do item é "Criar novo"). undefined = sem override manual,
+   * usa o padrão calculado pelo prazo vencido (ver isNew*PreMarkedCompleted).
+   */
+  const [decisionCompletedSel, setDecisionCompletedSel] = useState<Record<number, boolean>>({});
+  const [actionCompletedSel, setActionCompletedSel] = useState<Record<number, boolean>>({});
   const [riskSel, setRiskSel] = useState<Record<number, ResolutionMode>>({});
   const [oppSel, setOppSel] = useState<Record<number, ResolutionMode>>({});
   const [summarySel, setSummarySel] = useState(true);
@@ -350,6 +359,9 @@ export function MeetingAnalysisDialog({
   }, []);
 
   const saved = useQuery({ ...meetingAnalysisQuery(meeting?.id ?? ""), enabled: open && !!meeting?.id });
+
+  /** Regra B — "hoje" em texto, hora local, pra decidir prazo vencido (ver regra-b.ts). */
+  const todayIso = todayIsoLocal();
 
   /**
    * Aprovação é definitiva: reunião já aprovada abre em modo leitura — nunca
@@ -1179,6 +1191,8 @@ export function MeetingAnalysisDialog({
       setContextSel({});
       setDecisionSel({});
       setActionSel({});
+      setDecisionCompletedSel({});
+      setActionCompletedSel({});
       setRiskSel({});
       setOppSel({});
       setSummarySel(true);
@@ -1268,6 +1282,12 @@ export function MeetingAnalysisDialog({
           due_date: r.item.due_date,
           resolution: r.resolution,
           embedding: r.item.embedding ?? null,
+          // Regra B: só faz sentido pra "Criar novo" — applyApprovedAnalysis só lê nesse ramo.
+          completed:
+            r.mode === "create"
+              ? (decisionCompletedSel[r.key] ??
+                isNewDecisionPreMarkedCompleted(r.item.due_date, todayIso))
+              : false,
         })),
         actions: actionRows.map((r) => ({
           description: r.item.description,
@@ -1278,6 +1298,12 @@ export function MeetingAnalysisDialog({
           evidence: "",
           resolution: r.resolution,
           embedding: r.item.embedding ?? null,
+          // Regra B: só faz sentido pra "Criar novo" — applyApprovedAnalysis só lê nesse ramo.
+          completed:
+            r.mode === "create"
+              ? (actionCompletedSel[r.key] ??
+                isNewActionPreMarkedCompleted(r.item.deadline, todayIso))
+              : false,
         })),
         risks: riskRows.map((r) => ({
           description: r.item.description,
@@ -1698,6 +1724,13 @@ export function MeetingAnalysisDialog({
                         row={r}
                         foreignClientSnippet={decisionForeignFlags[r.key]}
                         onChange={(mode) => setDecisionSel((s) => ({ ...s, [r.key]: mode }))}
+                        completed={
+                          decisionCompletedSel[r.key] ??
+                          isNewDecisionPreMarkedCompleted(r.item.due_date, todayIso)
+                        }
+                        onCompletedChange={(v) =>
+                          setDecisionCompletedSel((s) => ({ ...s, [r.key]: v }))
+                        }
                       />
                     ))}
                   </ul>
@@ -1737,6 +1770,13 @@ export function MeetingAnalysisDialog({
                         foreignClientSnippet={actionForeignFlags[r.key]}
                         conditionalActionFlag={actionConditionalFlags[r.key] !== undefined}
                         onChange={(mode) => setActionSel((s) => ({ ...s, [r.key]: mode }))}
+                        completed={
+                          actionCompletedSel[r.key] ??
+                          isNewActionPreMarkedCompleted(r.item.deadline, todayIso)
+                        }
+                        onCompletedChange={(v) =>
+                          setActionCompletedSel((s) => ({ ...s, [r.key]: v }))
+                        }
                       />
                     ))}
                   </ul>
@@ -2089,6 +2129,8 @@ function ReviewRow({
   foreignClientSnippet,
   conditionalActionFlag,
   onChange,
+  completed,
+  onCompletedChange,
 }: {
   primary: string;
   secondary: string;
@@ -2107,6 +2149,12 @@ function ReviewRow({
   /** Ver decision-action-flags.ts (E1) — repassado direto a ResolutionControls. */
   conditionalActionFlag?: boolean | undefined;
   onChange: (mode: ResolutionMode) => void;
+  /**
+   * Regra B — caixa "Concluída", só pra ação/decisão (risco e oportunidade
+   * não passam esses props, então a caixa nunca aparece neles).
+   */
+  completed?: boolean;
+  onCompletedChange?: (v: boolean) => void;
 }) {
   return (
     <li className="rounded-lg bg-muted/40 p-3">
@@ -2143,6 +2191,15 @@ function ReviewRow({
             conditionalActionFlag={conditionalActionFlag}
             onChange={onChange}
           />
+          {row.mode === "create" && onCompletedChange ? (
+            <label className="mt-2 flex items-center gap-2">
+              <Checkbox
+                checked={completed === true}
+                onCheckedChange={(v) => onCompletedChange(v === true)}
+              />
+              <span className="text-xs text-muted-foreground">Concluída</span>
+            </label>
+          ) : null}
         </div>
         <span className="flex shrink-0 flex-col items-end gap-1">
           <ClassificationBadge value={classification} />

@@ -221,15 +221,20 @@ export function isDecisionOverdue(decision: { due_date: string | null; status: s
   if (!OVERDUE_DECISION_STATUSES.includes(decision.status)) return false;
   const day = decision.due_date.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
-  const today = startOfToday();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return day < `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+  return day < todayIsoLocal();
 }
 
 export function startOfToday(): Date {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return d;
+}
+
+/** "Hoje" em texto "AAAA-MM-DD", hora local — extraído de isDecisionOverdue (mesmo cálculo, sem mudar o comportamento) pra reaproveitar em comparações de prazo fora deste arquivo. */
+export function todayIsoLocal(): string {
+  const today = startOfToday();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
 }
 
 export function isValidDateString(value: unknown): value is string {
