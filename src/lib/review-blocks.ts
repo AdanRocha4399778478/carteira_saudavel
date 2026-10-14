@@ -72,6 +72,24 @@ export function needsReview(
   );
 }
 
+/**
+ * Primeiro item que precisa de revisão, na ORDEM dos blocos informada (a
+ * mesma ordem em que aparecem na tela) — usado pelo botão final de aprovar
+ * para navegar até ele em vez de simplesmente ficar desabilitado. Item com
+ * override/escolha já feita não conta (mesma regra de `needsReview`).
+ * `null` quando nenhum item precisa de revisão.
+ */
+export function firstItemNeedingReview<K extends string | number>(
+  blocks: { blockId: string; items: ReviewBlockItem<K>[] }[],
+): { blockId: string; key: K } | null {
+  for (const block of blocks) {
+    for (const item of block.items) {
+      if (needsReview(item)) return { blockId: block.blockId, key: item.key };
+    }
+  }
+  return null;
+}
+
 /** Verdicts cuja resolução default é inequívoca — nunca inclui POSSIBLE_DUPLICATE. */
 export function isSafeVerdict(verdict: DedupeVerdict): boolean {
   return verdict !== "POSSIBLE_DUPLICATE";
