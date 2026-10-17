@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase/client";
@@ -8,7 +8,33 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AuthShell } from "@/components/auth/AuthShell";
-import { authErrorMessage } from "@/lib/auth/messages";
+import { authErrorMessage, parseAuthErrorFromUrl } from "@/lib/auth/messages";
+
+/* ------------------------------------------------------------------ *
+ * B24 (17/10/2026) — retorno do login com Google. O cliente Supabase
+ * (src/lib/supabase/client.ts) usa flowType "implicit" (padrão da lib,
+ * não sobrescrito): no SUCESSO, o próprio SDK já processa o
+ * "#access_token=..." do hash, salva a sessão e limpa o hash sozinho —
+ * não há nada pra este código fazer além de aguardar a sessão
+ * (supabase.auth.getSession() já espera essa inicialização) e navegar.
+ * No ERRO, porém, o SDK NUNCA limpa nem expõe o erro pro app (ele fica
+ * só internamente, dentro da Promise de inicialização) — por isso este
+ * código lê "error"/"error_description" tanto de window.location.search
+ * quanto do hash (via parseAuthErrorFromUrl, função pura e testável em
+ * src/lib/auth/messages.ts), e precisa limpar a URL na mão.
+ * ------------------------------------------------------------------ */
+const AUTH_URL_ERROR_KEYS = ["error", "error_description", "error_code"];
+
+/** Remove error/error_description/error_code de search E hash, sem recarregar a página. */
+function clearAuthErrorFromUrl() {
+  const url = new URL(window.location.href);
+  for (const key of AUTH_URL_ERROR_KEYS) url.searchParams.delete(key);
+  const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+  for (const key of AUTH_URL_ERROR_KEYS) hashParams.delete(key);
+  const newHash = hashParams.toString();
+  url.hash = newHash ? `#${newHash}` : "";
+  window.history.replaceState(window.history.state, "", url.toString());
+}
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
@@ -40,6 +66,40 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [pendingConfirmation, setPendingConfirmation] = useState(false);
+
+  // B24 — retorno do login com Google: erro na URL (search ou hash) vira
+  // toast amigável e some da URL; sessão já estabelecida (sucesso) navega
+  // direto, sem rota de callback dedicada — ver comentário acima do arquivo.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const urlError = parseAuthErrorFromUrl(window.location.search, window.location.hash);
+      if (urlError) {
+        toast.error(authErrorMessage(urlError, "oauth"));
+        clearAuthErrorFromUrl();
+        return;
+      }
+      const { data } = await supabase.auth.getSession();
+      if (cancelled || !data.session) return;
+      queryClient.removeQueries({ queryKey: ["access"] });
+      await queryClient.invalidateQueries();
+      await router.navigate({ to: "/visao-geral" });
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function signInWithGoogle() {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/auth` },
+    });
+    if (error) {
+      toast.error(authErrorMessage(error, "oauth"));
+    }
+  }
 
   async function signIn(e: React.FormEvent) {
     e.preventDefault();
@@ -132,6 +192,9 @@ function AuthPage() {
                 </div>
                 <Button type="submit" disabled={loading}>
                   {loading ? "Entrando…" : "Entrar"}
+                </Button>
+                <Button type="button" variant="outline" onClick={signInWithGoogle}>
+                  Entrar com Google
                 </Button>
                 <Link
                   to="/esqueci-senha"
