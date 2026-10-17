@@ -31,6 +31,7 @@ import {
   type RiskItem,
 } from "@/lib/domain";
 import { isNewActionPreMarkedCompleted, isNewDecisionPreMarkedCompleted } from "@/lib/regra-b";
+import { resolveRelativeDeadline } from "@/lib/prazo-relativo";
 import {
   CONTEXT_LIST_LABEL,
   type ContextItem,
@@ -150,6 +151,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -218,6 +220,34 @@ function mergeSel<K extends string | number>(
 ) {
   if (Object.keys(patch).length === 0) return;
   setSel((s) => ({ ...s, ...patch }));
+}
+
+/**
+ * B18 — valor padrão do campo de prazo antes de qualquer edição manual:
+ * a data explícita que a IA extraiu (`explicit`), ou, se vazia, a
+ * sugestão calculada a partir da expressão relativa (`hint`) e da data
+ * da reunião. "" quando não há data explícita nem hint resolvível — a IA
+ * nunca inventa, e este código também não.
+ */
+function defaultItemDueDate(
+  explicit: string,
+  hint: string,
+  meetingDateIso: string | null | undefined,
+): string {
+  if (explicit) return explicit;
+  return resolveRelativeDeadline(hint, meetingDateIso) ?? "";
+}
+
+/** true quando o valor exibido vem só da sugestão (hint), sem edição manual nem data explícita da IA. */
+function isSuggestedDueDate(
+  explicit: string,
+  hint: string,
+  meetingDateIso: string | null | undefined,
+  override: string | undefined,
+): boolean {
+  return (
+    override === undefined && !explicit && resolveRelativeDeadline(hint, meetingDateIso) !== null
+  );
 }
 
 function ClassificationBadge({ value }: { value: string }) {
@@ -350,6 +380,16 @@ export function MeetingAnalysisDialog({
    * — ver isNewDecisionPreMarkedCompleted/resolveNewDecisionStatus.
    */
   const [decisionEvaluationSel, setDecisionEvaluationSel] = useState<Record<number, boolean>>({});
+  /**
+   * B18 — prazo por item (só exibido/usado quando a resolução é "Criar
+   * novo"). undefined = sem edição manual, usa o padrão: a data explícita
+   * da IA (due_date/deadline) ou, se vazia, a sugestão calculada a partir
+   * do hint e da data da reunião (ver resolveRelativeDeadline/defaultItemDueDate).
+   * "" é uma edição válida (consultor limpou o campo de propósito) — grava
+   * sem prazo, nunca reaparece a sugestão.
+   */
+  const [decisionDueDateSel, setDecisionDueDateSel] = useState<Record<number, string>>({});
+  const [actionDeadlineSel, setActionDeadlineSel] = useState<Record<number, string>>({});
   const [riskSel, setRiskSel] = useState<Record<number, ResolutionMode>>({});
   const [oppSel, setOppSel] = useState<Record<number, ResolutionMode>>({});
   const [summarySel, setSummarySel] = useState(true);
@@ -1335,7 +1375,13 @@ export function MeetingAnalysisDialog({
             description: r.item.description,
             reason: r.item.reason,
             owner: r.item.owner,
-            due_date: r.item.due_date,
+            // B18: "Criar novo" grava o prazo final (editado ou sugerido via hint);
+            // "Atualizar existente"/"Ignorar" não mexem no prazo — nada muda.
+            due_date:
+              r.mode === "create"
+                ? (decisionDueDateSel[r.key] ??
+                  defaultItemDueDate(r.item.due_date, r.item.due_hint, meeting.meeting_date))
+                : r.item.due_date,
             resolution: r.resolution,
             embedding: r.item.embedding ?? null,
             // Regra B: só faz sentido pra "Criar novo" — applyApprovedAnalysis só lê nesse ramo.
@@ -1351,7 +1397,12 @@ export function MeetingAnalysisDialog({
         actions: actionRows.map((r) => ({
           description: r.item.description,
           owner_name: r.item.owner_name,
-          deadline: r.item.deadline,
+          // B18: mesma regra do due_date de decisões — ver comentário acima.
+          deadline:
+            r.mode === "create"
+              ? (actionDeadlineSel[r.key] ??
+                defaultItemDueDate(r.item.deadline, r.item.deadline_hint, meeting.meeting_date))
+              : r.item.deadline,
           priority: r.item.priority,
           erp_area: r.item.erp_area,
           evidence: "",
@@ -1805,6 +1856,23 @@ export function MeetingAnalysisDialog({
                         onIsEvaluationChange={(v) =>
                           setDecisionEvaluationSel((s) => ({ ...s, [r.key]: v }))
                         }
+                        dueDate={
+                          decisionDueDateSel[r.key] ??
+                          defaultItemDueDate(
+                            r.item.due_date,
+                            r.item.due_hint,
+                            meeting?.meeting_date,
+                          )
+                        }
+                        dueDateSuggested={isSuggestedDueDate(
+                          r.item.due_date,
+                          r.item.due_hint,
+                          meeting?.meeting_date,
+                          decisionDueDateSel[r.key],
+                        )}
+                        onDueDateChange={(v) =>
+                          setDecisionDueDateSel((s) => ({ ...s, [r.key]: v }))
+                        }
                       />
                     ))}
                   </ul>
@@ -1852,6 +1920,21 @@ export function MeetingAnalysisDialog({
                         onCompletedChange={(v) =>
                           setActionCompletedSel((s) => ({ ...s, [r.key]: v }))
                         }
+                        dueDate={
+                          actionDeadlineSel[r.key] ??
+                          defaultItemDueDate(
+                            r.item.deadline,
+                            r.item.deadline_hint,
+                            meeting?.meeting_date,
+                          )
+                        }
+                        dueDateSuggested={isSuggestedDueDate(
+                          r.item.deadline,
+                          r.item.deadline_hint,
+                          meeting?.meeting_date,
+                          actionDeadlineSel[r.key],
+                        )}
+                        onDueDateChange={(v) => setActionDeadlineSel((s) => ({ ...s, [r.key]: v }))}
                       />
                     ))}
                   </ul>
@@ -2220,6 +2303,9 @@ function ReviewRow({
   onCompletedChange,
   isEvaluation,
   onIsEvaluationChange,
+  dueDate,
+  dueDateSuggested,
+  onDueDateChange,
 }: {
   /** Ver goToFirstItemNeedingReview — id do DOM pra rolar até esta linha. */
   rowId?: string;
@@ -2252,6 +2338,15 @@ function ReviewRow({
    */
   isEvaluation?: boolean;
   onIsEvaluationChange?: (v: boolean) => void;
+  /**
+   * B18 — prazo editável, só pra ação/decisão em modo "Criar novo" (ver
+   * resolveRelativeDeadline/defaultItemDueDate). undefined = sem campo
+   * (risco/oportunidade, ou modo diferente de "Criar novo").
+   */
+  dueDate?: string;
+  /** true quando `dueDate` é uma sugestão calculada do hint, não uma data explícita nem edição do consultor. */
+  dueDateSuggested?: boolean;
+  onDueDateChange?: (v: string) => void;
 }) {
   return (
     <li id={rowId} className="rounded-lg bg-muted/40 p-3">
@@ -2288,7 +2383,7 @@ function ReviewRow({
             conditionalActionFlag={conditionalActionFlag}
             onChange={onChange}
           />
-          {row.mode === "create" && (onCompletedChange || onIsEvaluationChange) ? (
+          {row.mode === "create" && (onCompletedChange || onIsEvaluationChange || onDueDateChange) ? (
             <div className="mt-2 flex flex-wrap items-center gap-3">
               {onCompletedChange ? (
                 <label className="flex items-center gap-2">
@@ -2306,6 +2401,22 @@ function ReviewRow({
                     onCheckedChange={(v) => onIsEvaluationChange(v === true)}
                   />
                   <span className="text-xs text-muted-foreground">Avaliação</span>
+                </label>
+              ) : null}
+              {onDueDateChange ? (
+                <label className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">Prazo</span>
+                  <Input
+                    type="date"
+                    className="h-8 w-auto"
+                    value={dueDate ?? ""}
+                    onChange={(e) => onDueDateChange(e.target.value)}
+                  />
+                  {dueDateSuggested ? (
+                    <Badge variant="outline" className="shrink-0 text-[10px]">
+                      sugerido
+                    </Badge>
+                  ) : null}
                 </label>
               ) : null}
             </div>
