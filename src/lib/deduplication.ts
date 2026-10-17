@@ -159,12 +159,51 @@ function splitOwnerNames(value: string): string[] {
  */
 const OWNER_ALIAS_SEED: Record<string, Record<string, string>> = {
   "9943b0f4-5220-4297-9f17-7fee64280da5": { ada: "adam" }, // Grupo Erinho — "Ada" e "Adam" são a mesma pessoa.
+  "7d2de5e9-24ef-4c6d-b24c-ae07595e777e": { aline: "alice" }, // Medeiros (B19, 17/10/2026) — "Aline" e "Alice" são a mesma pessoa; grafia correta é Alice.
 };
 
 /** Resolve uma variação de grafia conhecida do responsável, pro cliente informado. */
 export function resolveOwnerAlias(clientId: string | null | undefined, normalizedName: string): string {
   if (!clientId) return normalizedName;
   return OWNER_ALIAS_SEED[clientId]?.[normalizedName] ?? normalizedName;
+}
+
+const MAX_KNOWN_NAMES = 20;
+
+function capitalizeToken(token: string): string {
+  return token ? token.charAt(0).toUpperCase() + token.slice(1) : token;
+}
+
+/**
+ * B19 (17/10/2026) — nomes de pessoas já conhecidas de um cliente
+ * (participantes de reuniões anteriores, responsáveis de ações e decisões
+ * já gravadas), para dar à IA uma lista de referência antes de identificar
+ * quem fala numa reunião nova. Canoniza pelo mesmo `OWNER_ALIAS_SEED` de
+ * `resolveOwnerAlias` — grafia divergente nunca aparece (ex.: só "Alice",
+ * nunca "Aline"). Sem duplicados (um nome por responsável canônico), sem
+ * vazios, limitado a MAX_KNOWN_NAMES, sempre do cliente informado. Não é
+ * fuzzy-match: dois nomes só viram um quando o alias explícito do cliente
+ * diz isso — nunca por semelhança de texto.
+ */
+export function buildKnownClientNames(
+  rawNames: (string | null | undefined)[],
+  clientId: string | null | undefined,
+): string[] {
+  const byCanonical = new Map<string, string>();
+  for (const raw of rawNames) {
+    if (!raw) continue;
+    for (const piece of splitOwnerNames(raw)) {
+      const normalized = normalizeOwner(piece);
+      if (!normalized || GENERIC_OWNER_LABELS.has(normalized)) continue;
+      const canonical = resolveOwnerAlias(clientId, normalized);
+      if (byCanonical.has(canonical)) continue;
+      byCanonical.set(
+        canonical,
+        canonical !== normalized ? capitalizeToken(canonical) : piece.trim(),
+      );
+    }
+  }
+  return [...byCanonical.values()].slice(0, MAX_KNOWN_NAMES);
 }
 
 /**
