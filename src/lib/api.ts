@@ -5,9 +5,9 @@ import type { Database } from "@/lib/supabase/types";
 import { isEvaluationOverdue } from "@/lib/evaluation-overdue";
 import {
   accountStatusFromRisk,
+  buildRiskSignalsFromMeetings,
   byMeetingDateDesc,
   computeRisk,
-  daysSince,
   isOverdue,
   normalizeMeeting,
   quadrantOf,
@@ -350,38 +350,9 @@ export async function recalculateClientWithSupabase(
     });
   }
 
-  /**
-   * Reuniões vindas do fluxo de IA não trazem notas nem sinais de risco
-   * (o contrato de análise não os produz). Usar cegamente a última reunião
-   * zeraria a saúde do cliente. Por isso os indicadores de nota/sinal vêm da
-   * reunião mais recente que realmente possui avaliação; a data da última
-   * reunião continua sendo a da reunião mais recente de fato.
-   */
-  const latestScored =
-    meetings.find((m) => m.satisfaction_score !== null || m.value_score !== null) ?? null;
-  const satisfaction = latestScored?.satisfaction_score ?? null;
-  const valueScore = latestScored?.value_score ?? null;
-
-  const risk = computeRisk(
-    {
-      satisfaction,
-      valueScore,
-      previousSatisfactions: meetings
-        .filter((m) => m !== latestScored)
-        .map((m) => m.satisfaction_score)
-        .filter((n): n is number => n !== null)
-        .slice(0, 2),
-      hasMeasurableResult: meetings.some((m) => m.has_measurable_result),
-      overdueActions: overdue,
-      daysSinceLastMeeting: daysSince(latest?.meeting_date ?? null),
-      explicitComplaint: latestScored?.explicit_complaint ?? false,
-      continuityDoubt: latestScored?.continuity_doubt ?? false,
-      lowAdherence: latestScored?.low_client_adherence ?? false,
-      missingInternalOwner: latestScored?.missing_internal_owner ?? false,
-    },
-    rules,
-    hasOverdueEvaluation,
-  );
+  const signals = buildRiskSignalsFromMeetings(meetings, overdue);
+  const { satisfaction, valueScore } = signals;
+  const risk = computeRisk(signals, rules, hasOverdueEvaluation);
 
   const current = unwrap<Client[]>(
     "clients",
