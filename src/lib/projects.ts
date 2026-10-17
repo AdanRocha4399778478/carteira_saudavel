@@ -86,6 +86,8 @@ export type Decision = {
   updated_at: string;
   /** Vetor semântico do título/descrição — usado para reconhecer continuidade entre reuniões. */
   embedding?: number[] | null;
+  /** Decisão de avaliação (ex.: piloto de N dias) — ver evaluation-overdue.ts. */
+  is_evaluation: boolean;
 };
 
 /**

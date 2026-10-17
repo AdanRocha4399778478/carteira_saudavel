@@ -2,6 +2,7 @@ import { queryOptions } from "@tanstack/react-query";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase/client";
 import type { Database } from "@/lib/supabase/types";
+import { isEvaluationOverdue } from "@/lib/evaluation-overdue";
 import {
   accountStatusFromRisk,
   byMeetingDateDesc,
@@ -322,6 +323,34 @@ export async function recalculateClientWithSupabase(
   const overdue = actions.filter((a) => isOverdue(a)).length;
 
   /**
+   * B2 (17/10/2026): +1 ponto de risco quando há decisão de avaliação
+   * vencida. Cliente vem do projeto (project:projects!inner(client_id)),
+   * nunca de decisions.client_id, que pode ser nulo. Se a consulta falhar
+   * (ex.: coluna is_evaluation ainda não existir em produção), registra o
+   * erro e segue como se não houvesse avaliação vencida — nunca derruba
+   * nem trava a recalculação.
+   */
+  let hasOverdueEvaluation = false;
+  try {
+    const evaluationRes = await supabaseClient
+      .from("decisions")
+      .select("status, due_date, project:projects!inner(client_id)")
+      .eq("is_evaluation", true)
+      .eq("project.client_id", clientId);
+    if (evaluationRes.error) {
+      logDbError("decisions", "select-evaluation-overdue", evaluationRes.error);
+    } else {
+      hasOverdueEvaluation = (
+        (evaluationRes.data ?? []) as { status: string; due_date: string | null }[]
+      ).some((d) => isEvaluationOverdue({ ...d, is_evaluation: true }));
+    }
+  } catch (err) {
+    logDbError("decisions", "select-evaluation-overdue", {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  /**
    * Reuniões vindas do fluxo de IA não trazem notas nem sinais de risco
    * (o contrato de análise não os produz). Usar cegamente a última reunião
    * zeraria a saúde do cliente. Por isso os indicadores de nota/sinal vêm da
@@ -351,6 +380,7 @@ export async function recalculateClientWithSupabase(
       missingInternalOwner: latestScored?.missing_internal_owner ?? false,
     },
     rules,
+    hasOverdueEvaluation,
   );
 
   const current = unwrap<Client[]>(

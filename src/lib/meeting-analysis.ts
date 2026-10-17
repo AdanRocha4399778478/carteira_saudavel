@@ -220,6 +220,8 @@ const analysisSchema = z.object({
             status: txt,
             classification,
             embedding: z.array(z.number()).nullish(),
+            /** Sugestão da IA de decisão de avaliação (ex.: piloto de N dias) — não vinculante, o consultor decide no preview. */
+            is_evaluation: flag,
           }),
         ),
       ),
@@ -1004,6 +1006,8 @@ export type ApprovedSelection = {
     embedding?: number[] | null;
     /** Regra B — caixa "Concluída" da tela; só tem efeito quando a resolução é "Criar novo". */
     completed?: boolean;
+    /** Caixa "Avaliação" da tela (B1); só tem efeito quando a resolução é "Criar novo". */
+    is_evaluation?: boolean;
   }[];
   actions: {
     description: string;
@@ -1322,10 +1326,12 @@ export async function applyApprovedAnalysis(params: {
         owner: d.owner || null,
         due_date: d.due_date || null,
         // Regra B: caixa "Concluída" marcada (prazo vencido ou override manual) => "implementada".
-        status: resolveNewDecisionStatus(d.completed === true, d.title),
+        // B1: decisão de avaliação nunca nasce "implementada" só por prazo vencido.
+        status: resolveNewDecisionStatus(d.completed === true, d.title, d.is_evaluation === true),
         created_by: userId,
         supersedes_decision_id: supersedesId,
         embedding: d.embedding ?? null,
+        is_evaluation: d.is_evaluation === true,
       })
       .select("id")
       .single();
