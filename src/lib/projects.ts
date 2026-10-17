@@ -88,6 +88,8 @@ export type Decision = {
   embedding?: number[] | null;
   /** Decisão de avaliação (ex.: piloto de N dias) — ver evaluation-overdue.ts. */
   is_evaluation: boolean;
+  /** Presente só quando a consulta faz embed de meetings(meeting_date) — ver COCKPIT_DECISION_COLUMNS. */
+  meeting?: { meeting_date: string } | null;
 };
 
 /**

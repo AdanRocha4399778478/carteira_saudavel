@@ -175,7 +175,10 @@ export const actionsQuery = () =>
     queryFn: async () =>
       unwrap<ActionItem[]>(
         "actions",
-        await supabase.from("actions").select("*").order("deadline", { ascending: true }),
+        await supabase
+          .from("actions")
+          .select("*, meeting:meetings(meeting_date)")
+          .order("deadline", { ascending: true }),
       ),
   });
 

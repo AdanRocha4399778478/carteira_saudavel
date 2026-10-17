@@ -140,6 +140,10 @@ function ClientDetailPage() {
   );
 
   const clientActions = actions.filter((a) => a.client_id === clientId);
+  const meetingDateById = useMemo(
+    () => new Map(meetings.map((m) => [m.id, m.meeting_date])),
+    [meetings],
+  );
   const clientRisks = risks.filter((r) => r.client_id === clientId);
   const clientOpps = opportunities.filter((o) => o.client_id === clientId);
   const overdue = clientActions.filter((a) => isOverdue(a));
@@ -511,6 +515,7 @@ function ClientDetailPage() {
                         <TableHead>Ação</TableHead>
                         <TableHead>Responsável</TableHead>
                         <TableHead>Prazo</TableHead>
+                        <TableHead>Reunião</TableHead>
                         <TableHead>Prioridade</TableHead>
                         <TableHead>Área</TableHead>
                         <TableHead>Status</TableHead>
@@ -525,6 +530,9 @@ function ClientDetailPage() {
                           </TableCell>
                           <TableCell>{a.owner_name ?? "—"}</TableCell>
                           <TableCell>{formatDate(a.deadline)}</TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {formatDate(a.meeting_id ? meetingDateById.get(a.meeting_id) : null)}
+                          </TableCell>
                           <TableCell className="capitalize">{a.priority}</TableCell>
                           <TableCell>{a.erp_area ?? "—"}</TableCell>
                           <TableCell>
