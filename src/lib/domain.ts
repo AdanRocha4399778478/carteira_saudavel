@@ -404,7 +404,18 @@ export function pointsOf(rules: RiskRule[] | undefined, key: string, fallback: n
   return rule.active ? rule.points : 0;
 }
 
-export function computeRisk(signals: RiskSignals, rules?: RiskRule[]): RiskComputation {
+/**
+ * `hasOverdueEvaluation` (B2, 17/10/2026): true quando o cliente tem ao
+ * menos uma decisão de avaliação vencida (ver isEvaluationOverdue em
+ * evaluation-overdue.ts) — soma +1 ponto, no máximo uma vez, não importa
+ * quantas avaliações vencidas existam. Sem o parâmetro (padrão false), o
+ * comportamento é idêntico ao de antes desta mudança.
+ */
+export function computeRisk(
+  signals: RiskSignals,
+  rules?: RiskRule[],
+  hasOverdueEvaluation = false,
+): RiskComputation {
   const reasons: RiskReason[] = [];
   const add = (label: string, points: number) => {
     if (points > 0) reasons.push({ label, points });
@@ -440,6 +451,8 @@ export function computeRisk(signals: RiskSignals, rules?: RiskRule[]): RiskCompu
   if (signals.lowAdherence) add("Baixa adesão do cliente", pointsOf(rules, "low_adherence", 2));
   if (signals.missingInternalOwner)
     add("Ausência de responsável interno", pointsOf(rules, "missing_owner", 1));
+
+  if (hasOverdueEvaluation) add("Avaliação vencida", 1);
 
   const score = reasons.reduce((acc, r) => acc + r.points, 0);
   return { score, level: riskLevelFromScore(score), reasons };

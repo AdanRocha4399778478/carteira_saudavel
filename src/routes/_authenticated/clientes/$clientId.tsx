@@ -12,7 +12,7 @@ import {
   ShieldAlert,
   Sparkles,
 } from "lucide-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/painel/PageHeader";
 import { TimerWidget } from "@/components/painel/TimerWidget";
@@ -32,6 +32,7 @@ import { MeetingDialog } from "@/components/painel/MeetingDialog";
 import { ActionDialog } from "@/components/painel/ActionDialog";
 import { useClientDetailData } from "@/hooks/useCarteira";
 import { recalculateClient } from "@/lib/api";
+import { evaluationDecisionsQuery, overdueEvaluationClientIds } from "@/lib/evaluation-overdue";
 import {
   QUADRANT_INFO,
   byMeetingDateDesc,
@@ -142,6 +143,12 @@ function ClientDetailPage() {
   const clientRisks = risks.filter((r) => r.client_id === clientId);
   const clientOpps = opportunities.filter((o) => o.client_id === clientId);
   const overdue = clientActions.filter((a) => isOverdue(a));
+
+  /** B1 (16/10/2026): "avaliação vencida" — client_id vem do projeto, nunca de decisions.client_id. */
+  const evaluationDecisions = useQuery(evaluationDecisionsQuery());
+  const hasOverdueEvaluation = overdueEvaluationClientIds(evaluationDecisions.data ?? []).has(
+    clientId,
+  );
 
   const recalc = useMutation({
     mutationFn: () => recalculateClient(clientId, riskRules),
@@ -298,6 +305,11 @@ function ClientDetailPage() {
               {overdue.length ? (
                 <Pill tone="critical" icon={AlertTriangle}>
                   {overdue.length} ação(ões) vencida(s)
+                </Pill>
+              ) : null}
+              {hasOverdueEvaluation ? (
+                <Pill tone="critical" icon={AlertTriangle}>
+                  avaliação vencida
                 </Pill>
               ) : null}
             </div>

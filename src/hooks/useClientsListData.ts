@@ -3,6 +3,11 @@ import { useEffect, useMemo, useState } from "react";
 import { logDbError, profilesQuery, type PublicProfile } from "@/lib/api";
 import { consultantDisplayName } from "@/lib/consultants";
 import { isOverdue, type ActionItem, type Client } from "@/lib/domain";
+import {
+  evaluationDecisionsQuery,
+  overdueEvaluationClientIds,
+  type EvaluationDecisionRow,
+} from "@/lib/evaluation-overdue";
 import { MAX_QUERY_RETRIES } from "@/lib/query-errors";
 import { supabase } from "@/lib/supabase/client";
 
@@ -28,6 +33,7 @@ const SLOW_QUERY_MS = 10_000;
 const EMPTY_ACTIONS: ClientListAction[] = [];
 const EMPTY_CLIENTS: ClientListClient[] = [];
 const EMPTY_PROFILES: PublicProfile[] = [];
+const EMPTY_EVALUATION_DECISIONS: EvaluationDecisionRow[] = [];
 
 function clientsListQuery() {
   return {
@@ -68,23 +74,41 @@ function clientsListActionsQuery() {
  */
 export function useClientsListData() {
   const results = useQueries({
-    queries: [clientsListQuery(), clientsListActionsQuery(), profilesQuery()],
+    queries: [
+      clientsListQuery(),
+      clientsListActionsQuery(),
+      profilesQuery(),
+      evaluationDecisionsQuery(),
+    ],
   });
 
-  const [clientsResult, actionsResult, profilesResult] = results;
+  const [clientsResult, actionsResult, profilesResult, evaluationDecisionsResult] = results;
   const clients = (clientsResult?.data as ClientListClient[] | undefined) ?? EMPTY_CLIENTS;
   const actions = (actionsResult?.data as ClientListAction[] | undefined) ?? EMPTY_ACTIONS;
   const profiles = (profilesResult?.data as PublicProfile[] | undefined) ?? EMPTY_PROFILES;
+  const evaluationDecisions =
+    (evaluationDecisionsResult?.data as EvaluationDecisionRow[] | undefined) ??
+    EMPTY_EVALUATION_DECISIONS;
 
-  const isLoading = results.some((r) => r.isLoading && r.data === undefined);
-  const failed = results.find(
+  /**
+   * B1 (17/10/2026): evaluationDecisionsResult é um selo AUXILIAR da tela —
+   * sua falha ou demora nunca deve derrubar nem travar a listagem de
+   * clientes. isLoading/failed/error olham só as 3 consultas essenciais;
+   * a avaliação continua no mesmo useQueries (refetchAll/cache
+   * compartilhados), mas falha em silêncio (fica undefined, o Set
+   * resultante fica vazio — ver evaluationOverdueClientIds abaixo).
+   */
+  const essentialResults = [clientsResult, actionsResult, profilesResult];
+
+  const isLoading = essentialResults.some((r) => r.isLoading && r.data === undefined);
+  const failed = essentialResults.find(
     (r) =>
       r.data === undefined && (r.error || (r.failureCount >= MAX_QUERY_RETRIES && r.failureReason)),
   );
   const liveError = (failed?.error ?? failed?.failureReason ?? null) as Error | null;
 
   const [latchedError, setLatchedError] = useState<Error | null>(null);
-  const hasData = results.some((r) => r.data !== undefined);
+  const hasData = essentialResults.some((r) => r.data !== undefined);
   useEffect(() => {
     if (liveError) setLatchedError(liveError);
     else if (hasData) setLatchedError(null);
@@ -131,6 +155,12 @@ export function useClientsListData() {
     return map;
   }, [actions]);
 
+  /** B1 (16/10/2026): "avaliação vencida" — client_id vem do projeto, nunca de decisions.client_id. */
+  const evaluationOverdueClientIds = useMemo(
+    () => overdueEvaluationClientIds(evaluationDecisions),
+    [evaluationDecisions],
+  );
+
   return {
     clients,
     profiles,
@@ -141,5 +171,6 @@ export function useClientsListData() {
     consultantName,
     openActionsByClient,
     overdueByClient,
+    evaluationOverdueClientIds,
   };
 }

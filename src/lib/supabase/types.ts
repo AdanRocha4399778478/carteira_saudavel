@@ -229,6 +229,7 @@ export type Database = {
           due_date: string | null
           embedding: Json | null
           id: string
+          is_evaluation: boolean
           meeting_id: string | null
           owner: string | null
           project_id: string
@@ -246,6 +247,7 @@ export type Database = {
           due_date?: string | null
           embedding?: Json | null
           id?: string
+          is_evaluation?: boolean
           meeting_id?: string | null
           owner?: string | null
           project_id: string
@@ -263,6 +265,7 @@ export type Database = {
           due_date?: string | null
           embedding?: Json | null
           id?: string
+          is_evaluation?: boolean
           meeting_id?: string | null
           owner?: string | null
           project_id?: string

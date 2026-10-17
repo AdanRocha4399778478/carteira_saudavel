@@ -79,6 +79,39 @@ describe("resolveNewDecisionStatus — mapeamento de status de decisão nova", (
   });
 });
 
+describe("B1 (16/10/2026) — exceção à Regra B para decisão de avaliação (isEvaluation)", () => {
+  test("isNewDecisionPreMarkedCompleted: avaliação com prazo vencido NÃO vem pré-marcada (achado real: caso Chammas)", () => {
+    expect(isNewDecisionPreMarkedCompleted("2026-06-09", TODAY, true)).toBe(false);
+  });
+
+  test("isNewDecisionPreMarkedCompleted: sem isEvaluation, comportamento atual inalterado (regressão)", () => {
+    expect(isNewDecisionPreMarkedCompleted("2026-06-09", TODAY, false)).toBe(true);
+    expect(isNewDecisionPreMarkedCompleted("2026-06-09", TODAY)).toBe(true);
+  });
+
+  test("resolveNewDecisionStatus: avaliação NÃO marcada nasce sempre 'pendente', mesmo com título que não começa com 'Definir'", () => {
+    expect(resolveNewDecisionStatus(false, "Revisar contrato com fornecedor", true)).toBe(
+      "pendente",
+    );
+    expect(resolveNewDecisionStatus(false, "Definir o preço do plano", true)).toBe("pendente");
+  });
+
+  test("resolveNewDecisionStatus: avaliação marcada 'Concluída' manualmente vira 'implementada'", () => {
+    expect(
+      resolveNewDecisionStatus(true, "Definir ao final de 60 dias se o papel será mantido", true),
+    ).toBe("implementada");
+  });
+
+  test("resolveNewDecisionStatus: sem isEvaluation, comportamento atual inalterado (regressão)", () => {
+    expect(resolveNewDecisionStatus(false, "Definir o preço do plano", false)).toBe("pendente");
+    expect(resolveNewDecisionStatus(false, "Revisar contrato com fornecedor", false)).toBe(
+      "aprovada",
+    );
+    expect(resolveNewDecisionStatus(false, "Definir o preço do plano")).toBe("pendente");
+    expect(resolveNewDecisionStatus(false, "Revisar contrato com fornecedor")).toBe("aprovada");
+  });
+});
+
 describe("GATE REGRA B — leitura de `completed` em applyApprovedAnalysis, por inspeção estática (sem Supabase)", () => {
   const source = readFileSync(resolve(import.meta.dir, "../src/lib/meeting-analysis.ts"), "utf8");
 
@@ -88,7 +121,7 @@ describe("GATE REGRA B — leitura de `completed` em applyApprovedAnalysis, por 
     );
   });
 
-  test("status da decisão nova usa resolveNewDecisionStatus(d.completed === true, d.title) — só no bloco de criação", () => {
+  test("status da decisão nova usa resolveNewDecisionStatus(d.completed === true, d.title, d.is_evaluation === true) — só no bloco de criação", () => {
     const createBlockStart = source.indexOf(
       "// create — pode substituir uma decisão anterior sem apagá-la",
     );
@@ -97,7 +130,7 @@ describe("GATE REGRA B — leitura de `completed` em applyApprovedAnalysis, por 
     expect(createBlockEnd).toBeGreaterThan(createBlockStart);
     const createBlock = source.slice(createBlockStart, createBlockEnd);
     expect(createBlock).toContain(
-      "status: resolveNewDecisionStatus(d.completed === true, d.title),",
+      "status: resolveNewDecisionStatus(d.completed === true, d.title, d.is_evaluation === true),",
     );
   });
 

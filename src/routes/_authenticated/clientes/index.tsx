@@ -60,6 +60,7 @@ function ClientsPage() {
     consultantName,
     overdueByClient,
     openActionsByClient,
+    evaluationOverdueClientIds,
   } = useClientsListData();
 
   const [search, setSearch] = useState("");
@@ -262,6 +263,11 @@ function ClientsPage() {
                           {(overdueByClient.get(c.id) ?? 0) > 0 ? (
                             <span className="text-xs font-semibold text-critical">
                               {overdueByClient.get(c.id)} vencida(s)
+                            </span>
+                          ) : null}
+                          {evaluationOverdueClientIds.has(c.id) ? (
+                            <span className="text-xs font-semibold text-critical">
+                              avaliação vencida
                             </span>
                           ) : null}
                         </div>

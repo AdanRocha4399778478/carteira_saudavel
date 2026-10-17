@@ -343,6 +343,13 @@ export function MeetingAnalysisDialog({
    */
   const [decisionCompletedSel, setDecisionCompletedSel] = useState<Record<number, boolean>>({});
   const [actionCompletedSel, setActionCompletedSel] = useState<Record<number, boolean>>({});
+  /**
+   * B1 — caixa "Avaliação" por decisão (só exibida/usada quando a resolução
+   * é "Criar novo"). undefined = sem override manual, usa a sugestão da IA
+   * (r.item.is_evaluation). Decisão de avaliação é sempre exceção à Regra B
+   * — ver isNewDecisionPreMarkedCompleted/resolveNewDecisionStatus.
+   */
+  const [decisionEvaluationSel, setDecisionEvaluationSel] = useState<Record<number, boolean>>({});
   const [riskSel, setRiskSel] = useState<Record<number, ResolutionMode>>({});
   const [oppSel, setOppSel] = useState<Record<number, ResolutionMode>>({});
   const [summarySel, setSummarySel] = useState(true);
@@ -1236,6 +1243,7 @@ export function MeetingAnalysisDialog({
       setActionSel({});
       setDecisionCompletedSel({});
       setActionCompletedSel({});
+      setDecisionEvaluationSel({});
       setRiskSel({});
       setOppSel({});
       setSummarySel(true);
@@ -1317,21 +1325,29 @@ export function MeetingAnalysisDialog({
         deliveryClarityRate: deliveryClarity.actionCompletenessRate.rate,
         commitmentConversionRate: deliveryClarity.commitmentConversionRate.rate,
         contextItems,
-        decisions: decisionRows.map((r) => ({
-          title: r.item.title,
-          description: r.item.description,
-          reason: r.item.reason,
-          owner: r.item.owner,
-          due_date: r.item.due_date,
-          resolution: r.resolution,
-          embedding: r.item.embedding ?? null,
-          // Regra B: só faz sentido pra "Criar novo" — applyApprovedAnalysis só lê nesse ramo.
-          completed:
+        decisions: decisionRows.map((r) => {
+          const isEvaluation =
             r.mode === "create"
-              ? (decisionCompletedSel[r.key] ??
-                isNewDecisionPreMarkedCompleted(r.item.due_date, todayIso))
-              : false,
-        })),
+              ? (decisionEvaluationSel[r.key] ?? r.item.is_evaluation === true)
+              : false;
+          return {
+            title: r.item.title,
+            description: r.item.description,
+            reason: r.item.reason,
+            owner: r.item.owner,
+            due_date: r.item.due_date,
+            resolution: r.resolution,
+            embedding: r.item.embedding ?? null,
+            // Regra B: só faz sentido pra "Criar novo" — applyApprovedAnalysis só lê nesse ramo.
+            completed:
+              r.mode === "create"
+                ? (decisionCompletedSel[r.key] ??
+                  isNewDecisionPreMarkedCompleted(r.item.due_date, todayIso, isEvaluation))
+                : false,
+            // B1: caixa "Avaliação" — mesma regra, só faz sentido pra "Criar novo".
+            is_evaluation: isEvaluation,
+          };
+        }),
         actions: actionRows.map((r) => ({
           description: r.item.description,
           owner_name: r.item.owner_name,
@@ -1776,10 +1792,18 @@ export function MeetingAnalysisDialog({
                         onChange={(mode) => setDecisionSel((s) => ({ ...s, [r.key]: mode }))}
                         completed={
                           decisionCompletedSel[r.key] ??
-                          isNewDecisionPreMarkedCompleted(r.item.due_date, todayIso)
+                          isNewDecisionPreMarkedCompleted(
+                            r.item.due_date,
+                            todayIso,
+                            decisionEvaluationSel[r.key] ?? r.item.is_evaluation === true,
+                          )
                         }
                         onCompletedChange={(v) =>
                           setDecisionCompletedSel((s) => ({ ...s, [r.key]: v }))
+                        }
+                        isEvaluation={decisionEvaluationSel[r.key] ?? r.item.is_evaluation === true}
+                        onIsEvaluationChange={(v) =>
+                          setDecisionEvaluationSel((s) => ({ ...s, [r.key]: v }))
                         }
                       />
                     ))}
@@ -2194,6 +2218,8 @@ function ReviewRow({
   onChange,
   completed,
   onCompletedChange,
+  isEvaluation,
+  onIsEvaluationChange,
 }: {
   /** Ver goToFirstItemNeedingReview — id do DOM pra rolar até esta linha. */
   rowId?: string;
@@ -2220,6 +2246,12 @@ function ReviewRow({
    */
   completed?: boolean;
   onCompletedChange?: (v: boolean) => void;
+  /**
+   * B1 — caixa "Avaliação", só pra decisão (ação/risco/oportunidade não
+   * passam esses props, então a caixa nunca aparece neles).
+   */
+  isEvaluation?: boolean;
+  onIsEvaluationChange?: (v: boolean) => void;
 }) {
   return (
     <li id={rowId} className="rounded-lg bg-muted/40 p-3">
@@ -2256,14 +2288,27 @@ function ReviewRow({
             conditionalActionFlag={conditionalActionFlag}
             onChange={onChange}
           />
-          {row.mode === "create" && onCompletedChange ? (
-            <label className="mt-2 flex items-center gap-2">
-              <Checkbox
-                checked={completed === true}
-                onCheckedChange={(v) => onCompletedChange(v === true)}
-              />
-              <span className="text-xs text-muted-foreground">Concluída</span>
-            </label>
+          {row.mode === "create" && (onCompletedChange || onIsEvaluationChange) ? (
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              {onCompletedChange ? (
+                <label className="flex items-center gap-2">
+                  <Checkbox
+                    checked={completed === true}
+                    onCheckedChange={(v) => onCompletedChange(v === true)}
+                  />
+                  <span className="text-xs text-muted-foreground">Concluída</span>
+                </label>
+              ) : null}
+              {onIsEvaluationChange ? (
+                <label className="flex items-center gap-2">
+                  <Checkbox
+                    checked={isEvaluation === true}
+                    onCheckedChange={(v) => onIsEvaluationChange(v === true)}
+                  />
+                  <span className="text-xs text-muted-foreground">Avaliação</span>
+                </label>
+              ) : null}
+            </div>
           ) : null}
         </div>
         <span className="flex shrink-0 flex-col items-end gap-1">
