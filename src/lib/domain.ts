@@ -458,6 +458,53 @@ export function computeRisk(
   return { score, level: riskLevelFromScore(score), reasons };
 }
 
+/**
+ * Monta os RiskSignals de nota/sinal a partir das reuniões do cliente,
+ * usando EXATAMENTE a semântica já existente em recalculateClientWithSupabase
+ * (extraída daqui sem mudar o resultado): nota (satisfação/valor) vazia é
+ * "sem dado" e não pontua risco — o mesmo vale pros demais sinais de
+ * reunião (resultado mensurável, reclamação, dúvida de continuidade, baixa
+ * adesão, ausência de responsável interno).
+ *
+ * `latestScored` é a reunião mais recente que tem AO MENOS UMA das duas
+ * notas preenchida (satisfação OU valor) — nunca a simples `meetings[0]`,
+ * que pode ser uma reunião sem avaliação (ex.: vinda do fluxo de IA, que
+ * não produz nota nem sinal de risco). Sem nenhuma reunião pontuada,
+ * `latestScored` é `null` e TODOS os sinais ficam nulos/falsos — nenhum
+ * deles pontua. `daysSinceLastMeeting`, ao contrário, vem da reunião mais
+ * recente de QUALQUER tipo (`meetings[0]`), pontuada ou não — a cadência
+ * de reunião é independente de ter nota.
+ *
+ * `meetings` precisa já vir ordenado da mais recente para a mais antiga
+ * (mesma ordem que `recalculateClientWithSupabase`/a página do cliente já
+ * produzem via `byMeetingDateDesc`).
+ */
+export function buildRiskSignalsFromMeetings(
+  meetings: Meeting[],
+  overdueActionsCount: number,
+): RiskSignals {
+  const latest = meetings[0];
+  const latestScored =
+    meetings.find((m) => m.satisfaction_score !== null || m.value_score !== null) ?? null;
+
+  return {
+    satisfaction: latestScored?.satisfaction_score ?? null,
+    valueScore: latestScored?.value_score ?? null,
+    previousSatisfactions: meetings
+      .filter((m) => m !== latestScored)
+      .map((m) => m.satisfaction_score)
+      .filter((n): n is number => n !== null)
+      .slice(0, 2),
+    hasMeasurableResult: meetings.some((m) => m.has_measurable_result),
+    overdueActions: overdueActionsCount,
+    daysSinceLastMeeting: daysSince(latest?.meeting_date ?? null),
+    explicitComplaint: latestScored?.explicit_complaint ?? false,
+    continuityDoubt: latestScored?.continuity_doubt ?? false,
+    lowAdherence: latestScored?.low_client_adherence ?? false,
+    missingInternalOwner: latestScored?.missing_internal_owner ?? false,
+  };
+}
+
 export function accountStatusFromRisk(level: RiskLevel): AccountStatus {
   if (level === "baixo") return "saudável";
   if (level === "médio") return "atenção";

@@ -35,10 +35,10 @@ import { recalculateClient } from "@/lib/api";
 import { evaluationDecisionsQuery, overdueEvaluationClientIds } from "@/lib/evaluation-overdue";
 import {
   QUADRANT_INFO,
+  buildRiskSignalsFromMeetings,
   byMeetingDateDesc,
   computeRisk,
   daysSince,
-
   formatDate,
   formatScore,
   isOverdue,
@@ -173,28 +173,20 @@ function ClientDetailPage() {
     [clientMeetings],
   );
 
-  const currentRisk = useMemo(() => {
-    const latest = clientMeetings[0];
-    return computeRisk(
-      {
-        satisfaction: latest?.satisfaction_score === undefined ? null : Number(latest.satisfaction_score),
-        valueScore: latest?.value_score === undefined ? null : Number(latest.value_score),
-        previousSatisfactions: clientMeetings
-          .slice(1, 3)
-          .map((m) => m.satisfaction_score)
-          .filter((n): n is number => n !== null)
-          .map(Number),
-        hasMeasurableResult: latest?.has_measurable_result ?? false,
-        overdueActions: overdue.length,
-        daysSinceLastMeeting: daysSince(latest?.meeting_date ?? null),
-        explicitComplaint: latest?.explicit_complaint ?? false,
-        continuityDoubt: latest?.continuity_doubt ?? false,
-        lowAdherence: latest?.low_client_adherence ?? false,
-        missingInternalOwner: latest?.missing_internal_owner ?? false,
-      },
-      riskRules,
-    );
-  }, [clientMeetings, overdue.length, riskRules]);
+  /**
+   * Mesma função pura usada por recalculateClientWithSupabase
+   * (buildRiskSignalsFromMeetings) + a mesma computeRisk, com
+   * hasOverdueEvaluation — nunca mais um cálculo próprio do painel que
+   * possa divergir do valor gravado.
+   */
+  const currentRiskSignals = useMemo(
+    () => buildRiskSignalsFromMeetings(clientMeetings, overdue.length),
+    [clientMeetings, overdue.length],
+  );
+  const currentRisk = useMemo(
+    () => computeRisk(currentRiskSignals, riskRules, hasOverdueEvaluation),
+    [currentRiskSignals, riskRules, hasOverdueEvaluation],
+  );
 
   if (error) {
     return (
@@ -346,6 +338,11 @@ function ClientDetailPage() {
             <p className="mt-1 text-xs text-muted-foreground">
               Pontuação {currentRisk.score} · nível {currentRisk.level}
             </p>
+            {currentRiskSignals.satisfaction === null || currentRiskSignals.valueScore === null ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Sem dado de satisfação/valor — não pontua risco
+              </p>
+            ) : null}
             {currentRisk.reasons.length ? (
               <ul className="mt-3 grid gap-2">
                 {currentRisk.reasons.map((r) => (
