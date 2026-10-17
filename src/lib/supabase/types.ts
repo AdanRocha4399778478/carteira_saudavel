@@ -457,6 +457,152 @@ export type Database = {
           },
         ]
       }
+      indicator_points: {
+        Row: {
+          basis: string;
+          client_id: string;
+          created_at: string;
+          created_by: string | null;
+          evidence: string | null;
+          id: string;
+          indicator_id: string;
+          measured_at: string;
+          note: string | null;
+          project_id: string;
+          source: string;
+          source_meeting_id: string | null;
+          updated_at: string;
+          value: number;
+        };
+        Insert: {
+          basis: string;
+          client_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          evidence?: string | null;
+          id?: string;
+          indicator_id: string;
+          measured_at: string;
+          note?: string | null;
+          project_id: string;
+          source?: string;
+          source_meeting_id?: string | null;
+          updated_at?: string;
+          value: number;
+        };
+        Update: {
+          basis?: string;
+          client_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          evidence?: string | null;
+          id?: string;
+          indicator_id?: string;
+          measured_at?: string;
+          note?: string | null;
+          project_id?: string;
+          source?: string;
+          source_meeting_id?: string | null;
+          updated_at?: string;
+          value?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "indicator_points_client_id_fkey";
+            columns: ["client_id"];
+            isOneToOne: false;
+            referencedRelation: "clients";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "indicator_points_indicator_id_fkey";
+            columns: ["indicator_id"];
+            isOneToOne: false;
+            referencedRelation: "indicators";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "indicator_points_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: false;
+            referencedRelation: "projects";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "indicator_points_source_meeting_id_fkey";
+            columns: ["source_meeting_id"];
+            isOneToOne: false;
+            referencedRelation: "meetings";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      indicators: {
+        Row: {
+          baseline_at: string | null;
+          baseline_value: number | null;
+          client_id: string;
+          created_at: string;
+          created_by: string | null;
+          direction: string;
+          frequency: string | null;
+          id: string;
+          kind: string;
+          name: string;
+          project_id: string;
+          target_value: number | null;
+          unit: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          baseline_at?: string | null;
+          baseline_value?: number | null;
+          client_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          direction: string;
+          frequency?: string | null;
+          id?: string;
+          kind: string;
+          name: string;
+          project_id: string;
+          target_value?: number | null;
+          unit?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          baseline_at?: string | null;
+          baseline_value?: number | null;
+          client_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          direction?: string;
+          frequency?: string | null;
+          id?: string;
+          kind?: string;
+          name?: string;
+          project_id?: string;
+          target_value?: number | null;
+          unit?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "indicators_client_id_fkey";
+            columns: ["client_id"];
+            isOneToOne: false;
+            referencedRelation: "clients";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "indicators_project_id_fkey";
+            columns: ["project_id"];
+            isOneToOne: false;
+            referencedRelation: "projects";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       meeting_analyses: {
         Row: {
           agenda: Json
