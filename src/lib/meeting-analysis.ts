@@ -217,6 +217,8 @@ const analysisSchema = z.object({
             reason: txt,
             owner: txt,
             due_date: txt,
+            /** B18 — expressão literal de prazo vago ("semana que vem"); a IA nunca calcula a data, só registra a fala. Ver resolveRelativeDeadline. */
+            due_hint: txt,
             status: txt,
             classification,
             embedding: z.array(z.number()).nullish(),
@@ -258,6 +260,8 @@ const analysisSchema = z.object({
             description: txt,
             owner_name: txt,
             deadline: txt,
+            /** B18 — expressão literal de prazo vago ("semana que vem"); a IA nunca calcula a data, só registra a fala. Ver resolveRelativeDeadline. */
+            deadline_hint: txt,
             priority: txt,
             erp_area: txt,
             evidence: txt,
