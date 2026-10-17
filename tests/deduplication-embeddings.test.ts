@@ -75,7 +75,10 @@ describe("GATE 8 — matcher usa cosine quando ambos os lados têm embedding", (
   });
 
   test("combinedSimilarity é sempre o MAIOR entre lexical e semântico — nunca fica pior que o texto puro", () => {
-    const lexicalOnly = combinedSimilarity("revisar contrato com fornecedor", "revisar contrato com fornecedor");
+    const lexicalOnly = combinedSimilarity(
+      "revisar contrato com fornecedor",
+      "revisar contrato com fornecedor",
+    );
     const withLowCosine = combinedSimilarity(
       "revisar contrato com fornecedor",
       "revisar contrato com fornecedor",
@@ -98,7 +101,9 @@ describe("GATE 8 — fallback lexical quando embedding está null (comportamento
       created_at: "",
       embedding: null,
     };
-    const match = matchRisk({ description: "Cliente ameaça cancelar contrato por atraso" }, [candidate]);
+    const match = matchRisk({ description: "Cliente ameaça cancelar contrato por atraso" }, [
+      candidate,
+    ]);
     expect(match.type).toBe("EXISTING");
   });
 
@@ -164,7 +169,9 @@ describe("GATE 8 — thresholds aplicados corretamente com base na similaridade 
       embedding: vec(1, 0),
     };
     // cos = 0 (ortogonais) e nenhuma palavra em comum.
-    const match = matchDecision({ title: "Papel azul lanterna", embedding: vec(0, 1) }, [candidate]);
+    const match = matchDecision({ title: "Papel azul lanterna", embedding: vec(0, 1) }, [
+      candidate,
+    ]);
     expect(match.type).toBe("NEW");
     expect(match.confidence).toBeLessThan(DEDUPE_THRESHOLDS.review);
   });
@@ -186,7 +193,9 @@ describe("GATE 8 — embeddings inválidos não quebram o fluxo", () => {
   });
 
   test("combinedSimilarity com embeddings de tamanhos incompatíveis degrada para lexical, sem lançar", () => {
-    expect(() => combinedSimilarity("mesmo texto aqui", "mesmo texto aqui", [1, 0, 0], [1, 0])).not.toThrow();
+    expect(() =>
+      combinedSimilarity("mesmo texto aqui", "mesmo texto aqui", [1, 0, 0], [1, 0]),
+    ).not.toThrow();
     const result = combinedSimilarity("mesmo texto aqui", "mesmo texto aqui", [1, 0, 0], [1, 0]);
     expect(result).toBe(1); // similaridade lexical de texto idêntico, cosseno inválido ignorado.
   });
@@ -311,14 +320,22 @@ describe("GATE 8 — leitura de embeddings existentes para o matcher (evidência
     const projectDetailSource = read("src/lib/project-detail.ts");
 
     // select("*") já inclui embedding — actionsQuery/risksQuery/opportunitiesQuery (api.ts).
-    expect(apiSource).toContain('await supabase.from("actions").select("*").order("deadline"');
+    // actionsQuery ganhou embed de meetings(meeting_date) (B21), mas o "*" continua
+    // selecionando embedding normalmente.
+    expect(apiSource).toContain(
+      'await supabase\n          .from("actions")\n          .select("*, meeting:meetings(meeting_date)")\n          .order("deadline"',
+    );
     expect(apiSource).toContain('await supabase.from("risks").select("*").order("created_at"');
-    expect(apiSource).toContain('await supabase.from("opportunities").select("*").order("created_at"');
+    expect(apiSource).toContain(
+      'await supabase.from("opportunities").select("*").order("created_at"',
+    );
     // decisionsQuery (projects.ts) também usa select("*").
     expect(projectsSource).toContain('supabase.from("decisions").select("*")');
 
     // As variantes de coluna explícita (usadas em projetos/$projectId.tsx) listam embedding.
-    expect(apiSource).toContain("erp_area, evidence, is_recurring, created_at, updated_at, embedding");
+    expect(apiSource).toContain(
+      "erp_area, evidence, is_recurring, created_at, updated_at, embedding",
+    );
     expect(apiSource).toContain("level, active, created_at, embedding");
     expect(apiSource).toContain("expected_benefit, status, created_at, embedding");
     expect(projectDetailSource).toContain("status, owner, due_date, embedding");

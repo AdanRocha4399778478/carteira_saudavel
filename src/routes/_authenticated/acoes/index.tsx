@@ -297,6 +297,7 @@ function ActionsPage() {
                     <TableHead>Cliente</TableHead>
                     <TableHead>Responsável</TableHead>
                     <TableHead>Prazo</TableHead>
+                    <TableHead>Reunião</TableHead>
                     <TableHead>Prioridade</TableHead>
                     <TableHead>Área</TableHead>
                     <TableHead>Status</TableHead>
@@ -320,6 +321,9 @@ function ActionsPage() {
                       </TableCell>
                       <TableCell>{a.owner_name ?? "—"}</TableCell>
                       <TableCell>{formatDate(a.deadline)}</TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {formatDate(a.meeting?.meeting_date)}
+                      </TableCell>
                       <TableCell className="capitalize">{a.priority}</TableCell>
                       <TableCell>{a.erp_area ?? "—"}</TableCell>
                       <TableCell>

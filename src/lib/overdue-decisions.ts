@@ -28,6 +28,7 @@ export type OverdueDecisionRow = {
   projectName: string;
   daysOverdue: number;
   dueDate: string;
+  meetingDate: string | null;
 };
 
 export type OverdueDecisionsResult = {
@@ -73,6 +74,7 @@ export function getOverdueDecisions(
       projectName: project.projectName,
       daysOverdue: daysSince(decision.due_date) ?? 0,
       dueDate: decision.due_date!,
+      meetingDate: decision.meeting?.meeting_date ?? null,
     });
   }
 

@@ -241,6 +241,10 @@ function ProjectDetailPage() {
   }, [profiles.data, project.data, client.data]);
 
   const meetingIds = useMemo(() => new Set((meetings.data ?? []).map((m) => m.id)), [meetings.data]);
+  const meetingDateById = useMemo(
+    () => new Map((meetings.data ?? []).map((m) => [m.id, m.meeting_date])),
+    [meetings.data],
+  );
 
   /** Ações/riscos do projeto: ligados por reunião do projeto (inferência) ou pelo cliente. */
   const projectActions = useMemo(
@@ -720,7 +724,9 @@ function ProjectDetailPage() {
                           {a.description}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {a.owner_name || "Sem responsável"} · prazo {formatDate(a.deadline)}
+                          {a.owner_name || "Sem responsável"} · prazo {formatDate(a.deadline)} ·
+                          reunião{" "}
+                          {formatDate(a.meeting_id ? meetingDateById.get(a.meeting_id) : null)}
                         </p>
                       </div>
                       <ActionStatusBadge status={a.status} overdue={isOverdue(a)} />
@@ -770,7 +776,9 @@ function ProjectDetailPage() {
                           <p className="mt-1 text-sm text-muted-foreground">{d.description}</p>
                         ) : null}
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {d.owner || "Sem responsável"} · prazo {formatDate(d.due_date)}
+                          {d.owner || "Sem responsável"} · prazo {formatDate(d.due_date)} ·
+                          reunião{" "}
+                          {formatDate(d.meeting_id ? meetingDateById.get(d.meeting_id) : null)}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">

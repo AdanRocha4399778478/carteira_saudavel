@@ -166,6 +166,8 @@ export type ActionItem = {
   is_recurring: boolean;
   /** Vetor semântico da descrição — usado para reconhecer continuidade entre reuniões. */
   embedding?: number[] | null;
+  /** Presente só quando a consulta faz embed de meetings(meeting_date) — ver actionsQuery. */
+  meeting?: { meeting_date: string } | null;
 };
 
 export type RiskItem = {

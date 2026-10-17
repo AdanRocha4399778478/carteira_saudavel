@@ -587,7 +587,7 @@ function DashboardPage() {
                             </div>
                             <p className="truncate text-xs text-muted-foreground">
                               {d.clientName} · {d.projectName} · {d.owner} · Prazo{" "}
-                              {formatDate(d.dueDate)}
+                              {formatDate(d.dueDate)} · Reunião {formatDate(d.meetingDate)}
                             </p>
                           </Link>
                         </li>
