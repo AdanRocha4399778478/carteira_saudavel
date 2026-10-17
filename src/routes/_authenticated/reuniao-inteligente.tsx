@@ -20,7 +20,7 @@ import {
   opportunitiesQuery,
   risksQuery,
 } from "@/lib/api";
-import { buildKnownClientNames } from "@/lib/deduplication";
+import { buildKnownClientNames, normalizeText } from "@/lib/deduplication";
 import { MEETING_TYPES, normalizeMeeting, type Meeting } from "@/lib/domain";
 import { cleanParticipants, normalizeMeetingType } from "@/lib/identification-clean";
 import { useAccess } from "@/lib/auth/access";
@@ -339,6 +339,22 @@ function SmartMeetingPage() {
     [projects.data, projectId],
   );
   const contextKnown = !!preset.clientId && clientId === preset.clientId;
+  /**
+   * Cliente já escolhido (preset ou seletor da primeira etapa) prevalece
+   * sempre — a IA continua só sugerindo (ver onSuccess de runAnalysis).
+   * Aviso discreto só pra chamar atenção quando o nome citado na
+   * transcrição parece ser de OUTRO cliente, sem bloquear nada.
+   */
+  const clientMismatch = useMemo(() => {
+    if (!clientId || !ident?.client_name) return null;
+    const chosen = (clients.data ?? []).find((c) => c.id === clientId);
+    if (!chosen) return null;
+    const citedNorm = normalizeText(ident.client_name);
+    const chosenNorm = normalizeText(chosen.company_name);
+    if (!citedNorm || !chosenNorm) return null;
+    if (citedNorm.includes(chosenNorm) || chosenNorm.includes(citedNorm)) return null;
+    return { chosenName: chosen.company_name, citedName: ident.client_name };
+  }, [clientId, ident, clients.data]);
   /** Sugestão não vinculante da IA para o tipo — o campo nunca é preenchido sozinho. */
   const suggestedMeetingType = useMemo(
     () => (ident ? normalizeMeetingType(ident.meeting_type) : ""),
@@ -419,6 +435,28 @@ function SmartMeetingPage() {
 
   const runAnalysis = useMutation({
     mutationFn: async () => {
+      // Cliente escolhido na primeira etapa (ou vindo do preset): garante que
+      // clientKnownNamesQuery terminou ANTES de montar a lista pra análise, pra
+      // não enviar a lista incompleta se o consultor clicar "Analisar" rápido
+      // demais. fetchQuery reaproveita o cache da mesma query já usada pelo
+      // useQuery acima (mesma queryKey/queryFn) — sem consulta nova. Falha não
+      // trava a análise: segue sem a lista, igual ao comportamento de hoje.
+      let analysisKnownNames = knownNames;
+      if (clientId) {
+        try {
+          const sources = await qc.fetchQuery(clientKnownNamesQuery(clientId));
+          const actionOwners = (actions.data ?? [])
+            .filter((a) => a.client_id === clientId)
+            .map((a) => a.owner_name);
+          analysisKnownNames = buildKnownClientNames(
+            [...sources.participants, ...sources.decisionOwners, ...actionOwners],
+            clientId,
+          );
+        } catch {
+          analysisKnownNames = [];
+        }
+      }
+
       const raw = await analyze({
         data: {
           transcript: normalizeTranscript(transcript),
@@ -433,7 +471,7 @@ function SmartMeetingPage() {
             status: p.status,
           })),
           consultantName: access?.profile?.full_name ?? undefined,
-          knownNames,
+          knownNames: analysisKnownNames,
         },
       });
       const payload = JSON.parse(raw.json) as Record<string, unknown>;
@@ -452,14 +490,30 @@ function SmartMeetingPage() {
       setIdent(identification);
       setRawAiResponse(rawResp);
       // Confiança insuficiente não seleciona automaticamente — o consultor decide.
-      // Atalho contextual manda: cliente/projeto vindos da tela de origem prevalecem.
+      // Cliente já escolhido ANTES da análise sempre prevalece sobre a sugestão
+      // da IA — seja por atalho (preset.clientId) ou por escolha manual na
+      // primeira etapa (mesmo estado clientId, ver seletor "Cliente (opcional)"):
+      // em ambos os casos `clientId` já não é vazio aqui, então a sugestão da
+      // IA só é usada quando nenhum cliente foi escolhido de antemão.
       setClientId(
-        preset.clientId ??
+        clientId ||
           (identification.client_confidence >= 0.6 ? (identification.client_id ?? "") : ""),
       );
+      // Projeto sugerido pela IA só é aplicado quando não havia cliente
+      // escolhido de antemão, OU quando o projeto sugerido realmente
+      // pertence a esse cliente — senão a sugestão pode ser de um projeto
+      // de OUTRO cliente (a IA identificou um cliente diferente do
+      // escolhido) e ficaria pré-selecionada por engano. Preset de
+      // projeto continua valendo sempre, igual a antes.
+      const suggestedProjectId =
+        identification.project_confidence >= 0.6 ? (identification.project_id ?? "") : "";
+      const suggestedProjectClientId = suggestedProjectId
+        ? (projects.data ?? []).find((p) => p.id === suggestedProjectId)?.client_id
+        : undefined;
+      const suggestedProjectMatchesChosenClient =
+        !clientId || suggestedProjectClientId === clientId;
       setProjectId(
-        preset.projectId ??
-          (identification.project_confidence >= 0.6 ? (identification.project_id ?? "") : ""),
+        preset.projectId ?? (suggestedProjectMatchesChosenClient ? suggestedProjectId : ""),
       );
       setNewProjectArea(identification.project_proposal.erp_area ?? "");
       setNewProjectSubarea(identification.project_proposal.erp_subarea ?? "");
@@ -669,6 +723,19 @@ function SmartMeetingPage() {
               </p>
             </div>
 
+            <div className="grid max-w-sm gap-1.5">
+              <Label>Cliente (opcional)</Label>
+              <ClientCombobox
+                clients={clients.data ?? []}
+                value={clientId}
+                onChange={(id) => setClientId(id)}
+                placeholder="Nenhum (opcional)"
+              />
+              <p className="text-xs text-muted-foreground">
+                Ajuda a IA a acertar os nomes de quem fala
+              </p>
+            </div>
+
             <div className="flex flex-wrap items-center gap-3">
               <Button onClick={() => fileRef.current?.click()} disabled={busy}>
                 <Upload className="size-4" aria-hidden />
@@ -854,6 +921,13 @@ function SmartMeetingPage() {
                   {ident.client_name ? (
                     <p className="text-xs text-muted-foreground">
                       Citado na reunião: {ident.client_name}
+                    </p>
+                  ) : null}
+                  {clientMismatch ? (
+                    <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-muted-foreground">
+                      A transcrição cita "{clientMismatch.citedName}", diferente do cliente
+                      escolhido (<strong>{clientMismatch.chosenName}</strong>). Confirme se é o
+                      cliente certo.
                     </p>
                   ) : null}
                 </div>
