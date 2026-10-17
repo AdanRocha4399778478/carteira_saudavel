@@ -103,6 +103,8 @@ export const analyzeInput = z.object({
   overdueActions: z.array(z.string()).default([]),
   pendingDecisions: z.array(z.string()).default([]),
   activeRisks: z.array(z.string()).default([]),
+  /** B19 — nomes de pessoas já conhecidas do cliente desta reunião, já canonizados (ver buildKnownClientNames). */
+  knownNames: z.array(z.string()).default([]),
   source: z
     .object({
       type: z.enum(["pdf", "manual"]),
@@ -131,6 +133,7 @@ Regras:
 - identification.meeting_type deve ser EXATAMENTE um dos valores: ${MEETING_TYPES.join(", ")}. Fora dessa lista, ou se o tipo não estiver claro na conversa, devolva "" — nunca adivinhe nem use um tipo padrão.
 - "Speaker 1", "Speaker 2" e rótulos semelhantes (ex.: "Falante 1") são genéricos, não nomes: deduza o nome real de cada pessoa pelos nomes ditos na própria conversa (alguém se apresenta, é chamado pelo nome, assina um e-mail citado etc.). Para identification.participants e speaker_map[].name, sem essa certeza, deixe o nome vazio em vez de usar o rótulo genérico. Para o responsável (decisions[].owner, actions[].owner_name, meeting.action_owner), use o rótulo em vez do nome quando não houver certeza do nome — ver a regra de Responsável acima.
 - speaker_map: liste cada rótulo de falante que aparece na transcrição (ex.: "Speaker 1", "Speaker 2"). Proponha o nome real SÓ com evidência na própria fala (alguém é chamado pelo nome, se apresenta, ou o consultor logado informado no cabeçalho se identifica pelo contexto). Quando um falante chama alguém pelo nome ("Ana, você...", "então Ana..."), esse nome pertence ao OUTRO falante, não a quem está falando. Se um falante se apresenta ou se refere a si mesmo pelo nome, o nome é dele. O nome do consultor logado informado no cabeçalho pertence ao falante que apresenta o método, conduz a pauta e propõe entregas. Vocativo repetido ou nome do consultor logado com esse contexto = confidence "média"; autoapresentação explícita = "alta". evidence = a frase exata (até 15 palavras) que sustenta a proposta. Sem evidência nenhuma, name "" e confidence "baixa". Nunca invente nomes. Transcrição sem rótulos genéricos (falantes já identificados pelo nome) = speaker_map [].
+- Nomes já conhecidos deste cliente (linha "Nomes já conhecidos deste cliente" do cabeçalho, quando presente): ao propor speaker_map[].name, compare o nome falado com essa lista. Se o falante for CLARAMENTE uma das pessoas da lista (nome falado parecido com o nome conhecido E o contexto da fala é compatível com essa pessoa), use a grafia exata da lista. Se o nome falado não corresponder claramente a nenhum nome da lista, ou houver dúvida entre dois nomes da lista, deixe speaker_map[].name "" com confidence "baixa" — nunca invente, nunca escolha por palpite nem por semelhança sonora sozinha. Sem essa lista no cabeçalho (cliente novo ou ainda não identificado), siga normalmente a regra de speaker_map acima, sem nenhuma mudança de comportamento.
 - identification.participants: só quem FALA na reunião ou é dito PRESENTE nela. Pessoa apenas citada na conversa, ou dita ausente (ex.: "ela nem tá aqui", "ele não veio"), NÃO é participante. O consultor logado informado no cabeçalho entra sempre.
 - Resumos, listas de itens de ação ou análises que já vierem prontos no texto (por exemplo, uma exportação do Tactiq com "Summary and Action items") NÃO são fonte de verdade: só o diálogo real entre os falantes sustenta decisions, actions, risks, opportunities e identification — nunca copie direto de um resumo pré-existente.
 - decisions[].due_date e actions[].deadline NUNCA devem ser preenchidos com a data da reunião por padrão, e só são preenchidos quando a própria conversa citar uma data EXPLÍCITA para aquele item — um dia do mês (ex.: "dia 16") ou uma data completa —, resolvida a partir do mês e ano da data real desta reunião quando a fala não disser o mês; sem data explícita citada, devolva "". Referência relativa (dia da semana como "próxima terça", "amanhã", "semana que vem" etc.) NUNCA é calculada por você, mesmo sendo possível deduzir a data: segue a regra abaixo (devolva due_date/deadline "" e copie a expressão literal no hint). Ex.: se o consultor diz "no dia 16 eu recebo o retorno", a ação recebe due_date/deadline com o dia 16 do mês e ano desta reunião; se o consultor diz "até quinta eu aguardo a planilha", isso é referência relativa — due_date/deadline fica "" e actions[].deadline_hint recebe "até quinta".
@@ -496,6 +499,9 @@ export async function runMeetingAnalysis(data: MeetingAnalysisInput) {
         ? `Decisões pendentes: ${JSON.stringify(data.pendingDecisions)}`
         : "",
       data.activeRisks.length ? `Riscos ativos: ${JSON.stringify(data.activeRisks)}` : "",
+      data.knownNames.length
+        ? `Nomes já conhecidos deste cliente: ${JSON.stringify(data.knownNames)}`
+        : "",
     ]
       .filter(Boolean)
       .join("\n");

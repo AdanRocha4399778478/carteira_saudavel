@@ -168,6 +168,41 @@ export const clientMeetingsQuery = (clientId: string) =>
       ).map(normalizeMeeting),
   });
 
+export type ClientKnownNamesSources = {
+  participants: string[];
+  decisionOwners: string[];
+};
+
+/**
+ * B19 (17/10/2026) — nomes de pessoas já conhecidas de um cliente, usados
+ * para dar à IA uma lista de referência antes de identificar quem fala
+ * numa reunião nova (ver buildKnownClientNames em deduplication.ts). Só
+ * participantes e responsáveis de decisões: responsáveis de ações já vêm
+ * da consulta global de `actions` (actionsQuery), carregada antes da
+ * análise em reuniao-inteligente.tsx — não repetida aqui. Consulta mínima,
+ * com o cliente Supabase do navegador (sessão do usuário, RLS aplicada,
+ * nunca service role).
+ */
+export const clientKnownNamesQuery = (clientId: string) =>
+  queryOptions({
+    queryKey: ["known-names", "client", clientId],
+    enabled: !!clientId,
+    queryFn: async (): Promise<ClientKnownNamesSources> => {
+      const [meetingsRes, decisionsRes] = await Promise.all([
+        supabase.from("meetings").select("participants").eq("client_id", clientId),
+        supabase.from("decisions").select("owner").eq("client_id", clientId),
+      ]);
+      if (meetingsRes.error) logDbError("meetings", "select-known-names", meetingsRes.error);
+      if (decisionsRes.error) logDbError("decisions", "select-known-names", decisionsRes.error);
+      const participants = (
+        (meetingsRes.data ?? []) as { participants: string[] | null }[]
+      ).flatMap((m) => m.participants ?? []);
+      const decisionOwners = ((decisionsRes.data ?? []) as { owner: string | null }[]).map(
+        (d) => d.owner ?? "",
+      );
+      return { participants, decisionOwners };
+    },
+  });
 
 export const actionsQuery = () =>
   queryOptions({

@@ -13,12 +13,14 @@ import { routeErrorComponent } from "@/components/painel/RouteError";
 import { supabase } from "@/lib/supabase/client";
 import {
   actionsQuery,
+  clientKnownNamesQuery,
   clientMeetingsQuery,
   clientsQuery,
   logDbError,
   opportunitiesQuery,
   risksQuery,
 } from "@/lib/api";
+import { buildKnownClientNames } from "@/lib/deduplication";
 import { MEETING_TYPES, normalizeMeeting, type Meeting } from "@/lib/domain";
 import { cleanParticipants, normalizeMeetingType } from "@/lib/identification-clean";
 import { useAccess } from "@/lib/auth/access";
@@ -196,6 +198,30 @@ function SmartMeetingPage() {
   const [ident, setIdent] = useState<Identification | null>(null);
   const [clientId, setClientId] = useState(preset.clientId ?? "");
   const [projectId, setProjectId] = useState(preset.projectId ?? "");
+  /**
+   * B19 — nomes já conhecidos do cliente, só quando o cliente já é
+   * conhecido ANTES da análise (veio de um atalho com clientId, ver
+   * `preset`). Sem isso, a IA ainda não identificou o cliente neste
+   * ponto do fluxo, então não há lista a enviar — comportamento atual
+   * não muda. Responsáveis de ações reaproveitam `actions` (já
+   * carregado globalmente, linha acima); participantes e responsáveis
+   * de decisões vêm de uma consulta mínima nova (clientKnownNamesQuery),
+   * autorizada por não haver dado desses dois já carregado neste ponto.
+   */
+  const knownNamesSources = useQuery(clientKnownNamesQuery(clientId));
+  const knownNames = useMemo(() => {
+    const actionOwners = (actions.data ?? [])
+      .filter((a) => a.client_id === clientId)
+      .map((a) => a.owner_name);
+    return buildKnownClientNames(
+      [
+        ...(knownNamesSources.data?.participants ?? []),
+        ...(knownNamesSources.data?.decisionOwners ?? []),
+        ...actionOwners,
+      ],
+      clientId,
+    );
+  }, [knownNamesSources.data, actions.data, clientId]);
   const [newProjectArea, setNewProjectArea] = useState("");
   const [newProjectSubarea, setNewProjectSubarea] = useState("");
   const [newProjectItem, setNewProjectItem] = useState("");
@@ -407,6 +433,7 @@ function SmartMeetingPage() {
             status: p.status,
           })),
           consultantName: access?.profile?.full_name ?? undefined,
+          knownNames,
         },
       });
       const payload = JSON.parse(raw.json) as Record<string, unknown>;
