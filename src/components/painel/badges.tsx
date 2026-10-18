@@ -122,6 +122,29 @@ export function DecisionStatusBadge({
   return <Pill tone={status === "implementada" ? "healthy" : "neutral"}>{label}</Pill>;
 }
 
+export function IndicatorStatusBadge({
+  status,
+}: {
+  status: "melhorou" | "piorou" | "neutro" | null;
+}) {
+  if (!status) {
+    return (
+      <Pill tone="neutral" icon={CircleDashed}>
+        sem dados
+      </Pill>
+    );
+  }
+  const tone: Tone =
+    status === "melhorou" ? "healthy" : status === "piorou" ? "critical" : "neutral";
+  const icon =
+    status === "melhorou" ? CheckCircle2 : status === "piorou" ? TrendingDown : CircleDashed;
+  return (
+    <Pill tone={tone} icon={icon}>
+      {status}
+    </Pill>
+  );
+}
+
 export function TrendBadge({ trend }: { trend: string | null }) {
   if (!trend) return <span className="text-muted-foreground">—</span>;
   const tone: Tone = trend === "queda" ? "highrisk" : trend === "alta" ? "healthy" : "neutral";

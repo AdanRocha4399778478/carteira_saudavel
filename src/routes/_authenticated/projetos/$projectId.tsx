@@ -14,7 +14,6 @@ import {
   Sparkles,
   Target,
   Trash2,
-
   Unlink,
 } from "lucide-react";
 import { PageHeader } from "@/components/painel/PageHeader";
@@ -24,6 +23,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/painel/states
 import {
   ActionStatusBadge,
   DecisionStatusBadge,
+  IndicatorStatusBadge,
   Pill,
   RiskBadge,
 } from "@/components/painel/badges";
@@ -32,6 +32,9 @@ import { DecisionDialog } from "@/components/painel/DecisionDialog";
 import { ContextListEditor } from "@/components/painel/ContextListEditor";
 import { MeetingAnalysisDialog } from "@/components/painel/MeetingAnalysisDialog";
 import { ProjectDeleteDialog } from "@/components/painel/ProjectDeleteDialog";
+import { IndicatorDialog } from "@/components/painel/IndicatorDialog";
+import { IndicatorPointDialog } from "@/components/painel/IndicatorPointDialog";
+import { ConfirmDeleteDialog } from "@/components/painel/ConfirmDeleteDialog";
 import { useAccess } from "@/lib/auth/access";
 import {
   clientActionsQuery,
@@ -83,11 +86,15 @@ import {
   projectHealthSnapshotsQuery,
   saveHealthSnapshot,
 } from "@/lib/health";
+import { indicatorsQuery, type IndicatorPointRow, type IndicatorRow } from "@/lib/indicators-data";
+import { analyzeIndicator, formatIndicatorValue } from "@/lib/indicator-analysis";
+import { IndicatorPointsChart, type IndicatorChartPoint } from "@/components/charts/charts";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -191,6 +198,7 @@ function ProjectDetailPage() {
   const clientMeetings = useQuery(clientMeetingsQuery(clientId));
   const clientProjectNames = useQuery(clientProjectNamesQuery(clientId));
   const evolution = useQuery(projectEvolutionQuery(projectId));
+  const indicators = useQuery(indicatorsQuery(projectId));
 
   /** As 7 consultas que compõem o estado do Orquestrador (ver src/lib/orchestrator/state.ts). */
   const orchestratorStateQueries = [
@@ -213,6 +221,39 @@ function ProjectDetailPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const clients = useQuery({ ...projectEditClientsQuery(), enabled: editOpen });
 
+  const [indicatorDialogOpen, setIndicatorDialogOpen] = useState(false);
+  const [editingIndicator, setEditingIndicator] = useState<IndicatorRow | null>(null);
+  const [pointDialogOpen, setPointDialogOpen] = useState(false);
+  const [pointDialogIndicator, setPointDialogIndicator] = useState<IndicatorRow | null>(null);
+  const [editingPoint, setEditingPoint] = useState<IndicatorPointRow | null>(null);
+  const [deleteIndicatorTarget, setDeleteIndicatorTarget] = useState<IndicatorRow | null>(null);
+  const [deletePointTarget, setDeletePointTarget] = useState<IndicatorPointRow | null>(null);
+
+  const deleteIndicatorMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("indicators").delete().eq("id", id);
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["indicators", "project", projectId] });
+      toast.success("Indicador excluído.");
+      setDeleteIndicatorTarget(null);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deletePointMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("indicator_points").delete().eq("id", id);
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["indicators", "project", projectId] });
+      toast.success("Ponto excluído.");
+      setDeletePointTarget(null);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   const [form, setForm] = useState<ContextForm>({
     executive_summary: "",
@@ -240,7 +281,10 @@ function ProjectDetailPage() {
     return (profiles.data ?? []).find((p) => p.id === id)?.full_name ?? "—";
   }, [profiles.data, project.data, client.data]);
 
-  const meetingIds = useMemo(() => new Set((meetings.data ?? []).map((m) => m.id)), [meetings.data]);
+  const meetingIds = useMemo(
+    () => new Set((meetings.data ?? []).map((m) => m.id)),
+    [meetings.data],
+  );
   const meetingDateById = useMemo(
     () => new Map((meetings.data ?? []).map((m) => [m.id, m.meeting_date])),
     [meetings.data],
@@ -258,7 +302,8 @@ function ProjectDetailPage() {
     () =>
       (risks.data ?? []).filter(
         (r) =>
-          r.active && ((r.meeting_id && meetingIds.has(r.meeting_id)) || r.client_id === client.data?.id),
+          r.active &&
+          ((r.meeting_id && meetingIds.has(r.meeting_id)) || r.client_id === client.data?.id),
       ),
     [risks.data, meetingIds, client.data],
   );
@@ -304,8 +349,15 @@ function ProjectDetailPage() {
       });
       void queryClient.invalidateQueries({ queryKey: ["project_health_snapshots", projectId] });
     })();
-  }, [latestEvolution, snapshots.data, snapshots.isLoading, health, projectId, project.data, queryClient]);
-
+  }, [
+    latestEvolution,
+    snapshots.data,
+    snapshots.isLoading,
+    health,
+    projectId,
+    project.data,
+    queryClient,
+  ]);
 
   const unlinkedMeetings = useQuery(projectUnlinkedMeetingsQuery(client.data?.id ?? ""));
 
@@ -397,10 +449,7 @@ function ProjectDetailPage() {
             </Link>
           ) : null}
           <Button asChild size="sm" variant="outline" className="gap-2">
-            <Link
-              to="/reuniao-inteligente"
-              search={{ clientId: p.client_id, projectId: p.id }}
-            >
+            <Link to="/reuniao-inteligente" search={{ clientId: p.client_id, projectId: p.id }}>
               <Sparkles className="size-4" aria-hidden /> Nova reunião inteligente
             </Link>
           </Button>
@@ -467,7 +516,6 @@ function ProjectDetailPage() {
               evolution={latestEvolution}
             />
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-
               <div className="card-surface p-4">
                 <p className="text-xs text-muted-foreground">Ações abertas</p>
                 <p className="mt-1 text-2xl font-bold">{openActions.length}</p>
@@ -595,8 +643,8 @@ function ProjectDetailPage() {
                       key={record.id}
                       record={record}
                       meetingDate={
-                        (meetings.data ?? []).find((m) => m.id === record.meeting_id)?.meeting_date ??
-                        record.created_at.slice(0, 10)
+                        (meetings.data ?? []).find((m) => m.id === record.meeting_id)
+                          ?.meeting_date ?? record.created_at.slice(0, 10)
                       }
                     />
                   ))}
@@ -613,10 +661,7 @@ function ProjectDetailPage() {
           <TabsContent value="reunioes" className="mt-4 flex flex-col gap-4">
             <div>
               <Button asChild className="gap-2">
-                <Link
-                  to="/reuniao-inteligente"
-                  search={{ clientId: p.client_id, projectId: p.id }}
-                >
+                <Link to="/reuniao-inteligente" search={{ clientId: p.client_id, projectId: p.id }}>
                   <Sparkles className="size-4" aria-hidden /> Nova reunião inteligente
                 </Link>
               </Button>
@@ -692,7 +737,6 @@ function ProjectDetailPage() {
                           <Unlink className="size-4" aria-hidden /> Desvincular
                         </Button>
                       </div>
-
                     </li>
                   ))}
                 </ul>
@@ -776,8 +820,7 @@ function ProjectDetailPage() {
                           <p className="mt-1 text-sm text-muted-foreground">{d.description}</p>
                         ) : null}
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {d.owner || "Sem responsável"} · prazo {formatDate(d.due_date)} ·
-                          reunião{" "}
+                          {d.owner || "Sem responsável"} · prazo {formatDate(d.due_date)} · reunião{" "}
                           {formatDate(d.meeting_id ? meetingDateById.get(d.meeting_id) : null)}
                         </p>
                       </div>
@@ -869,6 +912,59 @@ function ProjectDetailPage() {
                 </ul>
               )}
             </Section>
+
+            <Section
+              title="Antes e depois"
+              description="Indicadores de resultado — só o ponto medido conta. Sem recomendação automática."
+              action={
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setEditingIndicator(null);
+                    setIndicatorDialogOpen(true);
+                  }}
+                >
+                  <Plus className="mr-1 size-4" aria-hidden />
+                  Novo indicador
+                </Button>
+              }
+            >
+              {indicators.isLoading ? (
+                <LoadingState />
+              ) : indicators.isError ? (
+                <ErrorState message="Não foi possível carregar os indicadores." />
+              ) : (indicators.data ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Nenhum indicador cadastrado para este projeto ainda.
+                </p>
+              ) : (
+                <div className="grid gap-4">
+                  {(indicators.data ?? []).map((indicator) => (
+                    <IndicatorCard
+                      key={indicator.id}
+                      indicator={indicator}
+                      isAdmin={isAdmin}
+                      onEditIndicator={() => {
+                        setEditingIndicator(indicator);
+                        setIndicatorDialogOpen(true);
+                      }}
+                      onNewPoint={() => {
+                        setPointDialogIndicator(indicator);
+                        setEditingPoint(null);
+                        setPointDialogOpen(true);
+                      }}
+                      onEditPoint={(point) => {
+                        setPointDialogIndicator(indicator);
+                        setEditingPoint(point);
+                        setPointDialogOpen(true);
+                      }}
+                      onDeleteIndicator={() => setDeleteIndicatorTarget(indicator)}
+                      onDeletePoint={(point) => setDeletePointTarget(point)}
+                    />
+                  ))}
+                </div>
+              )}
+            </Section>
           </TabsContent>
         </Tabs>
       </div>
@@ -918,8 +1014,206 @@ function ProjectDetailPage() {
           onOpenChange={setDeleteOpen}
         />
       ) : null}
-    </div>
 
+      <IndicatorDialog
+        open={indicatorDialogOpen}
+        onOpenChange={setIndicatorDialogOpen}
+        projectId={projectId}
+        clientId={p.client_id}
+        indicator={editingIndicator}
+      />
+
+      {pointDialogIndicator ? (
+        <IndicatorPointDialog
+          open={pointDialogOpen}
+          onOpenChange={setPointDialogOpen}
+          indicator={pointDialogIndicator}
+          point={editingPoint}
+        />
+      ) : null}
+
+      {isAdmin ? (
+        <ConfirmDeleteDialog
+          open={!!deleteIndicatorTarget}
+          onOpenChange={(v) => !v && setDeleteIndicatorTarget(null)}
+          title="Excluir indicador"
+          description={`Isto remove definitivamente o indicador "${deleteIndicatorTarget?.name ?? ""}" e todos os seus pontos.`}
+          pending={deleteIndicatorMutation.isPending}
+          onConfirm={() =>
+            deleteIndicatorTarget && deleteIndicatorMutation.mutate(deleteIndicatorTarget.id)
+          }
+        />
+      ) : null}
+
+      {isAdmin ? (
+        <ConfirmDeleteDialog
+          open={!!deletePointTarget}
+          onOpenChange={(v) => !v && setDeletePointTarget(null)}
+          title="Excluir ponto"
+          description="Isto remove definitivamente este ponto do histórico do indicador."
+          pending={deletePointMutation.isPending}
+          onConfirm={() => deletePointTarget && deletePointMutation.mutate(deletePointTarget.id)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+const KIND_LABEL: Record<string, string> = {
+  percentual: "Percentual",
+  valor: "Valor",
+  tempo: "Tempo",
+  quantidade: "Quantidade",
+};
+
+/** Cartão de um indicador na seção "Antes e depois" (GATE indicadores, parte 3). */
+function IndicatorCard({
+  indicator,
+  isAdmin,
+  onEditIndicator,
+  onNewPoint,
+  onEditPoint,
+  onDeleteIndicator,
+  onDeletePoint,
+}: {
+  indicator: IndicatorRow;
+  isAdmin: boolean;
+  onEditIndicator: () => void;
+  onNewPoint: () => void;
+  onEditPoint: (point: IndicatorPointRow) => void;
+  onDeleteIndicator: () => void;
+  onDeletePoint: (point: IndicatorPointRow) => void;
+}) {
+  const points = indicator.indicator_points;
+  const analysis = analyzeIndicator(indicator, points);
+  const fmt = (value: number | null) => formatIndicatorValue(indicator.kind, indicator.unit, value);
+
+  const chartData: IndicatorChartPoint[] = points.map((point) => ({
+    label: formatDate(point.measured_at),
+    medido: point.basis === "medido" ? point.value : null,
+    estimado: point.basis === "estimado" ? point.value : null,
+  }));
+
+  const pointsDesc = [...points].sort((a, b) => (a.measured_at < b.measured_at ? 1 : -1));
+
+  return (
+    <article className="card-surface min-w-0 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold">{indicator.name}</h3>
+          <p className="text-xs text-muted-foreground">
+            {KIND_LABEL[indicator.kind] ?? indicator.kind}
+            {indicator.unit ? ` · ${indicator.unit}` : ""}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <IndicatorStatusBadge status={analysis.status} />
+          <Button size="sm" variant="outline" onClick={onEditIndicator}>
+            <Pencil className="mr-1 size-3.5" aria-hidden />
+            Editar
+          </Button>
+          {isAdmin ? (
+            <Button size="sm" variant="outline" onClick={onDeleteIndicator}>
+              <Trash2 className="mr-1 size-3.5" aria-hidden />
+              Apagar
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Field
+          label="Base"
+          value={`${fmt(indicator.baseline_value)} · ${formatDate(indicator.baseline_at)}`}
+        />
+        <Field
+          label="Atual medido"
+          value={
+            analysis.currentMeasured === null
+              ? "—"
+              : `${fmt(analysis.currentMeasured)} · ${formatDate(pointsDesc.find((p) => p.basis === "medido")?.measured_at)}`
+          }
+        />
+        <Field label="Delta" value={analysis.delta === null ? "—" : fmt(analysis.delta)} />
+        <Field
+          label="Variação"
+          value={
+            analysis.variationPct === null
+              ? "—"
+              : `${new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(analysis.variationPct)}%`
+          }
+        />
+      </div>
+
+      {analysis.latestEstimated !== null ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Estimado (não conta como resultado): {fmt(analysis.latestEstimated)}
+        </p>
+      ) : null}
+
+      {analysis.progressBar !== null ? (
+        <div className="mt-3">
+          <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+            <span>Progresso até a meta</span>
+            <span>
+              {new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(
+                analysis.progressRaw as number,
+              )}
+              %
+            </span>
+          </div>
+          <Progress value={analysis.progressBar} />
+        </div>
+      ) : null}
+
+      {points.length > 0 ? (
+        <div className="mt-4">
+          <IndicatorPointsChart
+            data={chartData}
+            baseline={indicator.baseline_value}
+            target={indicator.target_value}
+          />
+        </div>
+      ) : null}
+
+      <div className="mt-4 flex items-center justify-between">
+        <p className="text-xs font-medium text-muted-foreground">Pontos registrados</p>
+        <Button size="sm" variant="outline" onClick={onNewPoint}>
+          <Plus className="mr-1 size-3.5" aria-hidden />
+          Novo ponto
+        </Button>
+      </div>
+
+      {pointsDesc.length === 0 ? (
+        <p className="mt-2 text-sm text-muted-foreground">Nenhum ponto registrado ainda.</p>
+      ) : (
+        <ul className="mt-2 flex flex-col gap-1.5">
+          {pointsDesc.map((point) => (
+            <li
+              key={point.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/40 p-2 text-sm"
+            >
+              <span className="min-w-0">
+                {formatDate(point.measured_at)} · {fmt(point.value)} ·{" "}
+                <span className="text-muted-foreground">
+                  {point.basis === "medido" ? "medido" : "estimado"}
+                </span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Button size="sm" variant="ghost" onClick={() => onEditPoint(point)}>
+                  <Pencil className="size-3.5" aria-hidden />
+                </Button>
+                {isAdmin ? (
+                  <Button size="sm" variant="ghost" onClick={() => onDeletePoint(point)}>
+                    <Trash2 className="size-3.5" aria-hidden />
+                  </Button>
+                ) : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </article>
   );
 }
 
