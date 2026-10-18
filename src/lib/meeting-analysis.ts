@@ -1218,6 +1218,51 @@ const emptyApplyResult = (): ApplyResult => ({
   indicatorPointsSkipped: 0,
 });
 
+/** "a, b e c" — junção em português das categorias gravadas antes da falha (ver formatPartialApplyMessage). */
+function joinWithE(parts: string[]): string {
+  if (parts.length <= 1) return parts.join("");
+  return `${parts.slice(0, -1).join(", ")} e ${parts[parts.length - 1]}`;
+}
+
+/**
+ * B30: mensagem de erro clara pra quando applyApprovedAnalysis falha no
+ * meio — diz o motivo e o que já foi gravado nesta tentativa (pelos
+ * contadores de `result` no instante da falha), pra o consultor saber que
+ * precisa reabrir o preview e ignorar o que já entrou. Só cita categorias
+ * com contador maior que zero; sem nada gravado, diz "Nada foi gravado.".
+ * Função pura, sem I/O.
+ */
+export function formatPartialApplyMessage(result: ApplyResult, motivo: string): string {
+  const parts: string[] = [];
+  if (result.decisions > 0) {
+    parts.push(`${result.decisions} ${result.decisions === 1 ? "decisão" : "decisões"}`);
+  }
+  if (result.actions > 0) {
+    parts.push(`${result.actions} ${result.actions === 1 ? "ação" : "ações"}`);
+  }
+  if (result.risks > 0) parts.push(`${result.risks} ${result.risks === 1 ? "risco" : "riscos"}`);
+  if (result.opportunities > 0) {
+    parts.push(
+      `${result.opportunities} ${result.opportunities === 1 ? "oportunidade" : "oportunidades"}`,
+    );
+  }
+  if (result.indicatorsCreated > 0) {
+    parts.push(
+      `${result.indicatorsCreated} ${result.indicatorsCreated === 1 ? "indicador criado" : "indicadores criados"}`,
+    );
+  }
+  if (result.indicatorPointsAdded > 0) {
+    parts.push(
+      `${result.indicatorPointsAdded} ${result.indicatorPointsAdded === 1 ? "ponto" : "pontos"}`,
+    );
+  }
+
+  const gravado =
+    parts.length === 0 ? "Nada foi gravado." : `Já gravado antes da falha: ${joinWithE(parts)}.`;
+
+  return `A aprovação falhou: ${motivo}. ${gravado} Reabra o preview: o que já entrou aparece como existente; escolha Ignorar nesses itens.`;
+}
+
 /** Data da reunião de origem de um registro já existente — pra checagem de cronologia. */
 async function meetingDateOf(meetingId: string | null | undefined): Promise<string | null> {
   if (!meetingId) return null;
@@ -1319,21 +1364,79 @@ export async function applyApprovedAnalysis(params: {
     .select("id")
     .single();
 
+  let applicationId: string;
   if (reservation.error) {
-    // 23505 = chave única: esta análise já foi aplicada com este conteúdo.
+    // 23505 = chave única: esta análise já foi aplicada com este conteúdo —
+    // OU uma tentativa anterior falhou no meio e deixou a reserva marcada
+    // como "failed" (ver catch logo abaixo, B30).
     if (reservation.error.code === "23505") {
       const previous = await supabase
         .from("analysis_applications")
         .select("result")
         .eq("idempotency_key", idempotencyKey)
         .maybeSingle();
-      const stored = (previous.data?.result ?? {}) as Partial<ApplyResult>;
-      return { ...emptyApplyResult(), ...stored, alreadyApplied: true };
+      const stored = (previous.data?.result ?? {}) as Partial<ApplyResult> & { failed?: boolean };
+      if (stored.failed) {
+        // Retoma a reserva falha em vez de devolver alreadyApplied: reseta
+        // o result pra vazio e esta tentativa segue e grava normalmente.
+        const retaken = await supabase
+          .from("analysis_applications")
+          .update({ result: {} as never, applied_by: userId })
+          .eq("idempotency_key", idempotencyKey)
+          .select("id")
+          .single();
+        if (retaken.error) {
+          logDbError("analysis_applications", "retake-failed-reservation", retaken.error);
+          throw new Error(retaken.error.message);
+        }
+        applicationId = (retaken.data as { id: string }).id;
+      } else {
+        return { ...emptyApplyResult(), ...stored, alreadyApplied: true };
+      }
+    } else {
+      logDbError("analysis_applications", "insert", reservation.error);
+      throw new Error(reservation.error.message);
     }
-    logDbError("analysis_applications", "insert", reservation.error);
-    throw new Error(reservation.error.message);
+  } else {
+    applicationId = (reservation.data as { id: string }).id;
   }
-  const applicationId = (reservation.data as { id: string }).id;
+
+  /**
+   * B30: a partir daqui a reserva já existe. Se qualquer coisa lançar
+   * antes do UPDATE final, o catch libera a reserva (marca como "failed"
+   * em vez de deixá-la presa com result vazio) e relança um erro claro
+   * com o que já foi gravado — ver formatPartialApplyMessage.
+   */
+  try {
+    return await writeApprovedAnalysis(params, {
+      analysisId,
+      userId,
+      applicationId,
+      result,
+      mentions,
+    });
+  } catch (err) {
+    const motivo = err instanceof Error ? err.message : String(err);
+    await supabase
+      .from("analysis_applications")
+      .update({ result: { ...result, failed: true, message: motivo } as never })
+      .eq("id", applicationId);
+    throw new Error(formatPartialApplyMessage(result, motivo));
+  }
+}
+
+async function writeApprovedAnalysis(
+  params: Parameters<typeof applyApprovedAnalysis>[0],
+  ctx: {
+    analysisId: string | null;
+    userId: string | null;
+    applicationId: string;
+    result: ApplyResult;
+    mentions: MentionInput[];
+  },
+): Promise<ApplyResult> {
+  const { meeting, projectId, selection } = params;
+  const { analysisId, userId, applicationId, result, mentions } = ctx;
 
   /* ---------- contexto ---------- */
   if (selection.contextItems.length > 0) {
