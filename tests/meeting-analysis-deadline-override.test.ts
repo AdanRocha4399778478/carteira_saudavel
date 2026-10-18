@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { resolveRelativeDeadline } from "../src/lib/prazo-relativo";
 
 /* ------------------------------------------------------------------ *
  * Backlog B18 (17/10/2026) — prazo sugerido a partir de expressão
@@ -130,5 +131,29 @@ describe("GATE — preview: campo de prazo editável, rótulo 'sugerido', overri
     expect(source).toContain(
       'r.mode === "create"\n              ? (actionDeadlineSel[r.key] ??\n                defaultItemDueDate(r.item.deadline, r.item.deadline_hint, meeting.meeting_date))\n              : r.item.deadline,',
     );
+  });
+});
+
+describe("GATE — B28: hint real (fala coloquial) chega até o campo de prazo do ReviewRow", () => {
+  /**
+   * `defaultItemDueDate` (MeetingAnalysisDialog.tsx) não é exportada, mas o
+   * corpo dela é só `explicit || (resolveRelativeDeadline(hint, meetingDateIso) ?? "")`
+   * — ver o teste estático acima. Reproduzindo esse corpo aqui com um hint
+   * REAL (frase da reunião da Medeiros, 16/10/2026) prova que a correção do
+   * B28 em prazo-relativo.ts chega ao mesmo valor que o campo de prazo do
+   * ReviewRow mostraria como sugestão, sem precisar montar o componente.
+   */
+  function defaultItemDueDate(explicit: string, hint: string, meetingDateIso: string): string {
+    return explicit || (resolveRelativeDeadline(hint, meetingDateIso) ?? "");
+  }
+
+  test("due_hint real ('ao longo dessa semana ou da próxima') sem data explícita vira a sugestão calculada", () => {
+    expect(defaultItemDueDate("", "ao longo dessa semana ou da próxima", "2026-10-16")).toBe(
+      "2026-10-23",
+    );
+  });
+
+  test("data explícita da IA sempre vence o hint, mesmo quando o hint também seria resolvível", () => {
+    expect(defaultItemDueDate("2026-11-01", "dessa semana", "2026-10-16")).toBe("2026-11-01");
   });
 });

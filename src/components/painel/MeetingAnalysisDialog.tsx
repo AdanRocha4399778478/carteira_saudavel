@@ -103,7 +103,6 @@ import {
   EVOLUTION_CLASSIFICATIONS,
   EVOLUTION_ENTITY_LABEL,
   EVOLUTION_LABEL,
-  EVOLUTION_TONE,
   MOVEMENT_LABEL,
   type EvolutionCandidate,
   type EvolutionClassification,
@@ -2047,9 +2046,9 @@ export function MeetingAnalysisDialog({
                             </p>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Pill tone={EVOLUTION_TONE[item.classification]}>
-                              {EVOLUTION_LABEL[item.classification]}
-                            </Pill>
+                            {/* B29: o Select abaixo já mostra o rótulo da classificação atual
+                                (SelectValue reflete `value={item.classification}`) — um Pill com o
+                                mesmo texto ao lado duplicava o rótulo ("Novo Novo", "Avançou Avançou"...). */}
                             <Select
                               value={item.classification}
                               onValueChange={(v) =>

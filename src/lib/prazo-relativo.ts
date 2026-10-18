@@ -72,8 +72,11 @@ function normalize(raw: string): string {
     .trim()
     .replace(/\s+/g, " ");
   s = ` ${s} `;
-  s = s.replace(/ desta /g, " esta ");
-  s = s.replace(/ deste /g, " este ");
+  // Formas faladas ("essa/dessa/nessa", "nesta") equivalem a "esta" pra fins de
+  // prazo — \b garante que só a palavra inteira é trocada, nunca um pedaço de
+  // "pessoa", "dessas" ou "nessas" (plural não é a mesma expressão).
+  s = s.replace(/\b(desta|nesta|essa|dessa|nessa)\b/g, "esta");
+  s = s.replace(/\b(deste|neste|esse|desse|nesse)\b/g, "este");
   s = s.replace(/ da proxima/g, " a proxima");
   s = s.replace(/ do proximo/g, " o proximo");
   return s.trim();
