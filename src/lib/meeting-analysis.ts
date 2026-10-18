@@ -13,6 +13,7 @@ import {
 } from "./deduplication";
 import { recordMentions, type MentionInput } from "./entity-mentions";
 import { saveEvolution, type EvolutionItem } from "./evolution";
+import { isValidCalendarDate, parseNumberPtBr } from "./indicator-form";
 import type { ActionItem, Meeting, OpportunityItem, RiskItem, RiskRule } from "./domain";
 import {
   CONTEXT_LISTS,
@@ -90,6 +91,32 @@ const score0to10 = z
     const n = typeof v === "number" ? v : Number(v);
     if (!Number.isFinite(n)) return null;
     return Math.min(10, Math.max(0, Math.round(n * 10) / 10));
+  });
+
+/**
+ * Minúsculo, sem acento, sem espaços extras — a chave de identidade de um
+ * indicador é esse nome normalizado + kind, nunca similaridade de texto.
+ */
+function normalizeIndicatorName(name: string): string {
+  return name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim().replace(/\s+/g, " ");
+}
+
+/**
+ * Número livre (sem faixa, sem arredondar) — pro valor de um indicador.
+ * Diferente de score0to10: aceita QUALQUER número finito, inclusive 0
+ * explícito, e nunca clampa nem arredonda. Número já vem pronto; texto
+ * passa por parseNumberPtBr (src/lib/indicator-form.ts — o mesmo parser
+ * estrito do cadastro manual, "." só como milhar válido, nunca formato
+ * americano); qualquer outra coisa (texto que não é número válido, vazio,
+ * null) vira null — nunca um 0 silencioso.
+ */
+const freeNumber = z
+  .union([z.number(), z.string(), z.null()])
+  .optional()
+  .transform((v) => {
+    if (v === null || v === undefined) return null;
+    if (typeof v === "number") return Number.isFinite(v) ? v : null;
+    return parseNumberPtBr(v);
   });
 
 /** Flag booleana de nível-reunião: ausência de evidência vira false, nunca null. */
@@ -343,6 +370,68 @@ const analysisSchema = z.object({
     .transform((v) => (Array.isArray(v) ? v.filter((o) => o.description.length > 0) : [])),
 
   /**
+   * Indicadores de resultado sugeridos pela IA a partir da fala (B27,
+   * indicadores parte 4) — SEM tela e SEM gravação nesta parte: só o
+   * schema. `.default([])` garante que uma análise antiga, salva antes
+   * deste campo existir, continua lendo normalmente (indicators: []).
+   * Identidade do indicador é nome normalizado + kind — nunca embedding
+   * nem similaridade (isso é decidido num gate futuro, no preview).
+   */
+  indicators: z
+    .union([
+      z.array(
+        z.object({
+          name: txt,
+          kind: z
+            .union([z.string(), z.null()])
+            .optional()
+            .transform((v) =>
+              v === "percentual" || v === "valor" || v === "tempo" || v === "quantidade" ? v : "",
+            ),
+          unit: txt,
+          direction: z
+            .union([z.string(), z.null()])
+            .optional()
+            .transform((v) => (v === "maior_melhor" || v === "menor_melhor" ? v : "")),
+          value: freeNumber,
+          baseline_value: freeNumber,
+          basis: z
+            .union([z.string(), z.null()])
+            .optional()
+            .transform((v) => (v === "medido" || v === "estimado" ? v : "")),
+          measured_at: txt,
+          evidence: txt,
+          classification,
+        }),
+      ),
+      z.null(),
+    ])
+    .optional()
+    .default([])
+    .transform((v) => {
+      if (!Array.isArray(v)) return [];
+      const seen = new Set<string>();
+      const out: typeof v = [];
+      for (const item of v) {
+        // Descarta o que não dá para gravar: sem nome, sem kind válido, ou
+        // sem valor (valor ausente NUNCA vira zero — vira item descartado).
+        if (!item.name || !item.kind || item.value === null) continue;
+        const key = `${normalizeIndicatorName(item.name)}|${item.kind}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+          ...item,
+          // measured_at só sobrevive como "AAAA-MM-DD" REAL (isValidCalendarDate
+          // já recusa data inexistente e ano fora de 1990-2100, sem new Date()) —
+          // qualquer outro texto ("maio de 2026", data errada) vira "": a coluna
+          // é date, e o preview usa a data da reunião quando vier vazia.
+          measured_at: isValidCalendarDate(item.measured_at) ? item.measured_at : "",
+        });
+      }
+      return out;
+    }),
+
+  /**
    * Mapa de falantes sugerido pela IA (rótulo -> nome real), usado só para
    * reescrever rótulos genéricos nos campos de responsável (ver
    * applySpeakerMapToAnalysis em speaker-map.ts) — nunca persistido como
@@ -451,6 +540,8 @@ const analysisSchema = z.object({
 });
 
 export type MeetingAnalysis = z.infer<typeof analysisSchema>;
+/** Um item de MeetingAnalysis["indicators"] — indicador sugerido pela IA a partir da fala. */
+export type IndicatorSuggestion = MeetingAnalysis["indicators"][number];
 export type AnalysisAgenda = MeetingAnalysis["agenda_recommendation"];
 export type ExecutionQuality = MeetingAnalysis["execution_quality"];
 export type SemanticConsolidation = MeetingAnalysis["semantic_consolidation"];
