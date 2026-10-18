@@ -1842,55 +1842,63 @@ export function MeetingAnalysisDialog({
                   <ul className="space-y-2">
                     {decisionRows.map((r) => {
                       const existingDecision = r.match.existing as Decision | null;
-                      const comparison: ComparisonPanelData | null = existingDecision
-                        ? {
-                            existingMeetingDate: dateForMeetingId(existingDecision.meeting_id),
-                            existing: {
-                              // B27B: título NUNCA é sobrescrito — o lado existente sempre mostra o título do registro.
-                              text: existingDecision.title,
-                              responsible: existingDecision.owner,
-                              status: existingDecision.status,
-                              extra: [
-                                { label: "Descrição", value: existingDecision.description ?? "" },
-                                { label: "Motivo", value: existingDecision.reason ?? "" },
-                              ],
-                            },
-                            ...(r.mode === "update"
-                              ? {
-                                  rightLabel: "Resultado após atualizar" as const,
-                                  updated: {
-                                    // Resultado real do patch: título mantido, demais campos só quando presentes.
-                                    text: existingDecision.title,
-                                    responsible: r.item.owner || existingDecision.owner,
-                                    status: existingDecision.status,
-                                    extra: [
-                                      {
-                                        label: "Descrição",
-                                        value:
-                                          r.item.description || existingDecision.description || "",
-                                      },
-                                      {
-                                        label: "Motivo",
-                                        value: r.item.reason || existingDecision.reason || "",
-                                      },
-                                    ],
-                                  },
-                                }
-                              : {
-                                  rightLabel: "Novo (desta reunião)" as const,
-                                  // Nada será gravado neste modo — mostra o item exatamente como a IA extraiu.
-                                  updated: {
-                                    text: r.item.title,
-                                    responsible: r.item.owner,
-                                    status: r.item.status,
-                                    extra: [
-                                      { label: "Descrição", value: r.item.description },
-                                      { label: "Motivo", value: r.item.reason },
-                                    ],
-                                  },
-                                }),
-                          }
-                        : null;
+                      // B27 (correção): existing pode vir preenchido mesmo com veredito NEW
+                      // (candidato de baixa similaridade encontrado, mas type="NEW") — o
+                      // painel só faz sentido para um candidato REAL (UPDATE_EXISTING/
+                      // EXISTING/POSSIBLE_DUPLICATE), nunca para NEW.
+                      const isRealMatch = r.match.type !== "NEW";
+                      const comparison: ComparisonPanelData | null =
+                        existingDecision && isRealMatch
+                          ? {
+                              existingMeetingDate: dateForMeetingId(existingDecision.meeting_id),
+                              existing: {
+                                // B27B: título NUNCA é sobrescrito — o lado existente sempre mostra o título do registro.
+                                text: existingDecision.title,
+                                responsible: existingDecision.owner,
+                                status: existingDecision.status,
+                                extra: [
+                                  { label: "Descrição", value: existingDecision.description ?? "" },
+                                  { label: "Motivo", value: existingDecision.reason ?? "" },
+                                ],
+                              },
+                              ...(r.mode === "update"
+                                ? {
+                                    rightLabel: "Resultado após atualizar" as const,
+                                    updated: {
+                                      // Resultado real do patch: título mantido, demais campos só quando presentes.
+                                      text: existingDecision.title,
+                                      responsible: r.item.owner || existingDecision.owner,
+                                      status: existingDecision.status,
+                                      extra: [
+                                        {
+                                          label: "Descrição",
+                                          value:
+                                            r.item.description ||
+                                            existingDecision.description ||
+                                            "",
+                                        },
+                                        {
+                                          label: "Motivo",
+                                          value: r.item.reason || existingDecision.reason || "",
+                                        },
+                                      ],
+                                    },
+                                  }
+                                : {
+                                    rightLabel: "Novo (desta reunião)" as const,
+                                    // Nada será gravado neste modo — mostra o item exatamente como a IA extraiu.
+                                    updated: {
+                                      text: r.item.title,
+                                      responsible: r.item.owner,
+                                      status: r.item.status,
+                                      extra: [
+                                        { label: "Descrição", value: r.item.description },
+                                        { label: "Motivo", value: r.item.reason },
+                                      ],
+                                    },
+                                  }),
+                            }
+                          : null;
                       return (
                         <ReviewRow
                           key={r.key}
@@ -1969,54 +1977,57 @@ export function MeetingAnalysisDialog({
                   <ul className="space-y-2">
                     {actionRows.map((r) => {
                       const existingAction = r.match.existing as ActionItem | null;
-                      const comparison: ComparisonPanelData | null = existingAction
-                        ? {
-                            existingMeetingDate: dateForMeetingId(existingAction.meeting_id),
-                            existing: {
-                              text: existingAction.description,
-                              responsible: existingAction.owner_name,
-                              status: existingAction.status,
-                              extra: [
-                                { label: "Prioridade", value: existingAction.priority },
-                                { label: "Prazo", value: existingAction.deadline ?? "" },
-                              ],
-                            },
-                            ...(r.mode === "update"
-                              ? {
-                                  rightLabel: "Resultado após atualizar" as const,
-                                  // B27B: a descrição da ação nunca é sobrescrita por "Atualizar
-                                  // existente" — o texto novo acumula só no histórico de evidência.
-                                  updated: {
-                                    text: existingAction.description,
-                                    responsible: r.item.owner_name || existingAction.owner_name,
-                                    status: existingAction.status,
-                                    extra: [
-                                      {
-                                        label: "Prioridade",
-                                        value: r.item.priority || existingAction.priority,
-                                      },
-                                      {
-                                        label: "Prazo",
-                                        value: r.item.deadline || existingAction.deadline || "",
-                                      },
-                                    ],
-                                  },
-                                  evidenceAddition: r.item.evidence || r.item.description,
-                                }
-                              : {
-                                  rightLabel: "Novo (desta reunião)" as const,
-                                  updated: {
-                                    text: r.item.description,
-                                    responsible: r.item.owner_name,
-                                    status: null,
-                                    extra: [
-                                      { label: "Prioridade", value: r.item.priority },
-                                      { label: "Prazo", value: r.item.deadline },
-                                    ],
-                                  },
-                                }),
-                          }
-                        : null;
+                      // B27 (correção): ver comentário equivalente no bloco de decisões.
+                      const isRealMatch = r.match.type !== "NEW";
+                      const comparison: ComparisonPanelData | null =
+                        existingAction && isRealMatch
+                          ? {
+                              existingMeetingDate: dateForMeetingId(existingAction.meeting_id),
+                              existing: {
+                                text: existingAction.description,
+                                responsible: existingAction.owner_name,
+                                status: existingAction.status,
+                                extra: [
+                                  { label: "Prioridade", value: existingAction.priority },
+                                  { label: "Prazo", value: existingAction.deadline ?? "" },
+                                ],
+                              },
+                              ...(r.mode === "update"
+                                ? {
+                                    rightLabel: "Resultado após atualizar" as const,
+                                    // B27B: a descrição da ação nunca é sobrescrita por "Atualizar
+                                    // existente" — o texto novo acumula só no histórico de evidência.
+                                    updated: {
+                                      text: existingAction.description,
+                                      responsible: r.item.owner_name || existingAction.owner_name,
+                                      status: existingAction.status,
+                                      extra: [
+                                        {
+                                          label: "Prioridade",
+                                          value: r.item.priority || existingAction.priority,
+                                        },
+                                        {
+                                          label: "Prazo",
+                                          value: r.item.deadline || existingAction.deadline || "",
+                                        },
+                                      ],
+                                    },
+                                    evidenceAddition: r.item.evidence || r.item.description,
+                                  }
+                                : {
+                                    rightLabel: "Novo (desta reunião)" as const,
+                                    updated: {
+                                      text: r.item.description,
+                                      responsible: r.item.owner_name,
+                                      status: null,
+                                      extra: [
+                                        { label: "Prioridade", value: r.item.priority },
+                                        { label: "Prazo", value: r.item.deadline },
+                                      ],
+                                    },
+                                  }),
+                            }
+                          : null;
                       return (
                         <ReviewRow
                           key={r.key}
@@ -2091,46 +2102,52 @@ export function MeetingAnalysisDialog({
                                 ? "ativo"
                                 : "resolvido"
                               : "";
-                      const comparison: ComparisonPanelData | null = existingRisk
-                        ? {
-                            existingMeetingDate: dateForMeetingId(existingRisk.meeting_id),
-                            existing: {
-                              // B27B: a descrição do risco não é sobrescrita por "Atualizar existente".
-                              text: existingRisk.description,
-                              responsible: null,
-                              status: null,
-                              extra: [
-                                { label: "Nível", value: existingRisk.level },
-                                {
-                                  label: "Ativo",
-                                  value: existingRisk.active ? "ativo" : "resolvido",
-                                },
-                              ],
-                            },
-                            ...(r.mode === "update"
-                              ? {
-                                  rightLabel: "Resultado após atualizar" as const,
-                                  updated: {
-                                    text: existingRisk.description,
-                                    responsible: null,
-                                    status: null,
-                                    extra: [
-                                      { label: "Nível", value: r.item.level || existingRisk.level },
-                                      { label: "Ativo", value: newActive },
-                                    ],
+                      // B27 (correção): ver comentário equivalente no bloco de decisões.
+                      const isRealMatch = r.match.type !== "NEW";
+                      const comparison: ComparisonPanelData | null =
+                        existingRisk && isRealMatch
+                          ? {
+                              existingMeetingDate: dateForMeetingId(existingRisk.meeting_id),
+                              existing: {
+                                // B27B: a descrição do risco não é sobrescrita por "Atualizar existente".
+                                text: existingRisk.description,
+                                responsible: null,
+                                status: null,
+                                extra: [
+                                  { label: "Nível", value: existingRisk.level },
+                                  {
+                                    label: "Ativo",
+                                    value: existingRisk.active ? "ativo" : "resolvido",
                                   },
-                                }
-                              : {
-                                  rightLabel: "Novo (desta reunião)" as const,
-                                  updated: {
-                                    text: r.item.description,
-                                    responsible: null,
-                                    status: null,
-                                    extra: [{ label: "Nível", value: r.item.level }],
-                                  },
-                                }),
-                          }
-                        : null;
+                                ],
+                              },
+                              ...(r.mode === "update"
+                                ? {
+                                    rightLabel: "Resultado após atualizar" as const,
+                                    updated: {
+                                      text: existingRisk.description,
+                                      responsible: null,
+                                      status: null,
+                                      extra: [
+                                        {
+                                          label: "Nível",
+                                          value: r.item.level || existingRisk.level,
+                                        },
+                                        { label: "Ativo", value: newActive },
+                                      ],
+                                    },
+                                  }
+                                : {
+                                    rightLabel: "Novo (desta reunião)" as const,
+                                    updated: {
+                                      text: r.item.description,
+                                      responsible: null,
+                                      status: null,
+                                      extra: [{ label: "Nível", value: r.item.level }],
+                                    },
+                                  }),
+                            }
+                          : null;
                       return (
                         <ReviewRow
                           key={r.key}
@@ -2178,55 +2195,58 @@ export function MeetingAnalysisDialog({
                   <ul className="space-y-2">
                     {oppRows.map((r) => {
                       const existingOpp = r.match.existing as OpportunityItem | null;
-                      const comparison: ComparisonPanelData | null = existingOpp
-                        ? {
-                            existingMeetingDate: dateForMeetingId(existingOpp.meeting_id),
-                            existing: {
-                              // B27B: a descrição da oportunidade não é sobrescrita por "Atualizar existente".
-                              text: existingOpp.description,
-                              responsible: null,
-                              status: existingOpp.status,
-                              extra: [
-                                {
-                                  label: "Benefício esperado",
-                                  value: existingOpp.expected_benefit ?? "",
-                                },
-                              ],
-                            },
-                            ...(r.mode === "update"
-                              ? {
-                                  rightLabel: "Resultado após atualizar" as const,
-                                  updated: {
-                                    text: existingOpp.description,
-                                    responsible: null,
-                                    status: existingOpp.status,
-                                    extra: [
-                                      {
-                                        label: "Benefício esperado",
-                                        value:
-                                          r.item.expected_benefit ||
-                                          existingOpp.expected_benefit ||
-                                          "",
-                                      },
-                                    ],
+                      // B27 (correção): ver comentário equivalente no bloco de decisões.
+                      const isRealMatch = r.match.type !== "NEW";
+                      const comparison: ComparisonPanelData | null =
+                        existingOpp && isRealMatch
+                          ? {
+                              existingMeetingDate: dateForMeetingId(existingOpp.meeting_id),
+                              existing: {
+                                // B27B: a descrição da oportunidade não é sobrescrita por "Atualizar existente".
+                                text: existingOpp.description,
+                                responsible: null,
+                                status: existingOpp.status,
+                                extra: [
+                                  {
+                                    label: "Benefício esperado",
+                                    value: existingOpp.expected_benefit ?? "",
                                   },
-                                }
-                              : {
-                                  rightLabel: "Novo (desta reunião)" as const,
-                                  updated: {
-                                    text: r.item.description,
-                                    responsible: null,
-                                    status: null,
-                                    extra: [
-                                      {
-                                        label: "Benefício esperado",
-                                        value: r.item.expected_benefit,
-                                      },
-                                    ],
-                                  },
-                                }),
-                          }
-                        : null;
+                                ],
+                              },
+                              ...(r.mode === "update"
+                                ? {
+                                    rightLabel: "Resultado após atualizar" as const,
+                                    updated: {
+                                      text: existingOpp.description,
+                                      responsible: null,
+                                      status: existingOpp.status,
+                                      extra: [
+                                        {
+                                          label: "Benefício esperado",
+                                          value:
+                                            r.item.expected_benefit ||
+                                            existingOpp.expected_benefit ||
+                                            "",
+                                        },
+                                      ],
+                                    },
+                                  }
+                                : {
+                                    rightLabel: "Novo (desta reunião)" as const,
+                                    updated: {
+                                      text: r.item.description,
+                                      responsible: null,
+                                      status: null,
+                                      extra: [
+                                        {
+                                          label: "Benefício esperado",
+                                          value: r.item.expected_benefit,
+                                        },
+                                      ],
+                                    },
+                                  }),
+                            }
+                          : null;
                       return (
                         <ReviewRow
                           key={r.key}
