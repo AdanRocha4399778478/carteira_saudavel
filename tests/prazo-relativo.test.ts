@@ -144,3 +144,44 @@ describe("resolveRelativeDeadline — virada de mês, de ano e ano bissexto", ()
     expect(resolveRelativeDeadline("em 60 dias", "2026-12-10")).toBe("2027-02-08");
   });
 });
+
+describe("resolveRelativeDeadline — B28: formas faladas 'essa/dessa/nessa'/'nesta' (reunião Medeiros, 16/10/2026)", () => {
+  test("'ao longo dessa semana ou da próxima' -> sexta da semana seguinte (frase real da reunião)", () => {
+    expect(resolveRelativeDeadline("ao longo dessa semana ou da próxima", MEETING)).toBe(
+      "2026-10-23",
+    );
+  });
+
+  test("'essa semana ou a próxima' -> mesmo resultado de 'esta semana ou a próxima'", () => {
+    expect(resolveRelativeDeadline("essa semana ou a próxima", MEETING)).toBe("2026-10-23");
+  });
+
+  test("'dessa semana' -> sexta da própria semana (a reunião já é sexta)", () => {
+    expect(resolveRelativeDeadline("dessa semana", MEETING)).toBe("2026-10-16");
+  });
+
+  test("'nessa semana' -> mesmo resultado de 'dessa semana'", () => {
+    expect(resolveRelativeDeadline("nessa semana", MEETING)).toBe("2026-10-16");
+  });
+
+  test("'nesta semana' -> mesmo resultado (forma formal com 'em')", () => {
+    expect(resolveRelativeDeadline("nesta semana", MEETING)).toBe("2026-10-16");
+  });
+
+  test("'na semana que vem' -> sexta da semana seguinte", () => {
+    expect(resolveRelativeDeadline("na semana que vem", MEETING)).toBe("2026-10-23");
+  });
+
+  test("'no mês que vem' -> último dia do mês seguinte", () => {
+    expect(resolveRelativeDeadline("no mês que vem", MEETING)).toBe("2026-11-30");
+  });
+
+  test("'pessoa' -> null (não pode quebrar em 'p' + 'essa' + 'oa')", () => {
+    expect(resolveRelativeDeadline("pessoa", MEETING)).toBeNull();
+  });
+
+  test("'dessas duas frentes' e 'nessas condições' -> null (plural não é a mesma expressão, não vira 'esta')", () => {
+    expect(resolveRelativeDeadline("dessas duas frentes", MEETING)).toBeNull();
+    expect(resolveRelativeDeadline("nessas condições", MEETING)).toBeNull();
+  });
+});
