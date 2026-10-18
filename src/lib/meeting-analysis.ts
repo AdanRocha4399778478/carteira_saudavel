@@ -1288,16 +1288,28 @@ export async function applyApprovedAnalysis(params: {
         result.blockedByChronology += 1;
         continue;
       }
-      const patch: Record<string, unknown> = { title: d.title };
+      // B27B: título NUNCA é sobrescrito em "Atualizar existente" — o
+      // consultor decidiu manter o título do registro existente, só os
+      // demais campos (descrição, motivo, responsável, prazo) atualizam.
+      const patch: Record<string, unknown> = {};
       if (d.description) patch["description"] = d.description;
       if (d.reason) patch["reason"] = d.reason;
       if (d.owner) patch["owner"] = d.owner;
       if (d.due_date) patch["due_date"] = d.due_date;
       if (d.embedding) patch["embedding"] = d.embedding;
-      const { error } = await supabase.from("decisions").update(patch as never).eq("id", res.targetId);
-      if (error) {
-        logDbError("decisions", "update-analysis", error);
-        throw new Error(error.message);
+      // B27B: patch pode ficar vazio agora que o título não entra mais nele
+      // (ex.: resolução sem descrição/motivo/responsável/prazo novos) — sem
+      // nada pra gravar, não chama o banco; ainda conta como atualizado e
+      // registra o histórico de menção.
+      if (Object.keys(patch).length > 0) {
+        const { error } = await supabase
+          .from("decisions")
+          .update(patch as never)
+          .eq("id", res.targetId);
+        if (error) {
+          logDbError("decisions", "update-analysis", error);
+          throw new Error(error.message);
+        }
       }
       result.updated += 1;
       mentions.push({

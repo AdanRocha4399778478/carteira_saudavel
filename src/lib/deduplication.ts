@@ -824,6 +824,26 @@ export function matchDecision(
   if (!best) return noMatch<Decision>();
 
   const changes: FieldChange[] = [];
+  // B27B: título NUNCA entra em changes — "Atualizar existente" mantém o
+  // título existente (ver applyApprovedAnalysis), então não há "de-para" de
+  // título a mostrar.
+  if (
+    item.description &&
+    normalizeText(item.description) !== normalizeText(best.item.description ?? "")
+  )
+    changes.push({
+      field: "description",
+      label: "Descrição",
+      from: best.item.description ?? "—",
+      to: item.description,
+    });
+  if (item.reason && normalizeText(item.reason) !== normalizeText(best.item.reason ?? ""))
+    changes.push({
+      field: "reason",
+      label: "Motivo",
+      from: best.item.reason ?? "—",
+      to: item.reason,
+    });
   if (item.owner && normalizeOwner(item.owner) !== normalizeOwner(best.item.owner))
     changes.push({ field: "owner", label: "Responsável", from: best.item.owner ?? "—", to: item.owner });
   if (item.due_date && normalizeDate(item.due_date) !== normalizeDate(best.item.due_date))
@@ -969,6 +989,17 @@ export function matchOpportunity(
   if (!best) return noMatch<OpportunityItem>();
   const type = verdictFromScore(best.score);
   const existingStatusClass = type === "NEW" ? null : opportunityStatusClass(best.item);
+  const changes: FieldChange[] = [];
+  if (
+    item.expected_benefit &&
+    normalizeText(item.expected_benefit) !== normalizeText(best.item.expected_benefit ?? "")
+  )
+    changes.push({
+      field: "expected_benefit",
+      label: "Benefício esperado",
+      from: best.item.expected_benefit ?? "—",
+      to: item.expected_benefit,
+    });
   return {
     type,
     confidence: best.score,
@@ -981,7 +1012,7 @@ export function matchOpportunity(
       type === "NEW"
         ? "Nenhuma oportunidade aberta semelhante."
         : `Oportunidade aberta semelhante (${pct(best.score)}).`,
-    changes: [],
+    changes,
   };
 }
 

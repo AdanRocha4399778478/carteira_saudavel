@@ -80,6 +80,7 @@ import {
   type DedupeMatch,
   type DuplicateReportCandidate,
   type DuplicateReportSuggestion,
+  type FieldChange,
   type ItemResolution,
   type ResolutionMode,
 } from "@/lib/deduplication";
@@ -1839,54 +1840,109 @@ export function MeetingAnalysisDialog({
                   }
                 >
                   <ul className="space-y-2">
-                    {decisionRows.map((r) => (
-                      <ReviewRow
-                        key={r.key}
-                        rowId={`review-row-decisions-${r.key}`}
-                        primary={r.item.title}
-                        secondary={[r.item.owner, r.item.due_date].filter(Boolean).join(" · ")}
-                        details={[
-                          { label: "Descrição", value: r.item.description },
-                          { label: "Motivo", value: r.item.reason },
-                        ].filter((d) => d.value)}
-                        classification={r.item.classification}
-                        row={r}
-                        foreignClientSnippet={decisionForeignFlags[r.key]}
-                        onChange={(mode) => setDecisionSel((s) => ({ ...s, [r.key]: mode }))}
-                        completed={
-                          decisionCompletedSel[r.key] ??
-                          isNewDecisionPreMarkedCompleted(
-                            r.item.due_date,
-                            todayIso,
-                            decisionEvaluationSel[r.key] ?? r.item.is_evaluation === true,
-                          )
-                        }
-                        onCompletedChange={(v) =>
-                          setDecisionCompletedSel((s) => ({ ...s, [r.key]: v }))
-                        }
-                        isEvaluation={decisionEvaluationSel[r.key] ?? r.item.is_evaluation === true}
-                        onIsEvaluationChange={(v) =>
-                          setDecisionEvaluationSel((s) => ({ ...s, [r.key]: v }))
-                        }
-                        dueDate={
-                          decisionDueDateSel[r.key] ??
-                          defaultItemDueDate(
+                    {decisionRows.map((r) => {
+                      const existingDecision = r.match.existing as Decision | null;
+                      const comparison: ComparisonPanelData | null = existingDecision
+                        ? {
+                            existingMeetingDate: dateForMeetingId(existingDecision.meeting_id),
+                            existing: {
+                              // B27B: título NUNCA é sobrescrito — o lado existente sempre mostra o título do registro.
+                              text: existingDecision.title,
+                              responsible: existingDecision.owner,
+                              status: existingDecision.status,
+                              extra: [
+                                { label: "Descrição", value: existingDecision.description ?? "" },
+                                { label: "Motivo", value: existingDecision.reason ?? "" },
+                              ],
+                            },
+                            ...(r.mode === "update"
+                              ? {
+                                  rightLabel: "Resultado após atualizar" as const,
+                                  updated: {
+                                    // Resultado real do patch: título mantido, demais campos só quando presentes.
+                                    text: existingDecision.title,
+                                    responsible: r.item.owner || existingDecision.owner,
+                                    status: existingDecision.status,
+                                    extra: [
+                                      {
+                                        label: "Descrição",
+                                        value:
+                                          r.item.description || existingDecision.description || "",
+                                      },
+                                      {
+                                        label: "Motivo",
+                                        value: r.item.reason || existingDecision.reason || "",
+                                      },
+                                    ],
+                                  },
+                                }
+                              : {
+                                  rightLabel: "Novo (desta reunião)" as const,
+                                  // Nada será gravado neste modo — mostra o item exatamente como a IA extraiu.
+                                  updated: {
+                                    text: r.item.title,
+                                    responsible: r.item.owner,
+                                    status: r.item.status,
+                                    extra: [
+                                      { label: "Descrição", value: r.item.description },
+                                      { label: "Motivo", value: r.item.reason },
+                                    ],
+                                  },
+                                }),
+                          }
+                        : null;
+                      return (
+                        <ReviewRow
+                          key={r.key}
+                          rowId={`review-row-decisions-${r.key}`}
+                          primary={r.item.title}
+                          secondary={[r.item.owner, r.item.due_date].filter(Boolean).join(" · ")}
+                          details={[
+                            { label: "Descrição", value: r.item.description },
+                            { label: "Motivo", value: r.item.reason },
+                          ].filter((d) => d.value)}
+                          classification={r.item.classification}
+                          row={r}
+                          foreignClientSnippet={decisionForeignFlags[r.key]}
+                          comparison={comparison}
+                          onChange={(mode) => setDecisionSel((s) => ({ ...s, [r.key]: mode }))}
+                          completed={
+                            decisionCompletedSel[r.key] ??
+                            isNewDecisionPreMarkedCompleted(
+                              r.item.due_date,
+                              todayIso,
+                              decisionEvaluationSel[r.key] ?? r.item.is_evaluation === true,
+                            )
+                          }
+                          onCompletedChange={(v) =>
+                            setDecisionCompletedSel((s) => ({ ...s, [r.key]: v }))
+                          }
+                          isEvaluation={
+                            decisionEvaluationSel[r.key] ?? r.item.is_evaluation === true
+                          }
+                          onIsEvaluationChange={(v) =>
+                            setDecisionEvaluationSel((s) => ({ ...s, [r.key]: v }))
+                          }
+                          dueDate={
+                            decisionDueDateSel[r.key] ??
+                            defaultItemDueDate(
+                              r.item.due_date,
+                              r.item.due_hint,
+                              meeting?.meeting_date,
+                            )
+                          }
+                          dueDateSuggested={isSuggestedDueDate(
                             r.item.due_date,
                             r.item.due_hint,
                             meeting?.meeting_date,
-                          )
-                        }
-                        dueDateSuggested={isSuggestedDueDate(
-                          r.item.due_date,
-                          r.item.due_hint,
-                          meeting?.meeting_date,
-                          decisionDueDateSel[r.key],
-                        )}
-                        onDueDateChange={(v) =>
-                          setDecisionDueDateSel((s) => ({ ...s, [r.key]: v }))
-                        }
-                      />
-                    ))}
+                            decisionDueDateSel[r.key],
+                          )}
+                          onDueDateChange={(v) =>
+                            setDecisionDueDateSel((s) => ({ ...s, [r.key]: v }))
+                          }
+                        />
+                      );
+                    })}
                   </ul>
                 </ReviewBlock>
 
@@ -1911,44 +1967,100 @@ export function MeetingAnalysisDialog({
                   }
                 >
                   <ul className="space-y-2">
-                    {actionRows.map((r) => (
-                      <ReviewRow
-                        key={r.key}
-                        rowId={`review-row-actions-${r.key}`}
-                        primary={r.item.description}
-                        secondary={[r.item.owner_name, r.item.deadline, r.item.priority]
-                          .filter(Boolean)
-                          .join(" · ")}
-                        details={[{ label: "Área ERP", value: r.item.erp_area }].filter((d) => d.value)}
-                        classification={r.item.classification}
-                        row={r}
-                        foreignClientSnippet={actionForeignFlags[r.key]}
-                        conditionalActionFlag={actionConditionalFlags[r.key] !== undefined}
-                        onChange={(mode) => setActionSel((s) => ({ ...s, [r.key]: mode }))}
-                        completed={
-                          actionCompletedSel[r.key] ??
-                          isNewActionPreMarkedCompleted(r.item.deadline, todayIso)
-                        }
-                        onCompletedChange={(v) =>
-                          setActionCompletedSel((s) => ({ ...s, [r.key]: v }))
-                        }
-                        dueDate={
-                          actionDeadlineSel[r.key] ??
-                          defaultItemDueDate(
+                    {actionRows.map((r) => {
+                      const existingAction = r.match.existing as ActionItem | null;
+                      const comparison: ComparisonPanelData | null = existingAction
+                        ? {
+                            existingMeetingDate: dateForMeetingId(existingAction.meeting_id),
+                            existing: {
+                              text: existingAction.description,
+                              responsible: existingAction.owner_name,
+                              status: existingAction.status,
+                              extra: [
+                                { label: "Prioridade", value: existingAction.priority },
+                                { label: "Prazo", value: existingAction.deadline ?? "" },
+                              ],
+                            },
+                            ...(r.mode === "update"
+                              ? {
+                                  rightLabel: "Resultado após atualizar" as const,
+                                  // B27B: a descrição da ação nunca é sobrescrita por "Atualizar
+                                  // existente" — o texto novo acumula só no histórico de evidência.
+                                  updated: {
+                                    text: existingAction.description,
+                                    responsible: r.item.owner_name || existingAction.owner_name,
+                                    status: existingAction.status,
+                                    extra: [
+                                      {
+                                        label: "Prioridade",
+                                        value: r.item.priority || existingAction.priority,
+                                      },
+                                      {
+                                        label: "Prazo",
+                                        value: r.item.deadline || existingAction.deadline || "",
+                                      },
+                                    ],
+                                  },
+                                  evidenceAddition: r.item.evidence || r.item.description,
+                                }
+                              : {
+                                  rightLabel: "Novo (desta reunião)" as const,
+                                  updated: {
+                                    text: r.item.description,
+                                    responsible: r.item.owner_name,
+                                    status: null,
+                                    extra: [
+                                      { label: "Prioridade", value: r.item.priority },
+                                      { label: "Prazo", value: r.item.deadline },
+                                    ],
+                                  },
+                                }),
+                          }
+                        : null;
+                      return (
+                        <ReviewRow
+                          key={r.key}
+                          rowId={`review-row-actions-${r.key}`}
+                          primary={r.item.description}
+                          secondary={[r.item.owner_name, r.item.deadline, r.item.priority]
+                            .filter(Boolean)
+                            .join(" · ")}
+                          details={[{ label: "Área ERP", value: r.item.erp_area }].filter(
+                            (d) => d.value,
+                          )}
+                          classification={r.item.classification}
+                          row={r}
+                          foreignClientSnippet={actionForeignFlags[r.key]}
+                          conditionalActionFlag={actionConditionalFlags[r.key] !== undefined}
+                          comparison={comparison}
+                          onChange={(mode) => setActionSel((s) => ({ ...s, [r.key]: mode }))}
+                          completed={
+                            actionCompletedSel[r.key] ??
+                            isNewActionPreMarkedCompleted(r.item.deadline, todayIso)
+                          }
+                          onCompletedChange={(v) =>
+                            setActionCompletedSel((s) => ({ ...s, [r.key]: v }))
+                          }
+                          dueDate={
+                            actionDeadlineSel[r.key] ??
+                            defaultItemDueDate(
+                              r.item.deadline,
+                              r.item.deadline_hint,
+                              meeting?.meeting_date,
+                            )
+                          }
+                          dueDateSuggested={isSuggestedDueDate(
                             r.item.deadline,
                             r.item.deadline_hint,
                             meeting?.meeting_date,
-                          )
-                        }
-                        dueDateSuggested={isSuggestedDueDate(
-                          r.item.deadline,
-                          r.item.deadline_hint,
-                          meeting?.meeting_date,
-                          actionDeadlineSel[r.key],
-                        )}
-                        onDueDateChange={(v) => setActionDeadlineSel((s) => ({ ...s, [r.key]: v }))}
-                      />
-                    ))}
+                            actionDeadlineSel[r.key],
+                          )}
+                          onDueDateChange={(v) =>
+                            setActionDeadlineSel((s) => ({ ...s, [r.key]: v }))
+                          }
+                        />
+                      );
+                    })}
                   </ul>
                 </ReviewBlock>
 
@@ -1967,25 +2079,79 @@ export function MeetingAnalysisDialog({
                   }
                 >
                   <ul className="space-y-2">
-                    {riskRows.map((r) => (
-                      <ReviewRow
-                        key={r.key}
-                        rowId={`review-row-risks-${r.key}`}
-                        primary={r.item.description}
-                        secondary={[r.item.level, r.item.impact, r.item.recommendation]
-                          .filter(Boolean)
-                          .join(" · ")}
-                        details={[
-                          { label: "Título", value: r.item.title },
-                          { label: "Probabilidade", value: r.item.probability },
-                          { label: "Evidência", value: r.item.evidence },
-                        ].filter((d) => d.value)}
-                        classification={r.item.classification}
-                        row={r}
-                        foreignClientSnippet={riskForeignFlags[r.key]}
-                        onChange={(mode) => setRiskSel((s) => ({ ...s, [r.key]: mode }))}
-                      />
-                    ))}
+                    {riskRows.map((r) => {
+                      const existingRisk = r.match.existing as RiskItem | null;
+                      const newActive =
+                        r.match.statusSignal === "resolved"
+                          ? "resolvido"
+                          : r.match.statusSignal === "reopened"
+                            ? "ativo"
+                            : existingRisk
+                              ? existingRisk.active
+                                ? "ativo"
+                                : "resolvido"
+                              : "";
+                      const comparison: ComparisonPanelData | null = existingRisk
+                        ? {
+                            existingMeetingDate: dateForMeetingId(existingRisk.meeting_id),
+                            existing: {
+                              // B27B: a descrição do risco não é sobrescrita por "Atualizar existente".
+                              text: existingRisk.description,
+                              responsible: null,
+                              status: null,
+                              extra: [
+                                { label: "Nível", value: existingRisk.level },
+                                {
+                                  label: "Ativo",
+                                  value: existingRisk.active ? "ativo" : "resolvido",
+                                },
+                              ],
+                            },
+                            ...(r.mode === "update"
+                              ? {
+                                  rightLabel: "Resultado após atualizar" as const,
+                                  updated: {
+                                    text: existingRisk.description,
+                                    responsible: null,
+                                    status: null,
+                                    extra: [
+                                      { label: "Nível", value: r.item.level || existingRisk.level },
+                                      { label: "Ativo", value: newActive },
+                                    ],
+                                  },
+                                }
+                              : {
+                                  rightLabel: "Novo (desta reunião)" as const,
+                                  updated: {
+                                    text: r.item.description,
+                                    responsible: null,
+                                    status: null,
+                                    extra: [{ label: "Nível", value: r.item.level }],
+                                  },
+                                }),
+                          }
+                        : null;
+                      return (
+                        <ReviewRow
+                          key={r.key}
+                          rowId={`review-row-risks-${r.key}`}
+                          primary={r.item.description}
+                          secondary={[r.item.level, r.item.impact, r.item.recommendation]
+                            .filter(Boolean)
+                            .join(" · ")}
+                          details={[
+                            { label: "Título", value: r.item.title },
+                            { label: "Probabilidade", value: r.item.probability },
+                            { label: "Evidência", value: r.item.evidence },
+                          ].filter((d) => d.value)}
+                          classification={r.item.classification}
+                          row={r}
+                          foreignClientSnippet={riskForeignFlags[r.key]}
+                          comparison={comparison}
+                          onChange={(mode) => setRiskSel((s) => ({ ...s, [r.key]: mode }))}
+                        />
+                      );
+                    })}
                   </ul>
                 </ReviewBlock>
 
@@ -2010,19 +2176,74 @@ export function MeetingAnalysisDialog({
                   }
                 >
                   <ul className="space-y-2">
-                    {oppRows.map((r) => (
-                      <ReviewRow
-                        key={r.key}
-                        rowId={`review-row-opportunities-${r.key}`}
-                        primary={r.item.description}
-                        secondary={r.item.expected_benefit}
-                        details={[{ label: "Evidência", value: r.item.evidence }].filter((d) => d.value)}
-                        classification={r.item.classification}
-                        row={r}
-                        foreignClientSnippet={oppForeignFlags[r.key]}
-                        onChange={(mode) => setOppSel((s) => ({ ...s, [r.key]: mode }))}
-                      />
-                    ))}
+                    {oppRows.map((r) => {
+                      const existingOpp = r.match.existing as OpportunityItem | null;
+                      const comparison: ComparisonPanelData | null = existingOpp
+                        ? {
+                            existingMeetingDate: dateForMeetingId(existingOpp.meeting_id),
+                            existing: {
+                              // B27B: a descrição da oportunidade não é sobrescrita por "Atualizar existente".
+                              text: existingOpp.description,
+                              responsible: null,
+                              status: existingOpp.status,
+                              extra: [
+                                {
+                                  label: "Benefício esperado",
+                                  value: existingOpp.expected_benefit ?? "",
+                                },
+                              ],
+                            },
+                            ...(r.mode === "update"
+                              ? {
+                                  rightLabel: "Resultado após atualizar" as const,
+                                  updated: {
+                                    text: existingOpp.description,
+                                    responsible: null,
+                                    status: existingOpp.status,
+                                    extra: [
+                                      {
+                                        label: "Benefício esperado",
+                                        value:
+                                          r.item.expected_benefit ||
+                                          existingOpp.expected_benefit ||
+                                          "",
+                                      },
+                                    ],
+                                  },
+                                }
+                              : {
+                                  rightLabel: "Novo (desta reunião)" as const,
+                                  updated: {
+                                    text: r.item.description,
+                                    responsible: null,
+                                    status: null,
+                                    extra: [
+                                      {
+                                        label: "Benefício esperado",
+                                        value: r.item.expected_benefit,
+                                      },
+                                    ],
+                                  },
+                                }),
+                          }
+                        : null;
+                      return (
+                        <ReviewRow
+                          key={r.key}
+                          rowId={`review-row-opportunities-${r.key}`}
+                          primary={r.item.description}
+                          secondary={r.item.expected_benefit}
+                          details={[{ label: "Evidência", value: r.item.evidence }].filter(
+                            (d) => d.value,
+                          )}
+                          classification={r.item.classification}
+                          row={r}
+                          foreignClientSnippet={oppForeignFlags[r.key]}
+                          comparison={comparison}
+                          onChange={(mode) => setOppSel((s) => ({ ...s, [r.key]: mode }))}
+                        />
+                      );
+                    })}
                   </ul>
                 </ReviewBlock>
 
@@ -2301,6 +2522,121 @@ function VerdictBadge({ resolution }: { resolution: ItemResolution }) {
   );
 }
 
+/** B27B — um lado do painel de comparação (existente ou novo). */
+type ComparisonSide = {
+  text: string;
+  /** null quando a entidade não tem esse campo (risco, oportunidade) — aí a linha nem aparece. */
+  responsible: string | null;
+  /** null quando a entidade não tem esse campo, ou quando o item novo não traz valor pra esse lado. */
+  status: string | null;
+  /** Campos específicos da entidade — ex.: Descrição/Motivo (decisão), Prioridade/Prazo (ação). */
+  extra: { label: string; value: string }[];
+};
+
+type ComparisonPanelData = {
+  existingMeetingDate: string | null;
+  existing: ComparisonSide;
+  /**
+   * B27B (correção): o lado direito muda de sentido conforme `rightLabel`.
+   * "Resultado após atualizar" (mode "update") — o que o patch real vai
+   * gravar (título/descrição existentes mantidos quando a regra manda,
+   * campos novos só quando presentes). "Novo (desta reunião)" (mode
+   * "create"/"skip", inclusive pendente) — o item EXATAMENTE como a IA
+   * extraiu (r.item.*), sem fallback pro existente: nada será gravado
+   * nesse modo, então não faz sentido prever um resultado de atualização.
+   */
+  updated: ComparisonSide;
+  rightLabel: "Resultado após atualizar" | "Novo (desta reunião)";
+  /** Só quando rightLabel é "Resultado após atualizar" E a entidade é ação: texto que será ACRESCENTADO ao histórico de evidência — nunca substitui a descrição. */
+  evidenceAddition?: string | null;
+};
+
+function ComparisonSideFields({ side }: { side: ComparisonSide }) {
+  return (
+    <dl className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+      <div>
+        <span className="font-medium">Texto:</span> {side.text || "—"}
+      </div>
+      {side.responsible !== null && (
+        <div>
+          <span className="font-medium">Responsável:</span> {side.responsible || "—"}
+        </div>
+      )}
+      {side.status !== null && (
+        <div>
+          <span className="font-medium">Status:</span> {side.status || "—"}
+        </div>
+      )}
+      {side.extra.map((f) => (
+        <div key={f.label}>
+          <span className="font-medium">{f.label}:</span> {f.value || "—"}
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * B27B — painel "existente ↔ novo", mostrado SEMPRE que o item tiver um
+ * registro existente casado (match.existing), mesmo sem diferença nenhuma —
+ * nunca só quando há `changes`. Reaproveita as mesmas classes já usadas em
+ * `details`/`changes` do ReviewRow; nenhuma classe nova.
+ */
+function ComparisonPanel({
+  existingMeetingDate,
+  existing,
+  updated,
+  rightLabel,
+  changes,
+  evidenceAddition,
+}: ComparisonPanelData & { changes: FieldChange[] }) {
+  const isUpdateResult = rightLabel === "Resultado após atualizar";
+  return (
+    <div className="mt-2 rounded-md border bg-background p-2">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-muted-foreground">
+            Existente
+            {existingMeetingDate ? ` (reunião de ${formatDate(existingMeetingDate)})` : ""}
+          </p>
+          <ComparisonSideFields side={existing} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-muted-foreground">{rightLabel}</p>
+          <ComparisonSideFields side={updated} />
+        </div>
+      </div>
+      {isUpdateResult ? (
+        (changes.length > 0 || evidenceAddition) && (
+          <div className="mt-2 border-t pt-2">
+            <p className="text-xs font-semibold text-muted-foreground">O que será alterado</p>
+            <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+              {changes.map((c) => (
+                <li key={c.field}>
+                  <span className="font-medium">{c.label}:</span> {c.from || "—"} → {c.to || "—"}
+                </li>
+              ))}
+              {evidenceAddition ? (
+                <li>
+                  <span className="font-medium">Evidência:</span> será adicionado ao histórico de
+                  evidência: "{evidenceAddition}"
+                </li>
+              ) : null}
+            </ul>
+          </div>
+        )
+      ) : (
+        <div className="mt-2 border-t pt-2">
+          <p className="text-xs font-semibold text-muted-foreground">O que será alterado</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Nada será alterado no item existente.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ReviewRow({
   rowId,
   primary,
@@ -2318,6 +2654,7 @@ function ReviewRow({
   dueDate,
   dueDateSuggested,
   onDueDateChange,
+  comparison,
 }: {
   /** Ver goToFirstItemNeedingReview — id do DOM pra rolar até esta linha. */
   rowId?: string;
@@ -2359,6 +2696,11 @@ function ReviewRow({
   /** true quando `dueDate` é uma sugestão calculada do hint, não uma data explícita nem edição do consultor. */
   dueDateSuggested?: boolean;
   onDueDateChange?: (v: string) => void;
+  /**
+   * B27B — painel "existente ↔ novo". `undefined`/`null` quando o item não
+   * tem `match.existing` (verdict NEW) — nesse caso o painel não aparece.
+   */
+  comparison?: ComparisonPanelData | null;
 }) {
   return (
     <li id={rowId} className="rounded-lg bg-muted/40 p-3">
@@ -2378,14 +2720,25 @@ function ReviewRow({
           {row.resolution.verdict !== "NEW" && (
             <p className="mt-1 text-xs text-muted-foreground">{row.resolution.reason}</p>
           )}
-          {row.resolution.changes.length > 0 && (
-            <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-              {row.resolution.changes.map((c) => (
-                <li key={c.field}>
-                  <span className="font-medium">{c.label}:</span> {c.from || "—"} → {c.to || "—"}
-                </li>
-              ))}
-            </ul>
+          {comparison ? (
+            <ComparisonPanel
+              existingMeetingDate={comparison.existingMeetingDate}
+              existing={comparison.existing}
+              updated={comparison.updated}
+              rightLabel={comparison.rightLabel}
+              changes={row.resolution.changes}
+              evidenceAddition={comparison.evidenceAddition ?? null}
+            />
+          ) : (
+            row.resolution.changes.length > 0 && (
+              <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                {row.resolution.changes.map((c) => (
+                  <li key={c.field}>
+                    <span className="font-medium">{c.label}:</span> {c.from || "—"} → {c.to || "—"}
+                  </li>
+                ))}
+              </ul>
+            )
           )}
           <ResolutionControls
             resolution={row.resolution}
