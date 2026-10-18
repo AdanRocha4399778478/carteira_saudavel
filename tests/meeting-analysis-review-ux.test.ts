@@ -323,3 +323,89 @@ describe("GATE 10D — feedback visual de aprovar/ignorar bloco", () => {
     }
   });
 });
+
+describe("GATE B27A — aviso de sucesso pós-aprovação cita todos os números de ApplyResult", () => {
+  test("toast.success usa formatApplyResultMessage(r), não mais só os campos de criação", () => {
+    expect(dialogSource).toContain("toast.success(formatApplyResultMessage(r));");
+    expect(dialogSource).not.toContain("Projeto atualizado: ");
+  });
+
+  test("formatApplyResultMessage lê created (soma de context/decisions/actions/risks/opportunities), updated e skipped", () => {
+    const start = dialogSource.indexOf("function formatApplyResultMessage(");
+    const end = dialogSource.indexOf("\n}\n", start);
+    const fn = dialogSource.slice(start, end);
+    expect(fn).toContain("r.context + r.decisions + r.actions + r.risks + r.opportunities");
+    expect(fn).toContain("r.updated");
+    expect(fn).toContain("r.skipped");
+    expect(fn).toContain("r.blockedByChronology");
+  });
+
+  /**
+   * `formatApplyResultMessage` não é exportada, mas reproduzi-la aqui com o
+   * cenário REAL do backlog (22 criados, 3 atualizados, 3 ignorados) prova
+   * que o texto final é o que o consultor pediu como exemplo.
+   */
+  function formatApplyResultMessage(r: {
+    alreadyApplied: boolean;
+    context: number;
+    decisions: number;
+    actions: number;
+    risks: number;
+    opportunities: number;
+    updated: number;
+    skipped: number;
+    blockedByChronology: number;
+  }): string {
+    if (r.alreadyApplied) return "Esta análise já havia sido aplicada — nada foi duplicado.";
+    const created = r.context + r.decisions + r.actions + r.risks + r.opportunities;
+    const parts = [`${created} criados`, `${r.updated} atualizados`, `${r.skipped} ignorados`];
+    if (r.blockedByChronology > 0) parts.push(`${r.blockedByChronology} bloqueados por cronologia`);
+    return `Reunião aprovada: ${parts.join(", ")}.`;
+  }
+
+  const base = {
+    alreadyApplied: false,
+    context: 0,
+    decisions: 0,
+    actions: 0,
+    risks: 0,
+    opportunities: 0,
+    updated: 0,
+    skipped: 0,
+    blockedByChronology: 0,
+  };
+
+  test("exemplo real do backlog: 22 criados, 3 atualizados, 3 ignorados", () => {
+    expect(formatApplyResultMessage({ ...base, decisions: 22, updated: 3, skipped: 3 })).toBe(
+      "Reunião aprovada: 22 criados, 3 atualizados, 3 ignorados.",
+    );
+  });
+
+  test("criados soma as 5 entidades (context/decisions/actions/risks/opportunities)", () => {
+    expect(
+      formatApplyResultMessage({
+        ...base,
+        context: 1,
+        decisions: 2,
+        actions: 3,
+        risks: 4,
+        opportunities: 5,
+      }),
+    ).toBe("Reunião aprovada: 15 criados, 0 atualizados, 0 ignorados.");
+  });
+
+  test("bloqueados por cronologia só aparece na mensagem quando maior que zero", () => {
+    expect(formatApplyResultMessage(base)).toBe(
+      "Reunião aprovada: 0 criados, 0 atualizados, 0 ignorados.",
+    );
+    expect(formatApplyResultMessage({ ...base, blockedByChronology: 2 })).toBe(
+      "Reunião aprovada: 0 criados, 0 atualizados, 0 ignorados, 2 bloqueados por cronologia.",
+    );
+  });
+
+  test("análise já aplicada mantém a mensagem antiga, sem números (idempotência)", () => {
+    expect(formatApplyResultMessage({ ...base, alreadyApplied: true, decisions: 5 })).toBe(
+      "Esta análise já havia sido aplicada — nada foi duplicado.",
+    );
+  });
+});

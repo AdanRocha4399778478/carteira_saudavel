@@ -65,24 +65,66 @@ describe("GATE 10A — review-blocks: classificação de verdict", () => {
 });
 
 describe("GATE 10A — contagem por bloco", () => {
-  test("countReviewBlock soma novas/atualizações/revisão/ignoradas corretamente", () => {
+  test("countReviewBlock soma novas/atualizações/revisão/ignoradas corretamente, pela ESCOLHA efetiva (mode), não pelo verdict", () => {
     const items: ReviewBlockItem<number>[] = [
       item(0, "NEW", "create"),
       item(1, "NEW", "create"),
       item(2, "UPDATE_EXISTING", "update"),
       item(3, "POSSIBLE_DUPLICATE", "skip"), // pendente — conta como "para revisar"
       item(4, "EXISTING", "skip"), // já existe — conta como ignorada
-      item(5, "NEW", "skip", true), // consultor decidiu ignorar manualmente — ignorada
+      item(5, "NEW", "skip", true), // consultor decidiu ignorar manualmente — ignorada, não "nova"
     ];
     const counts = countReviewBlock(items);
     expect(counts).toEqual({
       total: 6,
-      // newCount conta por verdict (NEW), independente do modo escolhido —
-      // por isso inclui o item 5, que é NEW mas foi manualmente ignorado.
-      newCount: 3,
+      // newCount conta por mode "create" — o item 5 é NEW por verdict, mas o
+      // consultor escolheu "skip" manualmente, então conta como ignorada.
+      newCount: 2,
       updateCount: 1,
       reviewCount: 1,
       ignoredCount: 2,
+    });
+    // Cada item cai em exatamente uma categoria: a soma sempre fecha com o total.
+    expect(counts.newCount + counts.updateCount + counts.ignoredCount + counts.reviewCount).toBe(
+      counts.total,
+    );
+  });
+
+  test("B27A: item POSSIBLE_DUPLICATE resolvido à mão para 'update' conta como atualização — nunca fica fora das quatro categorias", () => {
+    // Caso real relatado: 28 itens, 22 resolvidos para create, 3 POSSIBLE_DUPLICATE
+    // resolvidos à mão para "update", 3 resolvidos para "skip" — rodapé mostrava
+    // "0 atualização(ões)" e a soma batia 24 de 28 (os 3 "update" ficavam de fora).
+    const items: ReviewBlockItem<number>[] = [
+      ...Array.from({ length: 22 }, (_, i) => item(i, "NEW", "create")),
+      ...Array.from({ length: 3 }, (_, i) => item(22 + i, "POSSIBLE_DUPLICATE", "update", true)),
+      ...Array.from({ length: 3 }, (_, i) => item(25 + i, "POSSIBLE_DUPLICATE", "skip", true)),
+    ];
+    const counts = countReviewBlock(items);
+    expect(counts).toEqual({
+      total: 28,
+      newCount: 22,
+      updateCount: 3,
+      reviewCount: 0,
+      ignoredCount: 3,
+    });
+    expect(counts.newCount + counts.updateCount + counts.ignoredCount + counts.reviewCount).toBe(
+      counts.total,
+    );
+  });
+
+  test("B27A: item ainda pendente de revisão conta SÓ em 'para revisar', mesmo com mode já herdado do default (create/update/skip)", () => {
+    const items: ReviewBlockItem<number>[] = [
+      item(0, "POSSIBLE_DUPLICATE", "create", false), // default herdado do dedupe, mas sem override
+      item(1, "POSSIBLE_DUPLICATE", "update", false),
+      item(2, "POSSIBLE_DUPLICATE", "skip", false),
+    ];
+    const counts = countReviewBlock(items);
+    expect(counts).toEqual({
+      total: 3,
+      newCount: 0,
+      updateCount: 0,
+      reviewCount: 3,
+      ignoredCount: 0,
     });
   });
 

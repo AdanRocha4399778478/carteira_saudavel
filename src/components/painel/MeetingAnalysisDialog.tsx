@@ -52,6 +52,7 @@ import {
   parseAnalysis,
   saveAnalysisDraft,
   type AnalysisAgenda,
+  type ApplyResult,
   type ApprovedSelection,
   type ChangeOperation,
   type ExecutionQuality,
@@ -247,6 +248,22 @@ function isSuggestedDueDate(
   return (
     override === undefined && !explicit && resolveRelativeDeadline(hint, meetingDateIso) !== null
   );
+}
+
+/**
+ * GATE B27A — mensagem de sucesso pós-aprovação com TODOS os números de
+ * `ApplyResult`, não só o que foi criado: criados (soma de context,
+ * decisions, actions, risks, opportunities), atualizados (`r.updated`),
+ * ignorados (`r.skipped`) e, só quando > 0, bloqueados por cronologia
+ * (`r.blockedByChronology` — item cujo alvo de "Atualizar existente" veio
+ * de uma reunião posterior à atual, defesa em profundidade do backend).
+ */
+function formatApplyResultMessage(r: ApplyResult): string {
+  if (r.alreadyApplied) return "Esta análise já havia sido aplicada — nada foi duplicado.";
+  const created = r.context + r.decisions + r.actions + r.risks + r.opportunities;
+  const parts = [`${created} criados`, `${r.updated} atualizados`, `${r.skipped} ignorados`];
+  if (r.blockedByChronology > 0) parts.push(`${r.blockedByChronology} bloqueados por cronologia`);
+  return `Reunião aprovada: ${parts.join(", ")}.`;
 }
 
 function ClassificationBadge({ value }: { value: string }) {
@@ -1453,11 +1470,7 @@ export function MeetingAnalysisDialog({
       submitting.current = false;
       setApproveError(null);
       setApproved(true);
-      toast.success(
-        r.alreadyApplied
-          ? "Esta análise já havia sido aplicada — nada foi duplicado."
-          : `Projeto atualizado: ${r.context} itens de contexto, ${r.decisions} decisões, ${r.actions} ações, ${r.risks} riscos, ${r.opportunities} oportunidades.`,
-      );
+      toast.success(formatApplyResultMessage(r));
       // A tela precisa refletir tudo sem F5: contexto, entidades e indicadores.
       for (const key of REFRESH_KEYS) void qc.invalidateQueries({ queryKey: key });
       setStep("pauta");

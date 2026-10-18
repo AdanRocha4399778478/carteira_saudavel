@@ -36,11 +36,13 @@ export type ReviewBlockItem<K extends string | number = string | number> = {
 
 export type ReviewBlockCounts = {
   total: number;
+  /** Resolução efetiva (mode) é "create" e o item não está pendente de revisão. */
   newCount: number;
+  /** Resolução efetiva (mode) é "update" e o item não está pendente de revisão. */
   updateCount: number;
-  /** POSSIBLE_DUPLICATE ainda sem decisão explícita do consultor. */
+  /** POSSIBLE_DUPLICATE (ou historyFlag/statusSignal/foreignClientFlag/conditionalActionFlag) ainda sem decisão explícita do consultor. */
   reviewCount: number;
-  /** Resolução atual é "skip" e o item não está mais pendente de revisão. */
+  /** Resolução efetiva (mode) é "skip" e o item não está mais pendente de revisão. */
   ignoredCount: number;
 };
 
@@ -102,8 +104,33 @@ export function defaultModeForVerdict(verdict: DedupeVerdict): ResolutionMode {
   return "skip";
 }
 
+/**
+ * GATE B27A — cada item entra em EXATAMENTE UMA categoria, de modo que
+ * newCount + updateCount + ignoredCount + reviewCount === total sempre.
+ * A contagem é pela ESCOLHA EFETIVA do consultor (`item.mode`), nunca pelo
+ * veredito do dedupe (`item.verdict`): um item que nasceu POSSIBLE_DUPLICATE
+ * e que o consultor resolveu à mão para "update" (ou "create") passa a
+ * contar como atualização (ou novo) — antes ficava fora das quatro
+ * categorias, porque o veredito nunca muda pra "UPDATE_EXISTING"/"NEW" só
+ * porque o consultor decidiu manualmente (achado do Gate B27). Item que
+ * ainda precisa de revisão (`needsReview`) conta SÓ em "para revisar",
+ * mesmo que `mode` já tenha um valor-padrão (create/update/skip) herdado
+ * do dedupe — sem decisão explícita do consultor, não é nem "novo" nem
+ * "atualização" nem "ignorado" ainda. Item sem override e sem necessidade
+ * de revisão (verdict seguro, ex. NEW/UPDATE_EXISTING/EXISTING) usa o
+ * `mode` padrão calculado por `defaultResolution` — comportamento mantido.
+ */
 export function countReviewBlock(
-  items: Pick<ReviewBlockItem, "verdict" | "hasOverride" | "mode">[],
+  items: Pick<
+    ReviewBlockItem,
+    | "verdict"
+    | "hasOverride"
+    | "mode"
+    | "historyFlag"
+    | "statusSignal"
+    | "foreignClientFlag"
+    | "conditionalActionFlag"
+  >[],
 ): ReviewBlockCounts {
   const counts: ReviewBlockCounts = {
     total: items.length,
@@ -113,11 +140,13 @@ export function countReviewBlock(
     ignoredCount: 0,
   };
   for (const item of items) {
-    if (item.verdict === "NEW") counts.newCount++;
-    else if (item.verdict === "UPDATE_EXISTING") counts.updateCount++;
-
-    if (needsReview(item)) counts.reviewCount++;
-    else if (item.mode === "skip") counts.ignoredCount++;
+    if (needsReview(item)) {
+      counts.reviewCount++;
+      continue;
+    }
+    if (item.mode === "create") counts.newCount++;
+    else if (item.mode === "update") counts.updateCount++;
+    else counts.ignoredCount++; // item.mode === "skip"
   }
   return counts;
 }
