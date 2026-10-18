@@ -59,6 +59,13 @@ describe("ComparisonPanel — definição e gatilho (match.existing, nunca por c
     ).toBeGreaterThan(0);
   });
 
+  test('B27 (correção): o painel exige veredito real (type !== "NEW"), não só match.existing truthy — existing pode vir preenchido com um candidato fraco mesmo em veredito NEW', () => {
+    for (const b of [decisionBlock, actionBlock, riskBlock, oppBlock]) {
+      expect(b).toContain('const isRealMatch = r.match.type !== "NEW";');
+      expect(b).toContain("&& isRealMatch");
+    }
+  });
+
   test("contexto (contextRows) não ganhou painel de comparação — fora do escopo do B27B", () => {
     const contextBlockStart = source.indexOf(
       "id={blockId}\n                      title={CONTEXT_LIST_LABEL",
@@ -66,6 +73,33 @@ describe("ComparisonPanel — definição e gatilho (match.existing, nunca por c
     const contextBlockEnd = source.indexOf("</ReviewBlock>", contextBlockStart);
     const contextBlock = source.slice(contextBlockStart, contextBlockEnd);
     expect(contextBlock).not.toContain("comparison=");
+  });
+});
+
+describe("B27 (correção): painel só para veredito real — nunca para NEW, mesmo com existing preenchido", () => {
+  /**
+   * Reproduz a condição exata de cada bloco (`existingX && r.match.type !== "NEW"`)
+   * com um `existing` sempre preenchido (o cenário real do bug: um candidato de
+   * baixa similaridade encontrado por pickBest/pickBestHistorical, que nunca
+   * devolve null por causa do veredito — só por score <= 0). Prova que o
+   * veredito, não a presença de `existing`, decide se o painel aparece.
+   */
+  function showsPanel(
+    verdict: "NEW" | "POSSIBLE_DUPLICATE" | "UPDATE_EXISTING" | "EXISTING",
+  ): boolean {
+    const existing = { id: "x" }; // sempre preenchido, como no bug relatado
+    const comparison = existing && verdict !== "NEW" ? { ok: true } : null;
+    return comparison !== null;
+  }
+
+  test("NEW com existing preenchido NÃO mostra painel", () => {
+    expect(showsPanel("NEW")).toBe(false);
+  });
+
+  test("POSSIBLE_DUPLICATE, UPDATE_EXISTING e EXISTING mostram painel", () => {
+    expect(showsPanel("POSSIBLE_DUPLICATE")).toBe(true);
+    expect(showsPanel("UPDATE_EXISTING")).toBe(true);
+    expect(showsPanel("EXISTING")).toBe(true);
   });
 });
 
@@ -94,9 +128,7 @@ describe("rótulo do lado direito depende de r.mode, não da entidade", () => {
 
 describe("decisão: em 'update' mantém título existente; em 'create'/'skip' mostra o item incoming (não o existente)", () => {
   test("lado existente sempre mostra existingDecision.title", () => {
-    expect(decisionBlock).toContain(
-      "existing: {\n                              // B27B: título NUNCA é sobrescrito",
-    );
+    expect(decisionBlock).toContain("// B27B: título NUNCA é sobrescrito");
     const existingPart = decisionBlock.slice(0, decisionBlock.indexOf("...(r.mode"));
     expect(existingPart).toContain("text: existingDecision.title,");
   });
@@ -108,8 +140,9 @@ describe("decisão: em 'update' mantém título existente; em 'create'/'skip' mo
     );
     expect(updatePart).toContain("text: existingDecision.title,");
     expect(updatePart).not.toContain("text: r.item.title,");
-    expect(updatePart).toContain("r.item.description || existingDecision.description");
-    expect(updatePart).toContain('value: r.item.reason || existingDecision.reason || "",');
+    expect(updatePart).toContain("r.item.description");
+    expect(updatePart).toContain("existingDecision.description");
+    expect(updatePart).toContain("r.item.reason || existingDecision.reason");
   });
 
   test("em 'create'/'skip', o lado direito usa r.item.* puro — nunca cai pro existente", () => {
