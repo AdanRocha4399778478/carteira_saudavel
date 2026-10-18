@@ -90,7 +90,10 @@ describe("ApprovedSelection não mudou neste gate (Gate B só casamento + leitur
     expect(meetingAnalysisSource).not.toMatch(/function normalizeIndicatorName/);
   });
 
-  test("ApprovedSelection ainda é exportado com os mesmos campos de topo (decisions/actions/risks/opportunities), sem campo de indicador", () => {
+  test("ApprovedSelection ainda é exportado com os mesmos campos de topo (decisions/actions/risks/opportunities) — este Gate B não tocou neles", () => {
+    // Nota: o campo `indicators?` em ApprovedSelection é adicionado DEPOIS,
+    // no Gate D (gravação) — fora de escopo deste gate (Gate B, casamento),
+    // que só leu os indicadores já existentes, sem gravar nada.
     const start = meetingAnalysisSource.indexOf("export type ApprovedSelection");
     expect(start).toBeGreaterThan(-1);
     const end = meetingAnalysisSource.indexOf("};", start);
@@ -99,6 +102,5 @@ describe("ApprovedSelection não mudou neste gate (Gate B só casamento + leitur
     expect(block).toContain("actions");
     expect(block).toContain("risks");
     expect(block).toContain("opportunities");
-    expect(block).not.toMatch(/indicator/i);
   });
 });
