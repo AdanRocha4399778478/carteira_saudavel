@@ -20,6 +20,7 @@ import {
   opportunitiesQuery,
   risksQuery,
 } from "@/lib/api";
+import { indicatorsQuery } from "@/lib/indicators-data";
 import { buildKnownClientNames, normalizeText } from "@/lib/deduplication";
 import { MEETING_TYPES, normalizeMeeting, type Meeting } from "@/lib/domain";
 import { cleanParticipants, normalizeMeetingType } from "@/lib/identification-clean";
@@ -244,6 +245,8 @@ function SmartMeetingPage() {
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [project, setProject] = useState<Project | null>(null);
   const [context, setContext] = useState<ProjectContext | null>(null);
+  /** Indicadores de resultado parte 4, Gate B — só pra casar sugestão da IA (ver indicator-match.ts); lista aparece quando o projeto é identificado ou escolhido. */
+  const indicators = useQuery({ ...indicatorsQuery(project?.id ?? ""), enabled: !!project?.id });
   /**
    * Dados para gravar a reunião de verdade — só usados dentro de
    * `persistDraftMeeting`, chamada pelo diálogo no momento da aprovação.
@@ -1192,6 +1195,7 @@ function SmartMeetingPage() {
           .filter((c) => c.id !== meeting?.client_id)
           .map((c) => c.company_name)}
         opportunities={(opportunities.data ?? []).filter((o) => o.client_id === meeting?.client_id)}
+        indicators={indicators.data ?? []}
         initialAnalysis={analysis}
         rawAiResponse={rawAiResponse}
         initialTranscript={`${sourceLabel(effectiveSource)}\n\n${transcript}`}

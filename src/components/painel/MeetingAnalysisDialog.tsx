@@ -60,6 +60,11 @@ import {
   type SemanticConsolidation,
 } from "@/lib/meeting-analysis";
 import { applySpeakerMapToAnalysis, toSpeakerMapEntries } from "@/lib/speaker-map";
+import {
+  planIndicatorSuggestion,
+  type ExistingIndicatorForMatch,
+  type IndicatorSuggestionPlan,
+} from "@/lib/indicator-match";
 import { flagForeignClientItems } from "@/lib/client-isolation-guard";
 import { isConditionalClientAction } from "@/lib/decision-action-flags";
 import {
@@ -308,6 +313,7 @@ export function MeetingAnalysisDialog({
   clientName,
   otherClientNames = [],
   opportunities = [],
+  indicators = [],
   initialAnalysis = null,
   rawAiResponse = null,
   initialTranscript,
@@ -344,6 +350,13 @@ export function MeetingAnalysisDialog({
   otherClientNames?: string[];
   /** Oportunidades do cliente — escopo da checagem antiduplicidade. */
   opportunities?: OpportunityItem[];
+  /**
+   * Indicadores já existentes do PROJETO identificado (mesmo tipo de
+   * indicatorsQuery, src/lib/indicators-data.ts) — usados só pra casar as
+   * sugestões de indicador da IA (ver indicatorPlans/planIndicatorSuggestion
+   * em indicator-match.ts). [] quando o projeto ainda não foi identificado.
+   */
+  indicators?: ExistingIndicatorForMatch[];
   /** Reuniões do projeto — restringe a busca de duplicidade ao escopo do projeto. */
   projectMeetingIds?: string[];
   /** Análise já gerada pelo fluxo de Reunião Inteligente — abre direto no preview. */
@@ -688,6 +701,19 @@ export function MeetingAnalysisDialog({
       meeting?.meeting_date,
       meetingDateByMeetingId,
     ],
+  );
+
+  /**
+   * Indicadores de resultado parte 4, Gate B — plano de cada indicador
+   * sugerido pela IA contra os indicadores já existentes do projeto
+   * (ver indicator-match.ts; identidade é nome normalizado + kind, nunca
+   * similaridade). SÓ o cálculo por enquanto: ainda não renderiza nada na
+   * tela nem entra em ApprovedSelection — isso é um gate futuro (preview +
+   * seletor manual pra caso ambíguo).
+   */
+  const indicatorPlans: IndicatorSuggestionPlan[] = useMemo(
+    () => (analysis?.indicators ?? []).map((item) => planIndicatorSuggestion(item, indicators)),
+    [analysis, indicators],
   );
 
   /* ---------------- trava de isolamento de cliente (client-isolation-guard.ts) ---------------- */
