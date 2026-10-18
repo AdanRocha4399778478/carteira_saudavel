@@ -15,6 +15,7 @@ import { recordMentions, type MentionInput } from "./entity-mentions";
 import { saveEvolution, type EvolutionItem } from "./evolution";
 import { isValidCalendarDate, parseNumberPtBr } from "./indicator-form";
 import { normalizeIndicatorName } from "./indicator-name";
+import type { IndicatorDirection, IndicatorKind, IndicatorPointBasis } from "./indicator-analysis";
 import type { ActionItem, Meeting, OpportunityItem, RiskItem, RiskRule } from "./domain";
 import {
   CONTEXT_LISTS,
@@ -1117,7 +1118,64 @@ export type ApprovedSelection = {
     embedding?: number[] | null;
   }[];
   agenda: AnalysisAgenda;
+  /**
+   * Indicadores de resultado parte 4, Gate D — resolução já decidida (pelo
+   * seletor manual do Gate C, ainda não implementado) de cada sugestão da
+   * IA: anexar a um indicador existente, criar um novo, ou ignorar.
+   * Opcional pra seleção antiga (anterior a este gate) continuar aplicando
+   * sem o campo — ver buildIdempotencyKey, que só inclui indicadores no
+   * hash quando a lista não é vazia.
+   */
+  indicators?: ApprovedIndicatorItem[];
 };
+
+/**
+ * Um indicador de resultado já resolvido pelo consultor (ver
+ * ApprovedSelection.indicators). `value` nunca é tratado como zero quando
+ * ausente — `null` é sempre um erro de validação, nunca um valor válido
+ * (ver validateApprovedIndicator).
+ */
+export type ApprovedIndicatorItem = {
+  action: "attach" | "create" | "skip";
+  /** Obrigatório (e só usado) quando action é "attach". */
+  target_indicator_id: string | null;
+  name: string;
+  kind: IndicatorKind | "";
+  unit: string;
+  direction: IndicatorDirection | "";
+  value: number | null;
+  /** Só quando veio explícita do consultor/IA — nunca o próprio `value` do ponto. */
+  baseline_value: number | null;
+  basis: IndicatorPointBasis | "";
+  /** "AAAA-MM-DD" válida (1990-2100), ou "" para usar a data da reunião. */
+  measured_at: string;
+  evidence: string;
+};
+
+/**
+ * Erros em português de UM item de indicador aprovado — lista vazia quando
+ * o item pode ser gravado com segurança. "skip" nunca grava, então nunca
+ * valida (não há nada a proteger). Função pura, sem I/O.
+ */
+export function validateApprovedIndicator(item: ApprovedIndicatorItem): string[] {
+  if (item.action === "skip") return [];
+  const errors: string[] = [];
+  if (!item.name.trim()) errors.push("nome vazio");
+  const isValidKind =
+    item.kind === "percentual" ||
+    item.kind === "valor" ||
+    item.kind === "tempo" ||
+    item.kind === "quantidade";
+  if (!isValidKind) errors.push("kind inválido");
+  if (item.action === "create" && !item.direction) errors.push("criar sem direção");
+  if (item.action === "attach" && !item.target_indicator_id) errors.push("anexar sem alvo");
+  if (item.value === null || !Number.isFinite(item.value)) errors.push("value não finito");
+  if (!item.basis) errors.push("basis ausente");
+  if (item.measured_at && !isValidCalendarDate(item.measured_at)) {
+    errors.push("measured_at inválida");
+  }
+  return errors;
+}
 
 export type ApplyResult = {
   context: number;
@@ -1138,6 +1196,11 @@ export type ApplyResult = {
    * o item fica de fora desta aplicação.
    */
   blockedByChronology: number;
+  /** Indicadores de resultado parte 4, Gate D. */
+  indicatorsCreated: number;
+  indicatorPointsAdded: number;
+  /** Ponto que já existia (mesmo indicador, mesma data, mesmo valor, source "reuniao") — não duplicado. */
+  indicatorPointsSkipped: number;
 };
 
 const emptyApplyResult = (): ApplyResult => ({
@@ -1150,6 +1213,9 @@ const emptyApplyResult = (): ApplyResult => ({
   skipped: 0,
   alreadyApplied: false,
   blockedByChronology: 0,
+  indicatorsCreated: 0,
+  indicatorPointsAdded: 0,
+  indicatorPointsSkipped: 0,
 });
 
 /** Data da reunião de origem de um registro já existente — pra checagem de cronologia. */
@@ -1197,6 +1263,24 @@ export async function applyApprovedAnalysis(params: {
 }): Promise<ApplyResult> {
   const { meeting, projectId, selection } = params;
   const analysisId = params.analysisId ?? null;
+
+  /**
+   * Indicadores — valida ANTES de qualquer coisa, inclusive antes da
+   * reserva de idempotência: um indicador inválido não pode deixar decisões/
+   * ações/riscos/oportunidades já gravados no banco, nem reservar uma
+   * aplicação que trava novas tentativas (ver investigação na mensagem do
+   * gate — a reserva em analysis_applications NÃO é liberada quando a
+   * função lança erro depois dela).
+   */
+  const indicatorErrorsUpfront = (selection.indicators ?? []).flatMap((item) =>
+    validateApprovedIndicator(item),
+  );
+  if (indicatorErrorsUpfront.length > 0) {
+    throw new Error(
+      `Não foi possível gravar os indicadores desta reunião: ${indicatorErrorsUpfront.join("; ")}.`,
+    );
+  }
+
   const { data: auth } = await supabase.auth.getUser();
   const userId = auth.user?.id ?? null;
   const result = emptyApplyResult();
@@ -1214,6 +1298,11 @@ export async function applyApprovedAnalysis(params: {
       opportunities: selection.opportunities,
       summary: selection.meetingSummary,
       measurable: selection.measurableResult,
+      // Só entra no hash quando a lista não é vazia: seleção antiga (sem
+      // indicadores) continua gerando a MESMA chave de antes deste gate.
+      ...(selection.indicators && selection.indicators.length > 0
+        ? { indicators: selection.indicators }
+        : {}),
     },
   });
 
@@ -1743,6 +1832,102 @@ export async function applyApprovedAnalysis(params: {
       project_id: projectId,
       mention_type: "created",
     });
+  }
+
+  /* ---------- indicadores de resultado (parte 4, Gate D) ---------- *
+   * Bloco independente dos demais: resolução (anexar/criar/ignorar) já
+   * vem decidida em selection.indicators (seletor manual do Gate C, ainda
+   * não implementado). A validação de verdade já rodou no TOPO da função
+   * (indicatorErrorsUpfront), antes até da reserva de idempotência — o
+   * que segue aqui é só uma segunda checagem de segurança, sem custo
+   * nenhum (mesmos itens, mesma função pura), nunca deveria encontrar erro.
+   */
+  const indicatorItems = selection.indicators ?? [];
+  if (indicatorItems.length > 0) {
+    const errors = indicatorItems.flatMap((item) => validateApprovedIndicator(item));
+    if (errors.length > 0) {
+      throw new Error(
+        `Não foi possível gravar os indicadores desta reunião: ${errors.join("; ")}.`,
+      );
+    }
+
+    for (const item of indicatorItems) {
+      if (item.action === "skip") continue;
+
+      let indicatorId: string;
+      if (item.action === "create") {
+        const indicatorInsert = await supabase
+          .from("indicators")
+          .insert({
+            client_id: meeting.client_id,
+            project_id: projectId,
+            name: item.name,
+            kind: item.kind,
+            unit: item.unit || null,
+            direction: item.direction,
+            baseline_value: item.baseline_value,
+            baseline_at: null,
+            target_value: null,
+          })
+          .select("id")
+          .single();
+        if (indicatorInsert.error) {
+          // 23505 = índice único (project_id, lower(name), kind): já existe.
+          if (indicatorInsert.error.code === "23505") {
+            throw new Error(
+              `Já existe um indicador com este nome e tipo; escolha anexar em vez de criar ("${item.name}").`,
+            );
+          }
+          logDbError("indicators", "insert-analysis", indicatorInsert.error);
+          throw new Error(indicatorInsert.error.message);
+        }
+        indicatorId = (indicatorInsert.data as { id: string }).id;
+        result.indicatorsCreated += 1;
+      } else {
+        indicatorId = item.target_indicator_id!;
+      }
+
+      // "" vira a data da reunião — validateApprovedIndicator já garantiu
+      // que measured_at, quando não vazio, é "AAAA-MM-DD" real.
+      const measuredAt = item.measured_at || meeting.meeting_date;
+      const pointValue = item.value as number;
+
+      // Trava contra duplicado: mesmo indicador, mesma data, mesmo valor,
+      // mesma origem — nunca insere de novo, só conta como ignorado.
+      const duplicate = await supabase
+        .from("indicator_points")
+        .select("id")
+        .eq("indicator_id", indicatorId)
+        .eq("measured_at", measuredAt)
+        .eq("value", pointValue)
+        .eq("source", "reuniao")
+        .limit(1);
+      if (duplicate.error) {
+        logDbError("indicator_points", "select-duplicate", duplicate.error);
+        throw new Error(duplicate.error.message);
+      }
+      if ((duplicate.data ?? []).length > 0) {
+        result.indicatorPointsSkipped += 1;
+        continue;
+      }
+
+      const pointInsert = await supabase.from("indicator_points").insert({
+        indicator_id: indicatorId,
+        client_id: meeting.client_id,
+        project_id: projectId,
+        value: pointValue,
+        measured_at: measuredAt,
+        basis: item.basis,
+        source: "reuniao",
+        source_meeting_id: meeting.id,
+        evidence: item.evidence || null,
+      });
+      if (pointInsert.error) {
+        logDbError("indicator_points", "insert-analysis", pointInsert.error);
+        throw new Error(pointInsert.error.message);
+      }
+      result.indicatorPointsAdded += 1;
+    }
   }
 
   /* ---------- reunião: apenas complementa campos vazios ---------- */
