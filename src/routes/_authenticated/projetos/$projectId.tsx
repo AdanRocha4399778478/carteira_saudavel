@@ -1003,6 +1003,7 @@ function ProjectDetailPage() {
           .filter((c) => c.id !== p.client_id)
           .map((c) => c.company_name)}
         opportunities={(opportunities.data ?? []).filter((o) => o.client_id === p.client_id)}
+        indicators={indicators.data ?? []}
         projectMeetingIds={(meetings.data ?? []).map((m) => m.id)}
       />
 

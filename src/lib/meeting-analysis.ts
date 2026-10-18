@@ -14,6 +14,7 @@ import {
 import { recordMentions, type MentionInput } from "./entity-mentions";
 import { saveEvolution, type EvolutionItem } from "./evolution";
 import { isValidCalendarDate, parseNumberPtBr } from "./indicator-form";
+import { normalizeIndicatorName } from "./indicator-name";
 import type { ActionItem, Meeting, OpportunityItem, RiskItem, RiskRule } from "./domain";
 import {
   CONTEXT_LISTS,
@@ -92,14 +93,6 @@ const score0to10 = z
     if (!Number.isFinite(n)) return null;
     return Math.min(10, Math.max(0, Math.round(n * 10) / 10));
   });
-
-/**
- * Minúsculo, sem acento, sem espaços extras — a chave de identidade de um
- * indicador é esse nome normalizado + kind, nunca similaridade de texto.
- */
-function normalizeIndicatorName(name: string): string {
-  return name.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim().replace(/\s+/g, " ");
-}
 
 /**
  * Número livre (sem faixa, sem arredondar) — pro valor de um indicador.
