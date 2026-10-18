@@ -105,11 +105,30 @@ describe("parseNumberPtBr — formato brasileiro, nunca 0 pro que não dá pra l
     expect(parseNumberPtBr("1.2.3")).toBeNull();
     expect(parseNumberPtBr("1,2,3")).toBeNull();
   });
+
+  test("'0.123' e '0.500' -> null (milhar não começa com zero à esquerda)", () => {
+    expect(parseNumberPtBr("0.123")).toBeNull();
+    expect(parseNumberPtBr("0.500")).toBeNull();
+  });
+
+  test("'10.000' -> 10000", () => {
+    expect(parseNumberPtBr("10.000")).toBe(10000);
+  });
+
+  test("'100.000,5' -> 100000.5", () => {
+    expect(parseNumberPtBr("100.000,5")).toBe(100000.5);
+  });
 });
 
 describe("explainNumberParseError — mensagem específica pra confusão com formato americano", () => {
   test("texto com ponto (que já falhou o parse) pede vírgula como decimal", () => {
     expect(explainNumberParseError("12.5")).toBe("Use vírgula como separador decimal (ex.: 12,5).");
+  });
+
+  test("'0.123' (zero à esquerda, não é milhar válido) também pede vírgula", () => {
+    expect(explainNumberParseError("0.123")).toBe(
+      "Use vírgula como separador decimal (ex.: 12,5).",
+    );
   });
 
   test("texto sem ponto cai na mensagem genérica", () => {
@@ -132,6 +151,17 @@ describe("isValidCalendarDate — recusa data inexistente, não só o formato", 
 
   test("2026-02-29 é inválida (2026 não é bissexto)", () => {
     expect(isValidCalendarDate("2026-02-29")).toBe(false);
+  });
+
+  test("ano fora de 1990-2100 é inválido (erro de digitação, não um ponto no passado/futuro distante)", () => {
+    expect(isValidCalendarDate("0026-10-17")).toBe(false);
+    expect(isValidCalendarDate("2101-01-01")).toBe(false);
+  });
+
+  test("limites do intervalo (1990, 2026, 2100) são válidos", () => {
+    expect(isValidCalendarDate("1990-01-01")).toBe(true);
+    expect(isValidCalendarDate("2026-10-17")).toBe(true);
+    expect(isValidCalendarDate("2100-12-31")).toBe(true);
   });
 });
 

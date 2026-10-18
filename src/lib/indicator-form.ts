@@ -18,13 +18,15 @@ const BASES: IndicatorPointBasis[] = ["medido", "estimado"];
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Só dois formatos são aceitos, sem meio-termo: inteiro com vírgula decimal
-// opcional ("12", "12,5", "-3,2"), ou milhar em pt-BR válido — grupos de
+// opcional ("12", "12,5", "-3,2"), ou milhar em pt-BR válido — primeiro
+// grupo de 1 a 3 dígitos SEM zero à esquerda, seguido de grupos de
 // EXATAMENTE 3 dígitos depois de cada ponto, com vírgula decimal opcional
-// ("1.234", "1.234,5"). Qualquer outra coisa com ponto (um só dígito depois
-// dele, grupos quebrados, mistura de formato) é rejeitada: não existe
-// "quase milhar" que o parser tente adivinhar.
+// ("1.234", "10.000", "1.234,5"). Qualquer outra coisa com ponto (zero à
+// esquerda como "0.123", um só dígito depois dele, grupos quebrados,
+// mistura de formato) é rejeitada: não existe "quase milhar" que o parser
+// tente adivinhar.
 const INTEGER_OR_DECIMAL_RE = /^-?\d+(,\d+)?$/;
-const THOUSANDS_RE = /^-?\d{1,3}(\.\d{3})+(,\d+)?$/;
+const THOUSANDS_RE = /^-?[1-9]\d{0,2}(\.\d{3})+(,\d+)?$/;
 
 /**
  * Converte um número em texto no formato brasileiro para `number`. Aceita
@@ -65,9 +67,11 @@ function isLeapYear(year: number): boolean {
 
 /**
  * Valida uma data "AAAA-MM-DD" incluindo a existência real do dia (mês de
- * 28 a 31 dias, ano bissexto) — recusa 2026-02-31 e 2026-13-01, não só o
- * formato. Sem `new Date()`/`Date.now()`: só aritmética de calendário, pra
- * não depender do fuso horário de quem executa.
+ * 28 a 31 dias, ano bissexto) e o ano dentro de 1990-2100 — recusa
+ * 2026-02-31, 2026-13-01 e erro de digitação de ano como "0026-10-17" ou
+ * "2206-01-01", não só o formato. Sem `new Date()`/`Date.now()`: só
+ * aritmética de calendário, pra não depender do fuso horário de quem
+ * executa.
  */
 export function isValidCalendarDate(value: string): boolean {
   if (!ISO_DATE_RE.test(value)) return false;
@@ -75,6 +79,7 @@ export function isValidCalendarDate(value: string): boolean {
   const year = Number(yearStr);
   const month = Number(monthStr);
   const day = Number(dayStr);
+  if (year < 1990 || year > 2100) return false;
   if (month < 1 || month > 12) return false;
   const maxDay = month === 2 && isLeapYear(year) ? 29 : (DAYS_IN_MONTH[month - 1] as number);
   return day >= 1 && day <= maxDay;
