@@ -1225,40 +1225,76 @@ function joinWithE(parts: string[]): string {
 }
 
 /**
+ * B30: soma só os contadores de ESCRITA de um ApplyResult (ou de um
+ * `result` parcial guardado em analysis_applications) — os que indicam
+ * que algo foi de fato gravado nesta tentativa. NUNCA inclui
+ * alreadyApplied, blockedByChronology, skipped nem indicatorPointsSkipped
+ * (nenhum desses grava algo novo). Zero aqui significa "seguro repetir a
+ * aplicação do zero"; usada tanto pra decidir se retoma uma reserva falha
+ * quanto por formatPartialApplyMessage. Função pura, sem I/O.
+ */
+export function sumWriteCounters(result: Partial<ApplyResult>): number {
+  return (
+    (result.context ?? 0) +
+    (result.decisions ?? 0) +
+    (result.actions ?? 0) +
+    (result.risks ?? 0) +
+    (result.opportunities ?? 0) +
+    (result.updated ?? 0) +
+    (result.indicatorsCreated ?? 0) +
+    (result.indicatorPointsAdded ?? 0)
+  );
+}
+
+/**
  * B30: mensagem de erro clara pra quando applyApprovedAnalysis falha no
  * meio — diz o motivo e o que já foi gravado nesta tentativa (pelos
  * contadores de `result` no instante da falha), pra o consultor saber que
  * precisa reabrir o preview e ignorar o que já entrou. Só cita categorias
- * com contador maior que zero; sem nada gravado, diz "Nada foi gravado.".
- * Função pura, sem I/O.
+ * com contador maior que zero; sem nada gravado (sumWriteCounters zero),
+ * diz "Nada foi gravado.". Aceita um `result` parcial (o guardado em
+ * analysis_applications pode vir de uma aplicação mais antiga, sem todos
+ * os campos). Função pura, sem I/O.
  */
-export function formatPartialApplyMessage(result: ApplyResult, motivo: string): string {
+export function formatPartialApplyMessage(result: Partial<ApplyResult>, motivo: string): string {
   const parts: string[] = [];
-  if (result.decisions > 0) {
-    parts.push(`${result.decisions} ${result.decisions === 1 ? "decisão" : "decisões"}`);
+  if ((result.context ?? 0) > 0) {
+    const n = result.context!;
+    parts.push(`${n} ${n === 1 ? "item de contexto" : "itens de contexto"}`);
   }
-  if (result.actions > 0) {
-    parts.push(`${result.actions} ${result.actions === 1 ? "ação" : "ações"}`);
+  if ((result.decisions ?? 0) > 0) {
+    const n = result.decisions!;
+    parts.push(`${n} ${n === 1 ? "decisão" : "decisões"}`);
   }
-  if (result.risks > 0) parts.push(`${result.risks} ${result.risks === 1 ? "risco" : "riscos"}`);
-  if (result.opportunities > 0) {
-    parts.push(
-      `${result.opportunities} ${result.opportunities === 1 ? "oportunidade" : "oportunidades"}`,
-    );
+  if ((result.actions ?? 0) > 0) {
+    const n = result.actions!;
+    parts.push(`${n} ${n === 1 ? "ação" : "ações"}`);
   }
-  if (result.indicatorsCreated > 0) {
-    parts.push(
-      `${result.indicatorsCreated} ${result.indicatorsCreated === 1 ? "indicador criado" : "indicadores criados"}`,
-    );
+  if ((result.risks ?? 0) > 0) {
+    const n = result.risks!;
+    parts.push(`${n} ${n === 1 ? "risco" : "riscos"}`);
   }
-  if (result.indicatorPointsAdded > 0) {
-    parts.push(
-      `${result.indicatorPointsAdded} ${result.indicatorPointsAdded === 1 ? "ponto" : "pontos"}`,
-    );
+  if ((result.opportunities ?? 0) > 0) {
+    const n = result.opportunities!;
+    parts.push(`${n} ${n === 1 ? "oportunidade" : "oportunidades"}`);
+  }
+  if ((result.updated ?? 0) > 0) {
+    const n = result.updated!;
+    parts.push(`${n} ${n === 1 ? "item atualizado" : "itens atualizados"}`);
+  }
+  if ((result.indicatorsCreated ?? 0) > 0) {
+    const n = result.indicatorsCreated!;
+    parts.push(`${n} ${n === 1 ? "indicador criado" : "indicadores criados"}`);
+  }
+  if ((result.indicatorPointsAdded ?? 0) > 0) {
+    const n = result.indicatorPointsAdded!;
+    parts.push(`${n} ${n === 1 ? "ponto" : "pontos"}`);
   }
 
   const gravado =
-    parts.length === 0 ? "Nada foi gravado." : `Já gravado antes da falha: ${joinWithE(parts)}.`;
+    sumWriteCounters(result) === 0
+      ? "Nada foi gravado."
+      : `Já gravado antes da falha: ${joinWithE(parts)}.`;
 
   return `A aprovação falhou: ${motivo}. ${gravado} Reabra o preview: o que já entrou aparece como existente; escolha Ignorar nesses itens.`;
 }
@@ -1375,10 +1411,14 @@ export async function applyApprovedAnalysis(params: {
         .select("result")
         .eq("idempotency_key", idempotencyKey)
         .maybeSingle();
-      const stored = (previous.data?.result ?? {}) as Partial<ApplyResult> & { failed?: boolean };
-      if (stored.failed) {
-        // Retoma a reserva falha em vez de devolver alreadyApplied: reseta
-        // o result pra vazio e esta tentativa segue e grava normalmente.
+      const stored = (previous.data?.result ?? {}) as Partial<ApplyResult> & {
+        failed?: boolean;
+        message?: string;
+      };
+      if (stored.failed && sumWriteCounters(stored) === 0) {
+        // Nada foi gravado na tentativa anterior: retoma a reserva falha em
+        // vez de devolver alreadyApplied — reseta o result pra vazio e esta
+        // tentativa segue e grava normalmente.
         const retaken = await supabase
           .from("analysis_applications")
           .update({ result: {} as never, applied_by: userId })
@@ -1390,6 +1430,16 @@ export async function applyApprovedAnalysis(params: {
           throw new Error(retaken.error.message);
         }
         applicationId = (retaken.data as { id: string }).id;
+      } else if (stored.failed) {
+        // A tentativa anterior falhou DEPOIS de gravar parte dos itens —
+        // repetir esta mesma seleção duplicaria o que já entrou. Nunca
+        // retoma nem devolve alreadyApplied: o consultor precisa reabrir o
+        // preview, ignorar o que já entrou, e só então aprovar de novo
+        // (uma seleção com os itens já marcados como ignorados gera outra
+        // chave de idempotência e segue normalmente).
+        throw new Error(
+          `${formatPartialApplyMessage(stored, stored.message ?? "motivo desconhecido")} Esta aprovação já falhou antes com este mesmo conteúdo e gravou parte dos itens. Reabra o preview, escolha Ignorar nos itens que já entraram e aprove de novo.`,
+        );
       } else {
         return { ...emptyApplyResult(), ...stored, alreadyApplied: true };
       }
@@ -1417,10 +1467,22 @@ export async function applyApprovedAnalysis(params: {
     });
   } catch (err) {
     const motivo = err instanceof Error ? err.message : String(err);
-    await supabase
-      .from("analysis_applications")
-      .update({ result: { ...result, failed: true, message: motivo } as never })
-      .eq("id", applicationId);
+    // A marcação de falha é só uma cortesia pra próxima tentativa (ver
+    // sumWriteCounters acima) — nunca pode impedir o erro original de
+    // chegar ao consultor, então qualquer problema aqui só vira log.
+    try {
+      const markFailed = await supabase
+        .from("analysis_applications")
+        .update({ result: { ...result, failed: true, message: motivo } as never })
+        .eq("id", applicationId);
+      if (markFailed.error) {
+        logDbError("analysis_applications", "mark-failed-reservation", markFailed.error);
+      }
+    } catch (markError) {
+      logDbError("analysis_applications", "mark-failed-reservation-threw", {
+        message: markError instanceof Error ? markError.message : String(markError),
+      });
+    }
     throw new Error(formatPartialApplyMessage(result, motivo));
   }
 }
