@@ -53,6 +53,7 @@ import {
   saveAnalysisDraft,
   type AnalysisAgenda,
   type ApplyResult,
+  type ApprovedIndicatorItem,
   type ApprovedSelection,
   type ChangeOperation,
   type ExecutionQuality,
@@ -60,6 +61,14 @@ import {
   type SemanticConsolidation,
 } from "@/lib/meeting-analysis";
 import { applySpeakerMapToAnalysis, toSpeakerMapEntries } from "@/lib/speaker-map";
+import {
+  applyIndicatorEdit,
+  blockingIndicatorCount,
+  buildApprovedIndicators,
+  defaultIndicatorDraft,
+  type IndicatorDraft,
+} from "@/lib/indicator-approval";
+import { IndicatorSuggestionsBlock } from "@/components/painel/IndicatorSuggestionsBlock";
 import {
   planIndicatorSuggestion,
   type ExistingIndicatorForMatch,
@@ -422,6 +431,8 @@ export function MeetingAnalysisDialog({
   const [actionDeadlineSel, setActionDeadlineSel] = useState<Record<number, string>>({});
   const [riskSel, setRiskSel] = useState<Record<number, ResolutionMode>>({});
   const [oppSel, setOppSel] = useState<Record<number, ResolutionMode>>({});
+  /** Indicadores de resultado parte 4, Gate C — edições do consultor sobre o rascunho padrão de cada sugestão. */
+  const [indicatorEdits, setIndicatorEdits] = useState<Record<number, Partial<IndicatorDraft>>>({});
   const [summarySel, setSummarySel] = useState(true);
   // Classificação de evolução ajustada manualmente pelo consultor.
   const [evoSel, setEvoSel] = useState<Record<string, EvolutionClassification>>({});
@@ -714,6 +725,30 @@ export function MeetingAnalysisDialog({
   const indicatorPlans: IndicatorSuggestionPlan[] = useMemo(
     () => (analysis?.indicators ?? []).map((item) => planIndicatorSuggestion(item, indicators)),
     [analysis, indicators],
+  );
+
+  /**
+   * Indicadores de resultado parte 4, Gate C — rascunho editável de cada
+   * sugestão (ver indicator-approval.ts): parte do plano do Gate B
+   * (indicatorPlans acima) e aplica as edições do consultor por cima.
+   */
+  const indicatorDrafts: IndicatorDraft[] = useMemo(
+    () =>
+      (analysis?.indicators ?? []).map((item, i) =>
+        applyIndicatorEdit(
+          defaultIndicatorDraft(item, indicatorPlans[i]!),
+          indicatorEdits[i] ?? {},
+        ),
+      ),
+    [analysis, indicatorPlans, indicatorEdits],
+  );
+  const approvedIndicatorItems: ApprovedIndicatorItem[] = useMemo(
+    () => buildApprovedIndicators(analysis?.indicators ?? [], indicatorDrafts),
+    [analysis, indicatorDrafts],
+  );
+  const indicatorBlockingCount = useMemo(
+    () => blockingIndicatorCount(approvedIndicatorItems),
+    [approvedIndicatorItems],
   );
 
   /* ---------------- trava de isolamento de cliente (client-isolation-guard.ts) ---------------- */
@@ -1329,6 +1364,7 @@ export function MeetingAnalysisDialog({
       setDecisionEvaluationSel({});
       setRiskSel({});
       setOppSel({});
+      setIndicatorEdits({});
       setSummarySel(true);
       setStep("revisao");
       void qc.invalidateQueries({ queryKey: ["meeting_analyses"] });
@@ -1470,6 +1506,9 @@ export function MeetingAnalysisDialog({
           resolution: r.resolution,
           embedding: r.item.embedding ?? null,
         })),
+        // Indicadores de resultado parte 4, Gate C — já validado contra
+        // indicatorBlockingCount antes do botão de aprovar ficar habilitado.
+        indicators: approvedIndicatorItems,
         agenda,
       };
 
@@ -1520,7 +1559,14 @@ export function MeetingAnalysisDialog({
    * mesmo se chamada por outro caminho.
    */
   const submitApproval = () => {
-    if (submitting.current || approve.isPending || approved || overallCounts.reviewCount > 0) return;
+    if (
+      submitting.current ||
+      approve.isPending ||
+      approved ||
+      overallCounts.reviewCount > 0 ||
+      indicatorBlockingCount > 0
+    )
+      return;
     submitting.current = true;
     approve.mutate();
   };
@@ -2293,6 +2339,18 @@ export function MeetingAnalysisDialog({
                   </ul>
                 </ReviewBlock>
 
+                <IndicatorSuggestionsBlock
+                  suggestions={analysis?.indicators ?? []}
+                  plans={indicatorPlans}
+                  drafts={indicatorDrafts}
+                  existingIndicators={indicators}
+                  meetingDate={meeting?.meeting_date ?? ""}
+                  disabled={approve.isPending || approved || isApproved}
+                  onChange={(i, patch) =>
+                    setIndicatorEdits((s) => ({ ...s, [i]: { ...s[i], ...patch } }))
+                  }
+                />
+
                 {evolutionItems.length > 0 && (
                   <section className="rounded-lg border p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2436,7 +2494,7 @@ export function MeetingAnalysisDialog({
               </Button>
               <Button
                 type="button"
-                disabled={approve.isPending || approved || isApproved}
+                disabled={approve.isPending || approved || isApproved || indicatorBlockingCount > 0}
                 className="gap-2"
                 onClick={overallCounts.reviewCount > 0 ? goToFirstItemNeedingReview : submitApproval}
                 title={
@@ -2444,7 +2502,9 @@ export function MeetingAnalysisDialog({
                     ? "Reunião já aprovada — somente leitura."
                     : overallCounts.reviewCount > 0
                       ? "Clique para ir até o primeiro item que precisa de revisão."
-                      : undefined
+                      : indicatorBlockingCount > 0
+                        ? "Resolva os indicadores sugeridos pendentes antes de aprovar."
+                        : undefined
                 }
               >
                 {approve.isPending && <Loader2 className="size-4 animate-spin" aria-hidden />}
@@ -2452,9 +2512,11 @@ export function MeetingAnalysisDialog({
                   ? "Salvando…"
                   : overallCounts.reviewCount > 0
                     ? `Revise ${overallCounts.reviewCount} ${overallCounts.reviewCount === 1 ? "item" : "itens"} antes de aprovar`
-                    : approveError
-                      ? "Tentar novamente"
-                      : "Aprovar e atualizar projeto"}
+                    : indicatorBlockingCount > 0
+                      ? `Resolva ${indicatorBlockingCount} ${indicatorBlockingCount === 1 ? "indicador" : "indicadores"} antes de aprovar`
+                      : approveError
+                        ? "Tentar novamente"
+                        : "Aprovar e atualizar projeto"}
               </Button>
             </>
           )}
