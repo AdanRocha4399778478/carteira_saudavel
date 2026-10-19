@@ -4,12 +4,39 @@ import {
   matchAction,
   matchDecision,
   normalizeOwnerSet,
-  resolveOwnerAlias,
 } from "../src/lib/deduplication";
+import { canonicalOwnerName, type ClientPerson } from "../src/lib/client-people";
 import type { ActionItem } from "../src/lib/domain";
 import type { Decision } from "../src/lib/projects";
 
+/**
+ * Gate "remove OWNER_ALIAS_SEED" (19/10/2026): a lista fixa de apelidos por
+ * cliente (ex.: Grupo Erinho, "Ada" = "Adam") foi removida —
+ * normalizeOwnerSet/hasOwnerConflict não conhecem mais clientId nenhum. Quem
+ * unifica grafias divergentes agora é o cadastro de pessoas
+ * (canonicalOwnerName), ANTES de qualquer comparação de duplicidade — ver
+ * canonicalizeAnalysisOwners em MeetingAnalysisDialog.tsx (Gate F). Os
+ * testes abaixo que dependiam do alias fixo do Erinho foram reescritos para
+ * simular esse mesmo cadastro.
+ */
 const ERINHO_CLIENT_ID = "9943b0f4-5220-4297-9f17-7fee64280da5";
+
+function erinhoPerson(overrides: Partial<ClientPerson> = {}): ClientPerson {
+  return {
+    id: "p1",
+    client_id: ERINHO_CLIENT_ID,
+    name: "Adam",
+    aliases: ["Ada"],
+    side: "cliente",
+    role: null,
+    functions: [],
+    active: true,
+    created_by: null,
+    created_at: "2026-10-19T00:00:00Z",
+    updated_at: "2026-10-19T00:00:00Z",
+    ...overrides,
+  };
+}
 
 const action = (description: string, patch: Partial<ActionItem> = {}): ActionItem => ({
   id: patch.id ?? "a1",
@@ -61,8 +88,10 @@ describe("normalizeOwnerSet — valores reais da reunião de 05/06 do Grupo Erin
     expect(normalizeOwnerSet("Adam")).toEqual(new Set(["adam"]));
   });
 
-  test('"Ada" COM o cliente Grupo Erinho: resolve pro alias "adam"', () => {
-    expect(normalizeOwnerSet("Ada", ERINHO_CLIENT_ID)).toEqual(new Set(["adam"]));
+  test('"Ada" canonizado pelo cadastro (equivalente ao antigo alias do Erinho): normalizeOwnerSet já recebe "Adam"', () => {
+    const canonical = canonicalOwnerName("Ada", [erinhoPerson()]);
+    expect(canonical).toBe("Adam");
+    expect(normalizeOwnerSet(canonical)).toEqual(new Set(["adam"]));
   });
 
   test('"Erinho" isolado', () => {
@@ -97,8 +126,11 @@ describe("hasOwnerConflict — só conflita quando os dois lados têm nome conhe
     expect(hasOwnerConflict("Ada", "Adam")).toBe(true);
   });
 
-  test('"Ada" vs "Adam" COM alias do Grupo Erinho: sem conflito (mesma pessoa)', () => {
-    expect(hasOwnerConflict("Ada", "Adam", ERINHO_CLIENT_ID)).toBe(false);
+  test('"Ada" vs "Adam": sem conflito quando os dois já chegam canonizados pelo cadastro (equivalente ao antigo alias do Erinho)', () => {
+    const people = [erinhoPerson()];
+    const incoming = canonicalOwnerName("Ada", people);
+    const existing = canonicalOwnerName("Adam", people);
+    expect(hasOwnerConflict(incoming, existing)).toBe(false);
   });
 
   test('"Erinho" vs "Equipe operacional/Erinho": interseção não vazia, sem conflito', () => {
@@ -123,25 +155,6 @@ describe("hasOwnerConflict — só conflita quando os dois lados têm nome conhe
   });
 });
 
-describe("resolveOwnerAlias — tabela explícita por cliente, não aproximação de texto", () => {
-  test("resolve o alias semeado do Grupo Erinho", () => {
-    expect(resolveOwnerAlias(ERINHO_CLIENT_ID, "ada")).toBe("adam");
-  });
-
-  test("nome sem alias cadastrado: devolve como veio", () => {
-    expect(resolveOwnerAlias(ERINHO_CLIENT_ID, "erinho")).toBe("erinho");
-  });
-
-  test("cliente sem tabela de alias: devolve como veio", () => {
-    expect(resolveOwnerAlias("outro-cliente-qualquer", "ada")).toBe("ada");
-  });
-
-  test("clientId ausente: devolve como veio", () => {
-    expect(resolveOwnerAlias(null, "ada")).toBe("ada");
-    expect(resolveOwnerAlias(undefined, "ada")).toBe("ada");
-  });
-});
-
 describe("Integração — reproduz o caso real que motivou a B3 (Grupo Erinho, 05/06)", () => {
   test('"Erinho" não gera mais conflito falso contra "Equipe operacional/Erinho" (mesma entrega)', () => {
     const match = matchAction(
@@ -161,12 +174,16 @@ describe("Integração — reproduz o caso real que motivou a B3 (Grupo Erinho, 
     expect(match.type).not.toBe("POSSIBLE_DUPLICATE");
   });
 
-  test('"Ada" e "Adam" não geram conflito falso quando o cliente é o Grupo Erinho', () => {
+  test('"Ada" e "Adam" não geram conflito falso quando os dois já chegam canonizados pelo cadastro (ver canonicalizeAnalysisOwners, Gate F)', () => {
+    const people = [erinhoPerson()];
     const match = matchDecision(
-      { title: "Comunicar oficialmente a nova forma de remuneração", owner: "Ada" },
+      {
+        title: "Comunicar oficialmente a nova forma de remuneração",
+        owner: canonicalOwnerName("Ada", people),
+      },
       [
         decision("Comunicar oficialmente a nova forma de remuneração baseada em comissão", {
-          owner: "Adam",
+          owner: canonicalOwnerName("Adam", people),
           client_id: ERINHO_CLIENT_ID,
         }),
       ],

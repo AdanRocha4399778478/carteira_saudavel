@@ -129,6 +129,7 @@ import {
 } from "@/lib/evolution";
 import { Pill } from "@/components/painel/badges";
 import {
+  canonicalizeAnalysisOwners,
   orderPeopleForItem,
   preferredFunctionsForItem,
   type ClientPerson,
@@ -1418,7 +1419,14 @@ export function MeetingAnalysisDialog({
     },
     onSuccess: ({ analysis: a, agenda: g, rawAiResponse: rawResp }) => {
       setErrors([]);
-      setAnalysis(a);
+      // Gate "remove OWNER_ALIAS_SEED" (verificação, 19/10/2026): esta
+      // reanálise (dentro do próprio diálogo — único caminho de análise
+      // quando aberto por projetos/$projectId.tsx, que não passa
+      // initialAnalysis) não envia `people` à IA nem canonizava o
+      // resultado; sem isso, "Dudu" podia sobreviver até a aprovação só
+      // nesta reanálise, nunca pelo fluxo de Reunião Inteligente. Sem
+      // people, devolve a mesma análise intacta (ver canonicalizeAnalysisOwners).
+      setAnalysis(canonicalizeAnalysisOwners(a, people));
       setAgenda(g);
       setRawAiResponseState(rawResp);
       setContextSel({});
