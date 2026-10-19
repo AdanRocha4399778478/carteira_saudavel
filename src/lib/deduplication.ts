@@ -955,7 +955,7 @@ export function matchRisk(item: IncomingRisk, candidates: RiskItem[]): DedupeMat
     reason:
       type === "NEW"
         ? "Nenhum risco semelhante neste escopo."
-        : `Risco semelhante (${pct(best.score)}) — registrar nova evidência em vez de duplicar.`,
+        : `Risco semelhante (${pct(best.score)}). Atualizar existente só reativa o risco e ajusta o nível; a frase desta reunião fica apenas no histórico.`,
     changes,
   };
 }

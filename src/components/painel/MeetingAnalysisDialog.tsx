@@ -30,7 +30,7 @@ import {
   type OpportunityItem,
   type RiskItem,
 } from "@/lib/domain";
-import { isNewActionPreMarkedCompleted, isNewDecisionPreMarkedCompleted } from "@/lib/regra-b";
+import { isNewDecisionPreMarkedCompleted } from "@/lib/regra-b";
 import { resolveRelativeDeadline } from "@/lib/prazo-relativo";
 import {
   CONTEXT_LIST_LABEL,
@@ -1514,12 +1514,10 @@ export function MeetingAnalysisDialog({
           evidence: "",
           resolution: r.resolution,
           embedding: r.item.embedding ?? null,
-          // Regra B: só faz sentido pra "Criar novo" — applyApprovedAnalysis só lê nesse ramo.
-          completed:
-            r.mode === "create"
-              ? (actionCompletedSel[r.key] ??
-                isNewActionPreMarkedCompleted(r.item.deadline, todayIso))
-              : false,
+          // R02 (18/10/2026): ação NUNCA vem pré-marcada como concluída — só a
+          // escolha manual do consultor (actionCompletedSel) vale; sem ela, começa
+          // desmarcada mesmo em "Criar novo" com prazo vencido.
+          completed: r.mode === "create" ? (actionCompletedSel[r.key] ?? false) : false,
         })),
         risks: riskRows.map((r) => ({
           description: r.item.description,
@@ -2144,10 +2142,7 @@ export function MeetingAnalysisDialog({
                           conditionalActionFlag={actionConditionalFlags[r.key] !== undefined}
                           comparison={comparison}
                           onChange={(mode) => setActionSel((s) => ({ ...s, [r.key]: mode }))}
-                          completed={
-                            actionCompletedSel[r.key] ??
-                            isNewActionPreMarkedCompleted(r.item.deadline, todayIso)
-                          }
+                          completed={actionCompletedSel[r.key] ?? false}
                           onCompletedChange={(v) =>
                             setActionCompletedSel((s) => ({ ...s, [r.key]: v }))
                           }

@@ -1,9 +1,11 @@
 /* ------------------------------------------------------------------ *
- * REGRA B — ação/decisão CRIADA na aprovação com prazo vencido entra
- * pré-marcada como concluída. Funções puras, sem React e sem Supabase,
- * pra testar o critério de "vencida" e o mapeamento de status isolados
- * da tela. Vale só para itens com resolução "Criar novo" — quem decide
- * isso é o chamador (MeetingAnalysisDialog / applyApprovedAnalysis).
+ * REGRA B — DECISÃO criada na aprovação com prazo vencido entra
+ * pré-marcada como concluída (R02, 18/10/2026: ação NUNCA vem
+ * pré-marcada — só o consultor marca à mão, ver isNewActionPreMarkedCompleted
+ * removida de MeetingAnalysisDialog.tsx). Funções puras, sem React e sem
+ * Supabase, pra testar o critério de "vencida" e o mapeamento de status
+ * isolados da tela. Vale só para itens com resolução "Criar novo" —
+ * quem decide isso é o chamador (MeetingAnalysisDialog / applyApprovedAnalysis).
  * ------------------------------------------------------------------ */
 
 import type { ActionStatus } from "./domain";
@@ -24,14 +26,6 @@ export function isDeadlineBeforeToday(
   const day = deadline.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
   return day < todayIso;
-}
-
-/** Pré-marcação padrão de uma AÇÃO nova (resolução "Criar novo") — mesmo critério de isDeadlineBeforeToday, nomeado pelo campo que a ação usa (`deadline`). */
-export function isNewActionPreMarkedCompleted(
-  deadline: string | null | undefined,
-  todayIso: string,
-): boolean {
-  return isDeadlineBeforeToday(deadline, todayIso);
 }
 
 /**

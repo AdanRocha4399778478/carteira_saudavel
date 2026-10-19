@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   isDeadlineBeforeToday,
-  isNewActionPreMarkedCompleted,
   isNewDecisionPreMarkedCompleted,
   resolveNewActionStatus,
   resolveNewDecisionStatus,
@@ -37,11 +36,7 @@ describe("isDeadlineBeforeToday — exemplos neutros, data de referência injeta
   });
 });
 
-describe("isNewActionPreMarkedCompleted / isNewDecisionPreMarkedCompleted — mesmo critério, campo próprio de cada tipo", () => {
-  test("ação com prazo vencido é pré-marcada", () => {
-    expect(isNewActionPreMarkedCompleted("2026-06-09", TODAY)).toBe(true);
-  });
-
+describe("isNewDecisionPreMarkedCompleted — Regra B vale só para decisão (R02, 18/10/2026: ação nunca vem pré-marcada)", () => {
   test("decisão com due_date vencido é pré-marcada (inclusive 'ainda a definir')", () => {
     expect(isNewDecisionPreMarkedCompleted("2026-06-09", TODAY)).toBe(true);
   });
@@ -153,5 +148,39 @@ describe("GATE REGRA B — leitura de `completed` em applyApprovedAnalysis, por 
     const typeBlock = source.slice(typeStart, typeEnd);
     const occurrences = typeBlock.split("completed?: boolean;").length - 1;
     expect(occurrences).toBe(2);
+  });
+});
+
+describe("R02 (18/10/2026) — ação nunca vem pré-marcada como concluída; só a escolha manual conta", () => {
+  const dialogSource = readFileSync(
+    resolve(import.meta.dir, "../src/components/painel/MeetingAnalysisDialog.tsx"),
+    "utf8",
+  );
+
+  test("isNewActionPreMarkedCompleted não é mais exportada por regra-b.ts nem importada/usada no diálogo", () => {
+    const regraBSource = readFileSync(resolve(import.meta.dir, "../src/lib/regra-b.ts"), "utf8");
+    expect(regraBSource).not.toContain("export function isNewActionPreMarkedCompleted");
+    expect(dialogSource).not.toContain("import { isNewActionPreMarkedCompleted");
+    expect(dialogSource).not.toContain("isNewActionPreMarkedCompleted(");
+  });
+
+  test("ação com prazo vencido (resolução 'Criar novo', sem escolha manual) NÃO vem pré-marcada — completed cai direto em false", () => {
+    expect(dialogSource).toContain(
+      'completed: r.mode === "create" ? (actionCompletedSel[r.key] ?? false) : false,',
+    );
+  });
+
+  test("marcar a caixa 'Concluída' à mão (actionCompletedSel) continua valendo e sendo gravado", () => {
+    expect(dialogSource).toContain("completed={actionCompletedSel[r.key] ?? false}");
+    expect(dialogSource).toContain(
+      "onCompletedChange={(v) =>\n                            setActionCompletedSel((s) => ({ ...s, [r.key]: v }))\n                          }",
+    );
+  });
+
+  test("isNewDecisionPreMarkedCompleted continua importada e usada no diálogo — Regra B vale só para decisão", () => {
+    expect(dialogSource).toContain(
+      'import { isNewDecisionPreMarkedCompleted } from "@/lib/regra-b";',
+    );
+    expect(dialogSource).toContain("isNewDecisionPreMarkedCompleted(");
   });
 });
