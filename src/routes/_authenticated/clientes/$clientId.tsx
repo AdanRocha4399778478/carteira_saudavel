@@ -11,6 +11,7 @@ import {
   RefreshCw,
   ShieldAlert,
   Sparkles,
+  Upload,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -30,8 +31,13 @@ import { ClientDialog } from "@/components/painel/ClientDialog";
 import { ClientProjectsSection } from "@/components/painel/ClientProjectsSection";
 import { MeetingDialog } from "@/components/painel/MeetingDialog";
 import { ActionDialog } from "@/components/painel/ActionDialog";
+import { PersonDialog } from "@/components/painel/PersonDialog";
+import { PeopleImportDialog } from "@/components/painel/PeopleImportDialog";
 import { useClientDetailData } from "@/hooks/useCarteira";
 import { recalculateClient } from "@/lib/api";
+import { clientPeopleQuery, updateClientPerson } from "@/lib/client-people-data";
+import type { ClientPerson, PersonFunction, PersonSide } from "@/lib/client-people";
+import { useAccess } from "@/lib/auth/access";
 import { evaluationDecisionsQuery, overdueEvaluationClientIds } from "@/lib/evaluation-overdue";
 import {
   QUADRANT_INFO,
@@ -45,6 +51,7 @@ import {
   type ActionItem,
 } from "@/lib/domain";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -110,9 +117,23 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+const PERSON_SIDE_LABEL: Record<PersonSide, string> = {
+  cliente: "Cliente",
+  consultoria: "Consultoria",
+  terceiro: "Terceiro",
+};
+
+const PERSON_FUNCTION_LABEL: Record<PersonFunction, string> = {
+  executa: "Executa",
+  monitora: "Monitora",
+  acompanha: "Acompanha",
+  decide: "Decide",
+};
+
 function ClientDetailPage() {
   const { clientId } = Route.useParams();
   const queryClient = useQueryClient();
+  const { access } = useAccess();
   const {
     clients,
     meetings,
@@ -132,6 +153,9 @@ function ClientDetailPage() {
   const [meetingOpen, setMeetingOpen] = useState(false);
   const [actionOpen, setActionOpen] = useState(false);
   const [editingAction, setEditingAction] = useState<ActionItem | null>(null);
+  const [personOpen, setPersonOpen] = useState(false);
+  const [editingPerson, setEditingPerson] = useState<ClientPerson | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const client = clients.find((c) => c.id === clientId) ?? null;
   const clientMeetings = useMemo(
@@ -147,6 +171,18 @@ function ClientDetailPage() {
   const clientRisks = risks.filter((r) => r.client_id === clientId);
   const clientOpps = opportunities.filter((o) => o.client_id === clientId);
   const overdue = clientActions.filter((a) => isOverdue(a));
+
+  const clientPeopleResult = useQuery(clientPeopleQuery(clientId));
+  const clientPeople = clientPeopleResult.data ?? [];
+  const consultancyNames = access?.profile?.full_name ? [access.profile.full_name] : [];
+
+  const togglePersonActive = useMutation({
+    mutationFn: (p: ClientPerson) => updateClientPerson(p.id, { active: !p.active }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["client-people", "client", clientId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   /** B1 (16/10/2026): "avaliação vencida" — client_id vem do projeto, nunca de decisions.client_id. */
   const evaluationDecisions = useQuery(evaluationDecisionsQuery());
@@ -407,6 +443,7 @@ function ClientDetailPage() {
             <TabsTrigger value="acoes">Ações</TabsTrigger>
             <TabsTrigger value="riscos">Riscos</TabsTrigger>
             <TabsTrigger value="oportunidades">Oportunidades</TabsTrigger>
+            <TabsTrigger value="pessoas">Pessoas</TabsTrigger>
           </TabsList>
 
           <TabsContent value="reunioes" className="mt-4 grid gap-4">
@@ -612,6 +649,86 @@ function ClientDetailPage() {
               ))
             )}
           </TabsContent>
+
+          <TabsContent value="pessoas" className="mt-4 grid gap-4">
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button size="sm" variant="outline" onClick={() => setImportOpen(true)}>
+                <Upload className="size-4" aria-hidden />
+                Importar do histórico
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setEditingPerson(null);
+                  setPersonOpen(true);
+                }}
+              >
+                <Plus className="size-4" aria-hidden />
+                Nova pessoa
+              </Button>
+            </div>
+
+            {clientPeople.length === 0 ? (
+              <div className="card-surface">
+                <EmptyState
+                  title="Nenhuma pessoa cadastrada ainda"
+                  description="Use Importar do histórico ou Nova pessoa."
+                />
+              </div>
+            ) : (
+              <div className="grid gap-3">
+                {clientPeople.map((p) => (
+                  <div
+                    key={p.id}
+                    className="card-surface grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 p-4"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-display text-base font-bold">{p.name}</p>
+                        <Badge variant="outline">{PERSON_SIDE_LABEL[p.side]}</Badge>
+                        {!p.active ? <Badge variant="destructive">Inativa</Badge> : null}
+                      </div>
+                      {p.role ? <p className="text-xs text-muted-foreground">{p.role}</p> : null}
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {p.functions.map((fn) => (
+                          <Badge key={fn} variant="secondary">
+                            {PERSON_FUNCTION_LABEL[fn]}
+                          </Badge>
+                        ))}
+                        {p.aliases.map((alias) => (
+                          <Badge key={alias} variant="outline">
+                            {alias}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label="Editar pessoa"
+                        title="Editar"
+                        onClick={() => {
+                          setEditingPerson(p);
+                          setPersonOpen(true);
+                        }}
+                      >
+                        <Pencil className="size-4" aria-hidden />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => togglePersonActive.mutate(p)}
+                        disabled={togglePersonActive.isPending}
+                      >
+                        {p.active ? "Desativar" : "Ativar"}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -642,6 +759,21 @@ function ClientDetailPage() {
         clients={clients}
         riskRules={riskRules}
         defaultClientId={clientId}
+      />
+      <PersonDialog
+        open={personOpen}
+        onOpenChange={setPersonOpen}
+        clientId={clientId}
+        person={editingPerson}
+        people={clientPeople}
+      />
+      <PeopleImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        clientId={clientId}
+        people={clientPeople}
+        actions={clientActions}
+        consultancyNames={consultancyNames}
       />
     </>
   );
