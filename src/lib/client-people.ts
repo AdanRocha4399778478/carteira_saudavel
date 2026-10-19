@@ -268,3 +268,65 @@ export function canonicalizeParticipantNames(
   if (people.length === 0) return participants;
   return participants.map((name) => canonicalOwnerName(name, people));
 }
+
+/* ------------------------------------------------------------------ *
+ * Gate F (19/10/2026) — seletor de responsável no preview. A IA continua
+ * sem adivinhar (regra do prompt não muda); isto só ORDENA as opções que o
+ * consultor vê, a escolha final é sempre dele.
+ * ------------------------------------------------------------------ */
+
+export type ReviewItemKind = "decisao" | "acao";
+
+/** Radicais (sem acento/caixa) de verbo de monitoramento/acompanhamento — cobre formas conjugadas comuns. */
+const MONITOR_VERB_STEMS = [
+  "monitor",
+  "acompanh",
+  "revis",
+  "cobr",
+  "chec",
+  "verific",
+  "supervis",
+  "confer",
+];
+
+/**
+ * Funções preferidas pra sugerir responsável, por tipo de item. Decisão:
+ * sempre "decide". Ação: "monitora"/"acompanha" quando o texto tiver um
+ * verbo de monitoramento/acompanhamento (radical, sem acento/caixa,
+ * comparado por palavra inteira); senão "executa". Só ordena as opções do
+ * seletor — nunca escolhe um responsável sozinha.
+ */
+export function preferredFunctionsForItem(kind: ReviewItemKind, text: string): PersonFunction[] {
+  if (kind === "decisao") return ["decide"];
+  const words = normalizePersonName(text).split(" ").filter(Boolean);
+  const hasMonitorVerb = words.some((word) =>
+    MONITOR_VERB_STEMS.some((stem) => word.startsWith(stem)),
+  );
+  return hasMonitorVerb ? ["monitora", "acompanha"] : ["executa"];
+}
+
+/**
+ * Ordem das opções do seletor de responsável: só pessoas ATIVAS; primeiro
+ * as que têm alguma das `preferred` (mantendo a ordem do cadastro), depois
+ * as demais (idem). O nome atual (sugerido pela IA ou já gravado) entra no
+ * TOPO da lista, mas só quando não for ninguém do cadastro — pra nunca
+ * sumir um nome real que o cadastro ainda não conhece; se `currentName` já
+ * é uma pessoa cadastrada (nome ou apelido, sem ambiguidade), ela já está
+ * representada pelo nome canônico e não entra duplicada.
+ */
+export function orderPeopleForItem(
+  people: ClientPerson[],
+  preferred: PersonFunction[],
+  currentName: string,
+): string[] {
+  const active = people.filter((p) => p.active);
+  const withPreferred = active.filter((p) => p.functions.some((f) => preferred.includes(f)));
+  const rest = active.filter((p) => !withPreferred.includes(p));
+  const names = [...withPreferred, ...rest].map((p) => p.name);
+
+  const trimmedCurrent = currentName.trim();
+  if (trimmedCurrent && !resolvePerson(trimmedCurrent, people).person) {
+    return [trimmedCurrent, ...names];
+  }
+  return names;
+}

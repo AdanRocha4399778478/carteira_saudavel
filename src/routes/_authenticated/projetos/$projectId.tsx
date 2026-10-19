@@ -87,6 +87,7 @@ import {
   saveHealthSnapshot,
 } from "@/lib/health";
 import { indicatorsQuery, type IndicatorPointRow, type IndicatorRow } from "@/lib/indicators-data";
+import { clientPeopleQuery } from "@/lib/client-people-data";
 import { analyzeIndicator, formatIndicatorValue } from "@/lib/indicator-analysis";
 import { IndicatorPointsChart, type IndicatorChartPoint } from "@/components/charts/charts";
 
@@ -197,6 +198,8 @@ function ProjectDetailPage() {
   const allClientDecisions = useQuery(clientDecisionsQuery(clientId));
   const clientMeetings = useQuery(clientMeetingsQuery(clientId));
   const clientProjectNames = useQuery(clientProjectNamesQuery(clientId));
+  /** Gate F — cadastro de pessoas do cliente, mesma função já usada pela IA (client_id = project.client_id, "" até o projeto carregar). */
+  const clientPeopleResult = useQuery(clientPeopleQuery(clientId));
   const evolution = useQuery(projectEvolutionQuery(projectId));
   const indicators = useQuery(indicatorsQuery(projectId));
 
@@ -1004,6 +1007,7 @@ function ProjectDetailPage() {
           .map((c) => c.company_name)}
         opportunities={(opportunities.data ?? []).filter((o) => o.client_id === p.client_id)}
         indicators={indicators.data ?? []}
+        people={clientPeopleResult.data ?? []}
         projectMeetingIds={(meetings.data ?? []).map((m) => m.id)}
       />
 

@@ -128,6 +128,11 @@ import {
   type EvolutionItem,
 } from "@/lib/evolution";
 import { Pill } from "@/components/painel/badges";
+import {
+  orderPeopleForItem,
+  preferredFunctionsForItem,
+  type ClientPerson,
+} from "@/lib/client-people";
 
 /**
  * Tudo que a aprovação pode ter mudado — invalidado em bloco para que a tela
@@ -151,6 +156,9 @@ const REFRESH_KEYS: readonly (readonly string[])[] = [
 
 /** Tempo em tela da confirmação antes do fechamento automático. */
 const CLOSE_DELAY_MS = 800;
+
+/** Gate F — sentinela do Select de responsável (Radix não aceita value=""), mesmo padrão de DecisionDialog/IndicatorDialog. */
+const NO_OWNER_VALUE = "__none__";
 
 import {
   Select,
@@ -352,6 +360,7 @@ export function MeetingAnalysisDialog({
   otherClientNames = [],
   opportunities = [],
   indicators = [],
+  people = [],
   initialAnalysis = null,
   rawAiResponse = null,
   initialTranscript,
@@ -395,6 +404,13 @@ export function MeetingAnalysisDialog({
    * em indicator-match.ts). [] quando o projeto ainda não foi identificado.
    */
   indicators?: ExistingIndicatorForMatch[];
+  /**
+   * Gate F (19/10/2026) — cadastro de pessoas do cliente (client_people),
+   * mesma fonte que a IA usa (buildPeoplePromptContext). [] quando o
+   * cliente não tem cadastro — nesse caso a linha de ação/decisão fica
+   * EXATAMENTE como antes (sem seletor de responsável).
+   */
+  people?: ClientPerson[];
   /** Reuniões do projeto — restringe a busca de duplicidade ao escopo do projeto. */
   projectMeetingIds?: string[];
   /** Análise já gerada pelo fluxo de Reunião Inteligente — abre direto no preview. */
@@ -458,6 +474,14 @@ export function MeetingAnalysisDialog({
    */
   const [decisionDueDateSel, setDecisionDueDateSel] = useState<Record<number, string>>({});
   const [actionDeadlineSel, setActionDeadlineSel] = useState<Record<number, string>>({});
+  /**
+   * Gate F — responsável escolhido por mim no seletor (ação/decisão, modos
+   * "Criar novo" e "Atualizar existente"). undefined = sem escolha manual,
+   * usa o valor sugerido pela IA (r.item.owner/owner_name). "" é uma escolha
+   * válida ("(sem responsável)") — nunca reaparece a sugestão da IA depois.
+   */
+  const [decisionOwnerSel, setDecisionOwnerSel] = useState<Record<number, string>>({});
+  const [actionOwnerSel, setActionOwnerSel] = useState<Record<number, string>>({});
   const [riskSel, setRiskSel] = useState<Record<number, ResolutionMode>>({});
   const [oppSel, setOppSel] = useState<Record<number, ResolutionMode>>({});
   /** Indicadores de resultado parte 4, Gate C — edições do consultor sobre o rascunho padrão de cada sugestão. */
@@ -1406,6 +1430,11 @@ export function MeetingAnalysisDialog({
       setRiskSel({});
       setOppSel({});
       setIndicatorEdits({});
+      // Gate F: mesma razão dos resets acima — r.key é reatribuído do zero
+      // pela nova análise, então uma escolha de responsável antiga aplicaria
+      // ao item errado se sobrevivesse à reanálise.
+      setDecisionOwnerSel({});
+      setActionOwnerSel({});
       setSummarySel(true);
       setStep("revisao");
       void qc.invalidateQueries({ queryKey: ["meeting_analyses"] });
@@ -1494,7 +1523,8 @@ export function MeetingAnalysisDialog({
             title: r.item.title,
             description: r.item.description,
             reason: r.item.reason,
-            owner: r.item.owner,
+            // Gate F: escolha manual do consultor no seletor sobrepõe a sugestão da IA.
+            owner: decisionOwnerSel[r.key] ?? r.item.owner,
             // B18: "Criar novo" grava o prazo final (editado ou sugerido via hint);
             // "Atualizar existente"/"Ignorar" não mexem no prazo — nada muda.
             due_date:
@@ -1516,7 +1546,8 @@ export function MeetingAnalysisDialog({
         }),
         actions: actionRows.map((r) => ({
           description: r.item.description,
-          owner_name: r.item.owner_name,
+          // Gate F: escolha manual do consultor no seletor sobrepõe a sugestão da IA.
+          owner_name: actionOwnerSel[r.key] ?? r.item.owner_name,
           // B18: mesma regra do due_date de decisões — ver comentário acima.
           deadline:
             r.mode === "create"
@@ -2059,6 +2090,24 @@ export function MeetingAnalysisDialog({
                           onDueDateChange={(v) =>
                             setDecisionDueDateSel((s) => ({ ...s, [r.key]: v }))
                           }
+                          ownerOptions={
+                            people.length
+                              ? orderPeopleForItem(
+                                  people,
+                                  preferredFunctionsForItem("decisao", r.item.title),
+                                  decisionOwnerSel[r.key] ?? r.item.owner,
+                                )
+                              : undefined
+                          }
+                          ownerValue={
+                            people.length ? (decisionOwnerSel[r.key] ?? r.item.owner) : undefined
+                          }
+                          ownerOverridden={decisionOwnerSel[r.key] !== undefined}
+                          onOwnerChange={
+                            people.length
+                              ? (v) => setDecisionOwnerSel((s) => ({ ...s, [r.key]: v }))
+                              : undefined
+                          }
                         />
                       );
                     })}
@@ -2176,6 +2225,26 @@ export function MeetingAnalysisDialog({
                           )}
                           onDueDateChange={(v) =>
                             setActionDeadlineSel((s) => ({ ...s, [r.key]: v }))
+                          }
+                          ownerOptions={
+                            people.length
+                              ? orderPeopleForItem(
+                                  people,
+                                  preferredFunctionsForItem("acao", r.item.description),
+                                  actionOwnerSel[r.key] ?? r.item.owner_name,
+                                )
+                              : undefined
+                          }
+                          ownerValue={
+                            people.length
+                              ? (actionOwnerSel[r.key] ?? r.item.owner_name)
+                              : undefined
+                          }
+                          ownerOverridden={actionOwnerSel[r.key] !== undefined}
+                          onOwnerChange={
+                            people.length
+                              ? (v) => setActionOwnerSel((s) => ({ ...s, [r.key]: v }))
+                              : undefined
                           }
                         />
                       );
@@ -2806,6 +2875,10 @@ function ReviewRow({
   dueDateSuggested,
   onDueDateChange,
   comparison,
+  ownerOptions,
+  ownerValue,
+  ownerOverridden,
+  onOwnerChange,
 }: {
   /** Ver goToFirstItemNeedingReview — id do DOM pra rolar até esta linha. */
   rowId?: string;
@@ -2852,6 +2925,17 @@ function ReviewRow({
    * tem `match.existing` (verdict NEW) — nesse caso o painel não aparece.
    */
   comparison?: ComparisonPanelData | null;
+  /**
+   * Gate F — seletor de responsável, só ação/decisão em modo "Criar novo"
+   * ou "Atualizar existente", só quando o cliente tem cadastro de pessoas
+   * (`ownerOptions` vem de orderPeopleForItem). `undefined` = sem cadastro
+   * — a linha fica exatamente como antes, sem seletor.
+   */
+  ownerOptions?: string[] | undefined;
+  ownerValue?: string | undefined;
+  /** true quando eu troquei o valor no seletor — mostra o selo "escolhido por você". */
+  ownerOverridden?: boolean;
+  onOwnerChange?: ((v: string) => void) | undefined;
 }) {
   return (
     <li id={rowId} className="rounded-lg bg-muted/40 p-3">
@@ -2934,6 +3018,35 @@ function ReviewRow({
                     </Badge>
                   ) : null}
                 </label>
+              ) : null}
+            </div>
+          ) : null}
+          {(row.mode === "create" || row.mode === "update") && onOwnerChange ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted-foreground">Responsável</span>
+              <Select
+                value={ownerValue || NO_OWNER_VALUE}
+                onValueChange={(v) => onOwnerChange(v === NO_OWNER_VALUE ? "" : v)}
+              >
+                <SelectTrigger className="h-8 w-auto min-w-40 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_OWNER_VALUE}>(sem responsável)</SelectItem>
+                  {(ownerOptions ?? []).map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {ownerOverridden ? (
+                <Badge variant="outline" className="shrink-0 text-[10px]">
+                  escolhido por você
+                </Badge>
+              ) : null}
+              {!ownerValue ? (
+                <span className="text-xs text-muted-foreground">sem responsável</span>
               ) : null}
             </div>
           ) : null}
