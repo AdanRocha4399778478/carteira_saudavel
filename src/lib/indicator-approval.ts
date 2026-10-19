@@ -120,3 +120,47 @@ export function buildApprovedIndicators(
 export function blockingIndicatorCount(items: ApprovedIndicatorItem[]): number {
   return items.filter((item) => validateApprovedIndicator(item).length > 0).length;
 }
+
+/**
+ * Indicadores de resultado — parte 4, Gate F (18/10/2026): resumo próprio
+ * dos indicadores sugeridos pro rodapé do preview — nunca entra na
+ * contagem dos outros itens (countReviewBlock). Cada item cai em
+ * EXATAMENTE uma categoria: ignorado (action "skip") primeiro; senão, com
+ * erro de validação (mesma regra de blockingIndicatorCount) vira
+ * toResolve; senão, toCreate ou toAttach conforme a ação. A soma das
+ * quatro categorias é sempre igual a items.length.
+ */
+export type IndicatorItemsSummary = {
+  toCreate: number;
+  toAttach: number;
+  ignored: number;
+  toResolve: number;
+};
+
+export function summarizeIndicatorItems(items: ApprovedIndicatorItem[]): IndicatorItemsSummary {
+  const summary: IndicatorItemsSummary = { toCreate: 0, toAttach: 0, ignored: 0, toResolve: 0 };
+  for (const item of items) {
+    if (item.action === "skip") {
+      summary.ignored += 1;
+      continue;
+    }
+    if (validateApprovedIndicator(item).length > 0) {
+      summary.toResolve += 1;
+      continue;
+    }
+    if (item.action === "create") summary.toCreate += 1;
+    else summary.toAttach += 1;
+  }
+  return summary;
+}
+
+/**
+ * Texto do resumo pro rodapé — rótulos fixos, sem singular/plural (ex.:
+ * "Indicadores: 1 a criar · 0 a anexar · 0 ignorados · 0 a resolver").
+ * Lista vazia (nenhuma categoria soma nada) devolve "".
+ */
+export function formatIndicatorSummary(summary: IndicatorItemsSummary): string {
+  const total = summary.toCreate + summary.toAttach + summary.ignored + summary.toResolve;
+  if (total === 0) return "";
+  return `Indicadores: ${summary.toCreate} a criar · ${summary.toAttach} a anexar · ${summary.ignored} ignorados · ${summary.toResolve} a resolver`;
+}
