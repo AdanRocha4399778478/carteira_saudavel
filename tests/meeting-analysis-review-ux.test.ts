@@ -19,21 +19,29 @@ const analysisSource = read("src/lib/meeting-analysis.ts");
 
 describe("GATE 10A — nenhuma alteração em thresholds/dedupe/backend", () => {
   test("MeetingAnalysisDialog não define nenhuma lógica de dedupe própria — só importa de @/lib/deduplication", () => {
+    // R17 (18/10/2026) acrescentou scopeDedupeCandidates à mesma lista de
+    // import — continua sendo só importação, nenhuma lógica de dedupe
+    // definida no componente.
     expect(dialogSource).toContain(
-      'import {\n  annotateOrigin,\n  applyChronologyGuard,\n  chronologyOf,\n  defaultResolution,\n  formatDuplicateReport,\n  matchAction,\n  matchContextItem,\n  matchDecision,\n  matchOpportunity,\n  matchRisk,\n  rankCandidates,\n  scopeToProject,\n  VERDICT_LABEL,',
+      "import {\n  annotateOrigin,\n  applyChronologyGuard,\n  chronologyOf,\n  defaultResolution,\n  formatDuplicateReport,\n  matchAction,\n  matchContextItem,\n  matchDecision,\n  matchOpportunity,\n  matchRisk,\n  rankCandidates,\n  scopeDedupeCandidates,\n  scopeToProject,\n  VERDICT_LABEL,",
     );
     expect(dialogSource).toContain('from "@/lib/deduplication"');
     // Nenhum threshold ou peso numérico de confiança é definido no componente.
     expect(dialogSource).not.toMatch(/THRESHOLD/i);
   });
 
-  test("defaultResolution: mudança deliberada (Frente 1) — historyFlag também nunca decide create/update sozinho", () => {
+  test("defaultResolution: mudança deliberada (Frente 1 + R17) — historyFlag nunca decide create/update sozinho, e UPDATE_EXISTING só vira 'update' com confiança >= limiar alto", () => {
     // Atualizado conscientemente nesta Frente: um vencedor concluído/cancelado
     // (historyFlag) entrou na mesma regra do POSSIBLE_DUPLICATE — nunca
     // silenciosamente "update" num item fechado, nem "skip" escondendo uma
-    // recorrência sem avisar. Ver defaultResolution em src/lib/deduplication.ts.
+    // recorrência sem avisar. R17 (18/10/2026) acrescentou mais uma trava:
+    // UPDATE_EXISTING só vira "update" por padrão quando a confiança bate
+    // DEDUPE_THRESHOLDS.high (0,90) — achado real de um par a 56% pré-marcado
+    // "Atualizar existente" por um caminho que não passava pelo score puro
+    // (relação "same" entre entregáveis / sinal de conclusão). Ver
+    // defaultResolution em src/lib/deduplication.ts.
     expect(dedupeSource).toContain(
-      '  const mode: ResolutionMode =\n    match.type === "EXISTING" ||\n    match.type === "POSSIBLE_DUPLICATE" ||\n    !!match.historyFlag ||\n    !!match.statusSignal\n      ? "skip"\n      : match.type === "UPDATE_EXISTING"\n        ? "update"\n        : "create";',
+      '  const mode: ResolutionMode =\n    match.type === "EXISTING" ||\n    match.type === "POSSIBLE_DUPLICATE" ||\n    !!match.historyFlag ||\n    !!match.statusSignal\n      ? "skip"\n      : match.type === "UPDATE_EXISTING"\n        ? match.confidence >= DEDUPE_THRESHOLDS.high\n          ? "update"\n          : "skip"\n        : "create";',
     );
   });
 
@@ -224,8 +232,11 @@ describe("PR 1 — item em revisão nasce sem modo escolhido; aprovar trava com 
   });
 
   test("ResolutionControls não marca nenhum botão como selecionado em POSSIBLE_DUPLICATE sem escolha explícita do consultor", () => {
+    // R17 (18/10/2026) acrescentou confidence: resolution.confidence à
+    // mesma chamada — needsReview agora também considera UPDATE_EXISTING
+    // de baixa confiança (ver tests/pareamento-so-no-projeto.test.ts).
     expect(dialogSource).toContain(
-      "const unresolved = needsReview({\n    verdict: resolution.verdict,\n    hasOverride,\n    foreignClientFlag: foreignClientSnippet !== undefined,\n    ...(resolution.historyFlag !== undefined ? { historyFlag: resolution.historyFlag } : {}),\n    ...(resolution.statusSignal !== undefined ? { statusSignal: resolution.statusSignal } : {}),\n    ...(conditionalActionFlag !== undefined ? { conditionalActionFlag } : {}),\n  });",
+      "const unresolved = needsReview({\n    verdict: resolution.verdict,\n    confidence: resolution.confidence,\n    hasOverride,\n    foreignClientFlag: foreignClientSnippet !== undefined,\n    ...(resolution.historyFlag !== undefined ? { historyFlag: resolution.historyFlag } : {}),\n    ...(resolution.statusSignal !== undefined ? { statusSignal: resolution.statusSignal } : {}),\n    ...(conditionalActionFlag !== undefined ? { conditionalActionFlag } : {}),\n  });",
     );
     expect(dialogSource).toContain('variant={!unresolved && mode === o.value ? "default" : "outline"}');
     expect(dialogSource).toContain("Escolha uma opção antes de aprovar.");

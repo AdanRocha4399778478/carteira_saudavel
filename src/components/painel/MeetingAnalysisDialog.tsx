@@ -90,6 +90,7 @@ import {
   matchOpportunity,
   matchRisk,
   rankCandidates,
+  scopeDedupeCandidates,
   scopeToProject,
   VERDICT_LABEL,
   type ChronologyStatus,
@@ -221,6 +222,7 @@ function toReviewItems<K extends string | number>(
   return rows.map((r) => ({
     key: r.key,
     verdict: r.match.type,
+    confidence: r.match.confidence,
     mode: r.mode,
     hasOverride: sel[r.key] !== undefined,
     historyFlag: r.match.historyFlag ?? null,
@@ -540,21 +542,33 @@ export function MeetingAnalysisDialog({
   );
 
   /**
-   * Escopo antiduplicidade: TODO o histórico do cliente, em qualquer
-   * projeto — não só o projeto/reunião atual. Comparar só com a reunião
-   * anterior deixava passar itens que evoluíam de reuniões mais antigas ou
-   * de outros projetos do mesmo cliente. A lógica de similaridade em si
-   * (matchAction/matchDecision/matchRisk) não muda, só o universo comparado.
+   * Escopo antiduplicidade (R17, 18/10/2026, decisão do dono do produto):
+   * SÓ o projeto da reunião atual — nunca o cliente inteiro. Antes, o
+   * universo comparado cruzava todos os projetos do mesmo cliente de
+   * propósito; um achado real mostrou isso sobrescrevendo, quase, o item
+   * de outro projeto (par a 56% pré-marcado "Atualizar existente"). A
+   * lógica de similaridade em si (matchAction/matchDecision/matchRisk/
+   * matchOpportunity) não muda, só o universo comparado — e evolução de um
+   * item entre projetos diferentes do mesmo cliente deixa de ser
+   * detectada aqui (o roteamento por assunto, R22, trata isso depois).
    */
+  const projectMeetingIdSet = useMemo(() => new Set(projectMeetingIds ?? []), [projectMeetingIds]);
   const dedupeActions = useMemo(
-    () => actions.filter((a) => a.client_id === meeting?.client_id),
-    [actions, meeting?.client_id],
+    () => scopeDedupeCandidates(actions, projectMeetingIdSet),
+    [actions, projectMeetingIdSet],
   );
   const dedupeRisks = useMemo(
-    () => risks.filter((r) => r.client_id === meeting?.client_id),
-    [risks, meeting?.client_id],
+    () => scopeDedupeCandidates(risks, projectMeetingIdSet),
+    [risks, projectMeetingIdSet],
   );
-  const dedupeDecisions = allDecisions ?? decisions;
+  const dedupeDecisions = useMemo(
+    () => scopeDedupeCandidates(allDecisions ?? decisions, projectMeetingIdSet),
+    [allDecisions, decisions, projectMeetingIdSet],
+  );
+  const dedupeOpportunities = useMemo(
+    () => scopeDedupeCandidates(opportunities, projectMeetingIdSet),
+    [opportunities, projectMeetingIdSet],
+  );
 
   /** meeting_id → project_id, pra descobrir de qual projeto veio uma ação/risco/oportunidade comparado. */
   const projectIdByMeetingId = useMemo(() => {
@@ -719,7 +733,7 @@ export function MeetingAnalysisDialog({
       (analysis?.opportunities ?? []).map((item, i) => {
         const match = matchOpportunity(
           { description: item.description, expected_benefit: item.expected_benefit, embedding: item.embedding ?? null },
-          opportunities,
+          dedupeOpportunities,
         );
         return buildRow(
           i,
@@ -731,7 +745,7 @@ export function MeetingAnalysisDialog({
       }),
     [
       analysis,
-      opportunities,
+      dedupeOpportunities,
       oppSel,
       project?.id,
       projectIdByMeetingId,
@@ -1086,7 +1100,7 @@ export function MeetingAnalysisDialog({
         posterior: oppRows[i]!.resolution.chronology === "posterior",
         candidates: oppCandidates(
           rankCandidates(
-            opportunities,
+            dedupeOpportunities,
             item.description,
             (o) => o.description,
             item.embedding ?? null,
@@ -1128,7 +1142,7 @@ export function MeetingAnalysisDialog({
     dedupeDecisions,
     dedupeActions,
     dedupeRisks,
-    opportunities,
+    dedupeOpportunities,
     overallCounts,
     projectNameById,
     projectIdByMeetingId,
@@ -2586,6 +2600,7 @@ function ResolutionControls({
   // não tiver decidido, senão a opção "escolhida" aparece por acidente.
   const unresolved = needsReview({
     verdict: resolution.verdict,
+    confidence: resolution.confidence,
     hasOverride,
     foreignClientFlag: foreignClientSnippet !== undefined,
     ...(resolution.historyFlag !== undefined ? { historyFlag: resolution.historyFlag } : {}),
