@@ -27,6 +27,21 @@ const OPENAI_BASE = "https://api.openai.com/v1";
 const REQUEST_TIMEOUT_MS = 90_000;
 const MAX_ATTEMPTS = 3;
 
+/**
+ * R28 (18/10/2026): semente determinística derivada do texto enviado à IA
+ * (FNV-1a 32 bits) — mesma entrada gera sempre o mesmo `seed`, reduzindo a
+ * variação entre extrações do mesmo PDF/transcrição (junto com
+ * `temperature: 0`). Função pura, sem I/O.
+ */
+export function seedFromText(text: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
 export type AiErrorType =
   | "AUTH_ERROR"
   | "QUOTA_EXCEEDED"
@@ -219,7 +234,11 @@ Formato exigido:
 /* ---------------- chamada ao provedor de IA ---------------- */
 
 /** Uma tentativa: timeout controlado, sem efeito colateral (nada é persistido aqui). */
-async function requestCompletion(provider: Provider, userPrompt: string): Promise<string> {
+async function requestCompletion(
+  provider: Provider,
+  userPrompt: string,
+  seedText: string,
+): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -232,7 +251,8 @@ async function requestCompletion(provider: Provider, userPrompt: string): Promis
       },
       body: JSON.stringify({
         model: provider.model,
-        temperature: 0.2,
+        temperature: 0,
+        seed: seedFromText(seedText),
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
@@ -266,8 +286,16 @@ async function requestCompletion(provider: Provider, userPrompt: string): Promis
   }
 }
 
+/**
+ * R28 (18/10/2026): `seedText` é SÓ o texto da transcrição (ou do bloco
+ * dela), nunca o `userPrompt` inteiro — este último também carrega data de
+ * hoje, nomes/projetos/histórico do cliente e o consultor logado, que
+ * variam a cada chamada mesmo para a MESMA transcrição. A semente precisa
+ * depender só do que não muda entre reaberturas do mesmo PDF.
+ */
 export async function callGateway(
   userPrompt: string,
+  seedText: string,
   analysisId?: string,
 ): Promise<Record<string, unknown>> {
   const provider = resolveProvider();
@@ -278,7 +306,7 @@ export async function callGateway(
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     attempts = attempt;
     try {
-      raw = await requestCompletion(provider, userPrompt);
+      raw = await requestCompletion(provider, userPrompt, seedText);
       lastError = undefined;
       break;
     } catch (error) {
@@ -514,7 +542,7 @@ export async function runMeetingAnalysis(data: MeetingAnalysisInput) {
   const parts: Record<string, unknown>[] = [];
   for (const block of blocks) {
     const prompt = [header(block), "", "Transcrição da reunião:", block.text].join("\n");
-    parts.push(await callGateway(prompt));
+    parts.push(await callGateway(prompt, block.text));
   }
 
   // Segunda passada "o que faltou?": só em transcrição longa que coube num
@@ -538,7 +566,7 @@ export async function runMeetingAnalysis(data: MeetingAnalysisInput) {
         buildSecondPassInstruction(summarizeExtracted(parts)),
       ].join("\n");
       const before = countsOf();
-      const secondResult = await callGateway(secondPrompt);
+      const secondResult = await callGateway(secondPrompt, blocks[0]!.text);
       secondResult["identification"] = {};
       const secondAnalysis = secondResult["analysis"];
       if (secondAnalysis && typeof secondAnalysis === "object" && !Array.isArray(secondAnalysis)) {
