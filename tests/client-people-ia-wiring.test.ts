@@ -162,9 +162,10 @@ describe("Escopo do gate — nada fora do combinado foi tocado", () => {
     expect(changedOrNewPaths()).not.toMatch(/supabase\/migrations\//);
   });
 
-  test("deduplication.ts não foi tocado neste gate (OWNER_ALIAS_SEED continua como está)", () => {
-    expect(changedOrNewPaths()).not.toContain("deduplication.ts");
-  });
+  // deduplication.ts era fora do escopo deste gate (Gate E, OWNER_ALIAS_SEED
+  // continuava como estava) — passou a ser tocado de propósito pelo gate
+  // "remove OWNER_ALIAS_SEED" (19/10/2026), que tem sua própria checagem de
+  // escopo (ver remove-owner-alias-seed-scope.test.ts).
 
   test("health.ts e src/integrations/* não foram tocados neste gate", () => {
     const changed = changedOrNewPaths();

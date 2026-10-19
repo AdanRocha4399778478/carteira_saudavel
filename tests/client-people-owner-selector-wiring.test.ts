@@ -37,6 +37,21 @@ describe("Verificação — decisionOwnerSel/actionOwnerSel zerados na reanális
   });
 });
 
+describe("Verificação — reanálise canoniza pelo cadastro antes de guardar a análise", () => {
+  test("onSuccess aplica canonicalizeAnalysisOwners(a, people) antes de setAnalysis", () => {
+    const successIdx = dialogSource.indexOf(
+      "onSuccess: ({ analysis: a, agenda: g, rawAiResponse: rawResp }) => {",
+    );
+    expect(successIdx).toBeGreaterThan(-1);
+    const block = dialogSource.slice(successIdx, successIdx + 900);
+    expect(block).toContain("setAnalysis(canonicalizeAnalysisOwners(a, people));");
+  });
+
+  test("canonicalizeAnalysisOwners é importado de @/lib/client-people", () => {
+    expect(dialogSource).toContain("canonicalizeAnalysisOwners,");
+  });
+});
+
 describe("MeetingAnalysisDialog — prop people, default [], sem mudar nada sem cadastro", () => {
   test("people?: ClientPerson[] existe, default []", () => {
     expect(dialogSource).toContain("people = [],");
@@ -45,7 +60,7 @@ describe("MeetingAnalysisDialog — prop people, default [], sem mudar nada sem 
 
   test("import de orderPeopleForItem/preferredFunctionsForItem/ClientPerson vem de @/lib/client-people", () => {
     expect(dialogSource).toContain(
-      'import {\n  orderPeopleForItem,\n  preferredFunctionsForItem,\n  type ClientPerson,\n} from "@/lib/client-people";',
+      'import {\n  canonicalizeAnalysisOwners,\n  orderPeopleForItem,\n  preferredFunctionsForItem,\n  type ClientPerson,\n} from "@/lib/client-people";',
     );
   });
 });
@@ -155,9 +170,12 @@ describe("Sem cor nova e sem migration", () => {
     expect(changedOrNewPaths()).not.toContain("intelligent-meeting.server.ts");
   });
 
-  test("deduplication.ts e health.ts não foram tocados neste gate", () => {
+  // deduplication.ts era fora do escopo deste gate (Gate F) — passou a ser
+  // tocado de propósito pelo gate "remove OWNER_ALIAS_SEED" (19/10/2026),
+  // que tem sua própria checagem de escopo (ver owner-normalization.test.ts
+  // e known-client-names.test.ts).
+  test("health.ts não foi tocado neste gate", () => {
     const changed = changedOrNewPaths();
-    expect(changed).not.toContain("deduplication.ts");
     expect(changed).not.toContain("health.ts");
     expect(changed).not.toMatch(/src\/integrations\//);
   });

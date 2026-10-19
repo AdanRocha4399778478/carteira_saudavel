@@ -150,40 +150,24 @@ function splitOwnerNames(value: string): string[] {
     .filter(Boolean);
 }
 
-/**
- * Alias de grafia por cliente — resolvido por tabela explícita, nunca por
- * distância de edição (aproximação de texto pode juntar pessoas diferentes
- * que só têm nomes parecidos). Semente temporária enquanto o local
- * definitivo de armazenamento não é decidido (proposta em aberto — ver
- * discussão da B3): hoje é só uma constante no código.
- */
-const OWNER_ALIAS_SEED: Record<string, Record<string, string>> = {
-  "9943b0f4-5220-4297-9f17-7fee64280da5": { ada: "adam" }, // Grupo Erinho — "Ada" e "Adam" são a mesma pessoa.
-  "7d2de5e9-24ef-4c6d-b24c-ae07595e777e": { aline: "alice" }, // Medeiros (B19, 17/10/2026) — "Aline" e "Alice" são a mesma pessoa; grafia correta é Alice.
-};
-
-/** Resolve uma variação de grafia conhecida do responsável, pro cliente informado. */
-export function resolveOwnerAlias(clientId: string | null | undefined, normalizedName: string): string {
-  if (!clientId) return normalizedName;
-  return OWNER_ALIAS_SEED[clientId]?.[normalizedName] ?? normalizedName;
-}
-
 const MAX_KNOWN_NAMES = 20;
-
-function capitalizeToken(token: string): string {
-  return token ? token.charAt(0).toUpperCase() + token.slice(1) : token;
-}
 
 /**
  * B19 (17/10/2026) — nomes de pessoas já conhecidas de um cliente
  * (participantes de reuniões anteriores, responsáveis de ações e decisões
  * já gravadas), para dar à IA uma lista de referência antes de identificar
- * quem fala numa reunião nova. Canoniza pelo mesmo `OWNER_ALIAS_SEED` de
- * `resolveOwnerAlias` — grafia divergente nunca aparece (ex.: só "Alice",
- * nunca "Aline"). Sem duplicados (um nome por responsável canônico), sem
- * vazios, limitado a MAX_KNOWN_NAMES, sempre do cliente informado. Não é
- * fuzzy-match: dois nomes só viram um quando o alias explícito do cliente
- * diz isso — nunca por semelhança de texto.
+ * quem fala numa reunião nova. Sem duplicados (pela normalização), sem
+ * vazios, limitado a MAX_KNOWN_NAMES. Não é fuzzy-match: nunca junta nomes
+ * por semelhança de texto.
+ *
+ * Gate "remove OWNER_ALIAS_SEED" (19/10/2026) — a lista fixa de apelidos
+ * por cliente foi removida (ver client-people.ts/canonicalOwnerName): quem
+ * unifica grafias divergentes agora é o cadastro de pessoas, ANTES deste
+ * ponto (ver canonicalizeAnalysisOwners/canonicalizeParticipantNames em
+ * reuniao-inteligente.tsx) — por isso `clientId` não tem mais uso aqui
+ * (mantido no parâmetro só porque esta função é chamada por
+ * reuniao-inteligente.tsx, fora do escopo deste gate; o lint deste projeto
+ * não acusa parâmetro sem uso).
  */
 export function buildKnownClientNames(
   rawNames: (string | null | undefined)[],
@@ -195,12 +179,8 @@ export function buildKnownClientNames(
     for (const piece of splitOwnerNames(raw)) {
       const normalized = normalizeOwner(piece);
       if (!normalized || GENERIC_OWNER_LABELS.has(normalized)) continue;
-      const canonical = resolveOwnerAlias(clientId, normalized);
-      if (byCanonical.has(canonical)) continue;
-      byCanonical.set(
-        canonical,
-        canonical !== normalized ? capitalizeToken(canonical) : piece.trim(),
-      );
+      if (byCanonical.has(normalized)) continue;
+      byCanonical.set(normalized, piece.trim());
     }
   }
   return [...byCanonical.values()].slice(0, MAX_KNOWN_NAMES);
@@ -209,18 +189,14 @@ export function buildKnownClientNames(
 /**
  * Conjunto de responsáveis conhecidos citados num campo de texto — não um
  * único nome. Separa multi-responsável, remove qualificadores entre
- * parênteses, descarta rótulos genéricos (viram DESCONHECIDO — nem
- * confirmam nem escondem conflito) e resolve alias de grafia por cliente.
+ * parênteses e descarta rótulos genéricos (viram DESCONHECIDO — nem
+ * confirmam nem escondem conflito).
  */
-export function normalizeOwnerSet(
-  value: string | null | undefined,
-  clientId?: string | null,
-): Set<string> {
+export function normalizeOwnerSet(value: string | null | undefined): Set<string> {
   if (!value) return new Set();
   const names = splitOwnerNames(value)
     .map((n) => normalizeOwner(n))
-    .filter((n) => n && !GENERIC_OWNER_LABELS.has(n))
-    .map((n) => resolveOwnerAlias(clientId, n));
+    .filter((n) => n && !GENERIC_OWNER_LABELS.has(n));
   return new Set(names);
 }
 
@@ -229,14 +205,20 @@ export function normalizeOwnerSet(
  * um nome conhecido (rótulo genérico não conta como nome) e os conjuntos
  * são disjuntos. Desconhecido de qualquer lado não afirma nem nega
  * conflito — fica em aberto, não bloqueia por falta de informação.
+ *
+ * Gate "remove OWNER_ALIAS_SEED" (19/10/2026) — não recebe mais clientId:
+ * uma grafia divergente da mesma pessoa (ex.: apelido vs. nome canônico)
+ * já chega unificada pelo cadastro de pessoas, ANTES de qualquer chamada a
+ * matchAction/matchDecision (ver canonicalizeAnalysisOwners em
+ * MeetingAnalysisDialog.tsx, Gate F) — então os dois lados já comparam
+ * nome canônico contra nome canônico, sem precisar resolver alias aqui.
  */
 export function hasOwnerConflict(
   incoming: string | null | undefined,
   existing: string | null | undefined,
-  clientId?: string | null,
 ): boolean {
-  const a = normalizeOwnerSet(incoming, clientId);
-  const b = normalizeOwnerSet(existing, clientId);
+  const a = normalizeOwnerSet(incoming);
+  const b = normalizeOwnerSet(existing);
   if (a.size === 0 || b.size === 0) return false;
   for (const name of a) if (b.has(name)) return false;
   return true;
@@ -733,7 +715,7 @@ export function matchAction(item: IncomingAction, candidates: ActionItem[]): Ded
 
   const rawSignal = detectStatusSignal(`${item.description} ${item.evidence ?? ""}`);
   const conflictLabels = [
-    hasOwnerConflict(item.owner_name, best.item.owner_name, best.item.client_id) ? "responsável" : null,
+    hasOwnerConflict(item.owner_name, best.item.owner_name) ? "responsável" : null,
     hasFilledConflict(item.deadline, best.item.deadline, normalizeDate) ? "prazo" : null,
     hasFilledConflict(item.priority, best.item.priority) ? "prioridade" : null,
     (best.item.status === "concluída" || best.item.status === "cancelada") && rawSignal !== "reopened"
@@ -852,7 +834,7 @@ export function matchDecision(
     changes.push({ field: "status", label: "Status", from: best.item.status ?? "—", to: item.status });
 
   const conflictLabels = [
-    hasOwnerConflict(item.owner, best.item.owner, best.item.client_id) ? "responsável" : null,
+    hasOwnerConflict(item.owner, best.item.owner) ? "responsável" : null,
     hasFilledConflict(item.due_date, best.item.due_date, normalizeDate) ? "prazo" : null,
     hasFilledConflict(item.status, best.item.status) ? "status" : null,
     hasMaterialScopeConflict(item.description, best.item.description) ? "escopo textual" : null,

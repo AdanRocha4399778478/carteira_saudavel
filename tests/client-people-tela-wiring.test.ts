@@ -241,10 +241,13 @@ describe("Escopo do gate — nada fora do combinado foi tocado", () => {
   // escopo do Gate C/D (daqui) — passaram a ser tocados de propósito pelo
   // Gate E (19/10/2026, cadastro de pessoas na IA e no preview), que tem
   // sua própria checagem de escopo em client-people-ia-wiring.test.ts.
+  // deduplication.ts era fora do escopo do Gate C/D e do Gate E/F — passou a
+  // ser tocado de propósito pelo gate "remove OWNER_ALIAS_SEED" (19/10/2026),
+  // que tem sua própria checagem de escopo (ver owner-normalization.test.ts
+  // e known-client-names.test.ts).
 
-  test("deduplication.ts, health.ts e src/integrations/* não foram tocados neste gate", () => {
+  test("health.ts e src/integrations/* não foram tocados neste gate", () => {
     const changed = changedOrNewPaths();
-    expect(changed).not.toContain("deduplication.ts");
     expect(changed).not.toContain("health.ts");
     expect(changed).not.toMatch(/src\/integrations\//);
   });
