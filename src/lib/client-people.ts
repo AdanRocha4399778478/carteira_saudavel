@@ -1,3 +1,5 @@
+import type { MeetingAnalysis } from "@/lib/meeting-analysis";
+
 export const PERSON_FUNCTIONS = ["executa", "monitora", "acompanha", "decide"] as const;
 
 export type PersonFunction = (typeof PERSON_FUNCTIONS)[number];
@@ -163,4 +165,106 @@ export function suggestPeopleFromHistory(
 
   suggestions.sort((a, b) => b.count - a.count);
   return suggestions;
+}
+
+/* ------------------------------------------------------------------ *
+ * Gate E (19/10/2026): cadastro de pessoas usado pela IA e pelo preview.
+ * O cadastro tem PRIORIDADE sobre a lista fixa OWNER_ALIAS_SEED (que
+ * continua existindo como reserva, intocada nesta etapa) — decisão do
+ * dono do produto: a lista fixa só sai quando os apelidos existentes
+ * estiverem todos migrados pela tela.
+ * ------------------------------------------------------------------ */
+
+/** Reaproveitados pelo schema de entrada da IA (intelligent-meeting.server.ts) — mesmos limites dos dois lados. */
+export const MAX_PEOPLE_IN_PROMPT = 30;
+export const MAX_ALIASES_IN_PROMPT = 8;
+export const MAX_ROLE_CHARS_IN_PROMPT = 60;
+
+export interface PeoplePromptEntry {
+  name: string;
+  aliases: string[];
+  side: PersonSide;
+  role: string;
+  functions: PersonFunction[];
+}
+
+/** Quebra de linha e caracteres de controle nunca vão pro prompt (texto de uma linha só). */
+function stripControlChars(value: string): string {
+  // eslint-disable-next-line no-control-regex -- remoção deliberada de controles antes de ir ao prompt da IA.
+  return value.replace(/[\r\n\t\u0000-\u001f\u007f]+/g, " ").trim();
+}
+
+/**
+ * Contexto compacto do cadastro de pessoas do cliente, pro prompt da IA.
+ * Só pessoas ATIVAS; no máximo 30 pessoas e 8 apelidos por pessoa (as
+ * PRIMEIRAS da lista recebida, ordem estável — nunca reordena nem escolhe
+ * "as mais relevantes"); cargo cortado em 60 caracteres. Lista vazia (sem
+ * cliente escolhido, ou cliente sem pessoa ativa) devolve [].
+ */
+export function buildPeoplePromptContext(people: ClientPerson[]): PeoplePromptEntry[] {
+  return people
+    .filter((p) => p.active)
+    .slice(0, MAX_PEOPLE_IN_PROMPT)
+    .map((p) => ({
+      name: stripControlChars(p.name),
+      aliases: p.aliases.slice(0, MAX_ALIASES_IN_PROMPT).map(stripControlChars),
+      side: p.side,
+      role: stripControlChars(p.role ?? "").slice(0, MAX_ROLE_CHARS_IN_PROMPT),
+      functions: [...p.functions],
+    }));
+}
+
+/**
+ * Cópia da análise com os campos de responsável/falante trocados pelo nome
+ * canônico, quando `canonicalOwnerName` reconhece a pessoa (nome ou apelido
+ * batendo, pessoa ativa) — campos cobertos: `meeting.action_owner`,
+ * `actions[].owner_name`, `decisions[].owner` e `speaker_map[].name`. Nome
+ * desconhecido, ambíguo ou vazio fica intacto (nunca apaga responsável que
+ * o cadastro não conhece). Nenhum outro campo é tocado; a entrada original
+ * nunca é alterada (sempre devolve objetos/arrays novos nos campos que
+ * mudam, mantendo o resto por referência).
+ *
+ * `identification.participants` (participantes da reunião) NÃO é campo de
+ * `MeetingAnalysis` — vive num passo anterior, fora do objeto de análise —
+ * por isso tem uma função irmã, `canonicalizeParticipantNames` abaixo, pra
+ * quem precisar canonicalizar essa lista separadamente.
+ */
+export function canonicalizeAnalysisOwners(
+  analysis: MeetingAnalysis,
+  people: ClientPerson[],
+): MeetingAnalysis {
+  if (people.length === 0) return analysis;
+  return {
+    ...analysis,
+    meeting: {
+      ...analysis.meeting,
+      action_owner: canonicalOwnerName(analysis.meeting.action_owner, people),
+    },
+    actions: analysis.actions.map((a) => ({
+      ...a,
+      owner_name: canonicalOwnerName(a.owner_name, people),
+    })),
+    decisions: analysis.decisions.map((d) => ({
+      ...d,
+      owner: canonicalOwnerName(d.owner, people),
+    })),
+    speaker_map: analysis.speaker_map.map((s) => ({
+      ...s,
+      name: canonicalOwnerName(s.name, people),
+    })),
+  };
+}
+
+/**
+ * Mesma troca de `canonicalizeAnalysisOwners`, para uma lista solta de
+ * nomes (ex.: `identification.participants`, ou o campo Participantes da
+ * tela já separado por vírgula) — participante desconhecido fica com a
+ * grafia original.
+ */
+export function canonicalizeParticipantNames(
+  participants: string[],
+  people: ClientPerson[],
+): string[] {
+  if (people.length === 0) return participants;
+  return participants.map((name) => canonicalOwnerName(name, people));
 }

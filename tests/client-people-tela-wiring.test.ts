@@ -237,13 +237,10 @@ describe("Escopo do gate — nada fora do combinado foi tocado", () => {
     expect(changedOrNewPaths()).not.toMatch(/supabase\/migrations\//);
   });
 
-  test("intelligent-meeting.server.ts (IA) não foi tocado neste gate", () => {
-    expect(changedOrNewPaths()).not.toContain("intelligent-meeting.server.ts");
-  });
-
-  test("reuniao-inteligente.tsx não foi tocado neste gate", () => {
-    expect(changedOrNewPaths()).not.toContain("reuniao-inteligente.tsx");
-  });
+  // intelligent-meeting.server.ts e reuniao-inteligente.tsx eram fora do
+  // escopo do Gate C/D (daqui) — passaram a ser tocados de propósito pelo
+  // Gate E (19/10/2026, cadastro de pessoas na IA e no preview), que tem
+  // sua própria checagem de escopo em client-people-ia-wiring.test.ts.
 
   test("deduplication.ts, health.ts e src/integrations/* não foram tocados neste gate", () => {
     const changed = changedOrNewPaths();
