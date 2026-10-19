@@ -66,6 +66,8 @@ import {
   blockingIndicatorCount,
   buildApprovedIndicators,
   defaultIndicatorDraft,
+  formatIndicatorSummary,
+  summarizeIndicatorItems,
   type IndicatorDraft,
 } from "@/lib/indicator-approval";
 import { IndicatorSuggestionsBlock } from "@/components/painel/IndicatorSuggestionsBlock";
@@ -278,7 +280,32 @@ function formatApplyResultMessage(r: ApplyResult): string {
   const created = r.context + r.decisions + r.actions + r.risks + r.opportunities;
   const parts = [`${created} criados`, `${r.updated} atualizados`, `${r.skipped} ignorados`];
   if (r.blockedByChronology > 0) parts.push(`${r.blockedByChronology} bloqueados por cronologia`);
-  return `Reunião aprovada: ${parts.join(", ")}.`;
+  const base = `Reunião aprovada: ${parts.join(", ")}.`;
+
+  // Indicadores de resultado parte 4, Gate F — só aparece quando algo de
+  // indicador foi de fato gravado; sem indicadores, a mensagem acima
+  // permanece exatamente como sempre foi.
+  const indicatorParts: string[] = [];
+  if (r.indicatorsCreated > 0) {
+    indicatorParts.push(
+      `${r.indicatorsCreated} ${r.indicatorsCreated === 1 ? "indicador criado" : "indicadores criados"}`,
+    );
+  }
+  if (r.indicatorPointsAdded > 0) {
+    indicatorParts.push(
+      `${r.indicatorPointsAdded} ${r.indicatorPointsAdded === 1 ? "ponto adicionado" : "pontos adicionados"}`,
+    );
+  }
+  if (r.indicatorPointsSkipped > 0) {
+    indicatorParts.push(
+      `${r.indicatorPointsSkipped} ${
+        r.indicatorPointsSkipped === 1 ? "ponto repetido ignorado" : "pontos repetidos ignorados"
+      }`,
+    );
+  }
+  if (indicatorParts.length === 0) return base;
+
+  return `${base} ${indicatorParts.join(", ")}.`;
 }
 
 function ClassificationBadge({ value }: { value: string }) {
@@ -2424,6 +2451,12 @@ export function MeetingAnalysisDialog({
                         — revise os itens marcados antes de aprovar.
                       </span>
                     ) : null}
+                  </p>
+                )}
+
+                {(analysis?.indicators ?? []).length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {formatIndicatorSummary(summarizeIndicatorItems(approvedIndicatorItems))}
                   </p>
                 )}
 
