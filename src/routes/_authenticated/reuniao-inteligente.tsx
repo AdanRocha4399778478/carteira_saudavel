@@ -21,6 +21,14 @@ import {
   risksQuery,
 } from "@/lib/api";
 import { indicatorsQuery } from "@/lib/indicators-data";
+import { clientPeopleQuery } from "@/lib/client-people-data";
+import {
+  buildPeoplePromptContext,
+  canonicalizeAnalysisOwners,
+  canonicalizeParticipantNames,
+  canonicalOwnerName,
+  type ClientPerson,
+} from "@/lib/client-people";
 import { buildKnownClientNames, normalizeText } from "@/lib/deduplication";
 import { MEETING_TYPES, normalizeMeeting, type Meeting } from "@/lib/domain";
 import { cleanParticipants, normalizeMeetingType } from "@/lib/identification-clean";
@@ -223,6 +231,17 @@ function SmartMeetingPage() {
       clientId,
     );
   }, [knownNamesSources.data, actions.data, clientId]);
+  /**
+   * Gate E (19/10/2026) — cadastro de pessoas do cliente, mesma função já
+   * existente (clientPeopleQuery, src/lib/client-people-data.ts). Cliente
+   * sem pessoa ativa, ou nenhum cliente escolhido, devolve [] —
+   * buildPeoplePromptContext já filtra por `active` e lida com lista vazia.
+   */
+  const clientPeopleResult = useQuery(clientPeopleQuery(clientId));
+  const peopleContext = useMemo(
+    () => buildPeoplePromptContext(clientPeopleResult.data ?? []),
+    [clientPeopleResult.data],
+  );
   const [newProjectArea, setNewProjectArea] = useState("");
   const [newProjectSubarea, setNewProjectSubarea] = useState("");
   const [newProjectItem, setNewProjectItem] = useState("");
@@ -460,6 +479,22 @@ function SmartMeetingPage() {
         }
       }
 
+      // Gate E: mesma lógica acima, pro cadastro de pessoas — espera
+      // clientPeopleQuery terminar em vez de analisar sem pessoas só porque
+      // a consulta ainda estava carregando no clique de "Analisar".
+      let analysisPeople = peopleContext;
+      if (clientId) {
+        try {
+          const people = await qc.fetchQuery(clientPeopleQuery(clientId));
+          analysisPeople = buildPeoplePromptContext(people);
+        } catch {
+          analysisPeople = [];
+          toast.warning(
+            "Não foi possível carregar o cadastro de pessoas deste cliente; seguindo sem ele.",
+          );
+        }
+      }
+
       const raw = await analyze({
         data: {
           transcript: normalizeTranscript(transcript),
@@ -475,6 +510,7 @@ function SmartMeetingPage() {
           })),
           consultantName: access?.profile?.full_name ?? undefined,
           knownNames: analysisKnownNames,
+          people: analysisPeople,
         },
       });
       const payload = JSON.parse(raw.json) as Record<string, unknown>;
@@ -575,12 +611,37 @@ function SmartMeetingPage() {
       if (!meetingType) throw new Error("Escolha o tipo da reunião.");
       if (!analysis) throw new Error("Nenhuma análise disponível.");
 
+      // Gate E: canonicaliza pelo cadastro de pessoas ANTES de aplicar o
+      // mapa de falantes, pra o preview já mostrar o nome canônico. Mesmo
+      // padrão de espera do runAnalysis — sem cliente ou sem pessoa ativa,
+      // as duas funções abaixo devolvem a entrada intacta.
+      let peopleForCanonical: ClientPerson[] = [];
+      if (clientId) {
+        try {
+          peopleForCanonical = await qc.fetchQuery(clientPeopleQuery(clientId));
+        } catch {
+          peopleForCanonical = [];
+          toast.warning(
+            "Não foi possível carregar o cadastro de pessoas deste cliente; seguindo sem ele.",
+          );
+        }
+      }
+      const canonicalSpeakerMap = peopleForCanonical.length
+        ? speakerMap.map((entry) => ({
+            ...entry,
+            name: canonicalOwnerName(entry.name, peopleForCanonical),
+          }))
+        : speakerMap;
+
       // "Gerar preview" é a confirmação do mapa de falantes (sem botão
       // extra): aplica-o UMA vez aqui, SEMPRE a partir da análise ORIGINAL
       // (nunca de uma já reescrita), para reabrir/editar o mapa e gerar de
       // novo reaplicar do zero. Fallback para `analysis` só se a original
       // nunca tiver sido preenchida.
-      const mappedAnalysis = applySpeakerMapToAnalysis(originalAnalysis ?? analysis, speakerMap);
+      const mappedAnalysis = applySpeakerMapToAnalysis(
+        canonicalizeAnalysisOwners(originalAnalysis ?? analysis, peopleForCanonical),
+        canonicalSpeakerMap,
+      );
 
       let target = clientProjects.find((p) => p.id === projectId) ?? null;
       if (!target) {
@@ -615,10 +676,19 @@ function SmartMeetingPage() {
         projectId: target.id,
         meetingDate: meetingDate || new Date().toISOString().slice(0, 10),
         meetingType: meetingType || "",
-        participants: participants
-          .split(",")
-          .map((p) => p.trim())
-          .filter(Boolean),
+        // Gate E (correção): "participants" (o campo de texto) vem do mapa de
+        // falantes (participantsFromSpeakerMap/nextParticipantsValue), que lê
+        // entry.name direto — pode trazer o apelido digitado pelo consultor
+        // (ex.: "Dudu") em vez do nome canônico. Canonicaliza aqui, no ponto
+        // da gravação, com as mesmas pessoas já buscadas acima pro
+        // speaker_map/análise — sem pessoas, devolve a lista intacta.
+        participants: canonicalizeParticipantNames(
+          participants
+            .split(",")
+            .map((p) => p.trim())
+            .filter(Boolean),
+          peopleForCanonical,
+        ),
         transcriptHash: hash,
         transcriptKey: transcriptKey(hash, force),
       };
