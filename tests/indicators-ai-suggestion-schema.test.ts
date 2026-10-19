@@ -9,6 +9,13 @@ import { parseAnalysis } from "../src/lib/meeting-analysis";
  * campo "indicators" no prompt (intelligent-meeting.server.ts) e no
  * schema Zod (meeting-analysis.ts). ApprovedSelection, applyApprovedAnalysis
  * e o preview são gates futuros, intocados aqui.
+ *
+ * R31 (18/10/2026): indicador sem evidência (trecho literal que
+ * sustente o valor) também é descartado — por isso, a partir daqui,
+ * toda fixture cujo item deve SOBREVIVER ao transform ganhou
+ * `evidence: "fala que sustenta o valor"` (fixtures que já testavam
+ * descarte por outro motivo, ou que já tinham evidência própria, não
+ * precisaram mudar).
  * ------------------------------------------------------------------ */
 
 const root = resolve(import.meta.dir, "..");
@@ -23,6 +30,8 @@ function indicatorsOf(indicators: unknown[]) {
   if (!result.ok) throw new Error(result.errors.join("\n"));
   return result.analysis.indicators;
 }
+
+const EVIDENCE = "fala que sustenta o valor";
 
 describe("PROMPT — template JSON ganhou indicators[], depois de opportunities", () => {
   test("o template de saída tem o campo indicators", () => {
@@ -95,9 +104,7 @@ describe("PROMPT — regras de indicators[]", () => {
   });
 
   test("marca estimado para aproximação, medido para número fechado", () => {
-    expect(prompt).toContain(
-      '"estimado" quando a fala usar aproximação ("uns", "mais ou menos", "quase", "cerca de", "aproximadamente", "por volta de")',
-    );
+    expect(prompt).toContain('"estimado" quando a fala usar aproximação (');
     expect(prompt).toContain('"medido" quando o número for fechado');
   });
 
@@ -121,48 +128,63 @@ describe("PROMPT — regras de indicators[]", () => {
 
 describe("SCHEMA — parse funcional de indicators[]", () => {
   test("value numérico puro (143000) é aceito", () => {
-    const [i] = indicatorsOf([{ name: "Receita", kind: "valor", value: 143000 }]);
+    const [i] = indicatorsOf([
+      { name: "Receita", kind: "valor", value: 143000, evidence: EVIDENCE },
+    ]);
     expect(i!.value).toBe(143000);
   });
 
   test("value em texto pt-BR ('143.000') é convertido para 143000", () => {
-    const [i] = indicatorsOf([{ name: "Receita", kind: "valor", value: "143.000" }]);
+    const [i] = indicatorsOf([
+      { name: "Receita", kind: "valor", value: "143.000", evidence: EVIDENCE },
+    ]);
     expect(i!.value).toBe(143000);
   });
 
   test("value '12.5' (formato americano, não é milhar válido) vira null — item é descartado", () => {
-    const result = indicatorsOf([{ name: "Receita", kind: "valor", value: "12.5" }]);
+    const result = indicatorsOf([
+      { name: "Receita", kind: "valor", value: "12.5", evidence: EVIDENCE },
+    ]);
     expect(result.length).toBe(0);
   });
 
   test("value null descarta o item", () => {
-    const result = indicatorsOf([{ name: "Receita", kind: "valor", value: null }]);
+    const result = indicatorsOf([
+      { name: "Receita", kind: "valor", value: null, evidence: EVIDENCE },
+    ]);
     expect(result.length).toBe(0);
   });
 
   test("value ausente (undefined) descarta o item — nunca vira 0 silencioso", () => {
-    const result = indicatorsOf([{ name: "Receita", kind: "valor" }]);
+    const result = indicatorsOf([{ name: "Receita", kind: "valor", evidence: EVIDENCE }]);
     expect(result.length).toBe(0);
   });
 
   test("value 0 explícito é aceito — 0 é diferente de ausente", () => {
-    const [i] = indicatorsOf([{ name: "Risco", kind: "quantidade", value: 0 }]);
+    const [i] = indicatorsOf([{ name: "Risco", kind: "quantidade", value: 0, evidence: EVIDENCE }]);
     expect(i!.value).toBe(0);
   });
 
   test("kind desconhecido descarta o item", () => {
-    const result = indicatorsOf([{ name: "Receita", kind: "moeda", value: 100 }]);
+    const result = indicatorsOf([
+      { name: "Receita", kind: "moeda", value: 100, evidence: EVIDENCE },
+    ]);
     expect(result.length).toBe(0);
   });
 
   test("item sem nome é descartado, mesmo com kind e value válidos", () => {
-    const result = indicatorsOf([{ name: "", kind: "valor", value: 100 }]);
+    const result = indicatorsOf([{ name: "", kind: "valor", value: 100, evidence: EVIDENCE }]);
+    expect(result.length).toBe(0);
+  });
+
+  test("item sem evidência (R31) é descartado, mesmo com nome/kind/value válidos", () => {
+    const result = indicatorsOf([{ name: "Receita", kind: "valor", value: 100, evidence: "" }]);
     expect(result.length).toBe(0);
   });
 
   test("direction fora do domínio vira '' (não descarta o item)", () => {
     const [i] = indicatorsOf([
-      { name: "Receita", kind: "valor", value: 100, direction: "pra cima" },
+      { name: "Receita", kind: "valor", value: 100, direction: "pra cima", evidence: EVIDENCE },
     ]);
     expect(i).toBeDefined();
     expect(i!.direction).toBe("");
@@ -170,26 +192,36 @@ describe("SCHEMA — parse funcional de indicators[]", () => {
 
   test("direction válida é preservada", () => {
     const [i] = indicatorsOf([
-      { name: "Receita", kind: "valor", value: 100, direction: "maior_melhor" },
+      {
+        name: "Receita",
+        kind: "valor",
+        value: 100,
+        direction: "maior_melhor",
+        evidence: EVIDENCE,
+      },
     ]);
     expect(i!.direction).toBe("maior_melhor");
   });
 
   test("basis fora do domínio vira '' (não descarta o item)", () => {
-    const [i] = indicatorsOf([{ name: "Receita", kind: "valor", value: 100, basis: "chute" }]);
+    const [i] = indicatorsOf([
+      { name: "Receita", kind: "valor", value: 100, basis: "chute", evidence: EVIDENCE },
+    ]);
     expect(i).toBeDefined();
     expect(i!.basis).toBe("");
   });
 
   test("basis válida ('estimado') é preservada", () => {
-    const [i] = indicatorsOf([{ name: "Receita", kind: "valor", value: 100, basis: "estimado" }]);
+    const [i] = indicatorsOf([
+      { name: "Receita", kind: "valor", value: 100, basis: "estimado", evidence: EVIDENCE },
+    ]);
     expect(i!.basis).toBe("estimado");
   });
 
   test("duplicado pela mesma chave (nome normalizado + kind) é removido, mantendo o primeiro", () => {
     const result = indicatorsOf([
-      { name: "Receita Mensal", kind: "valor", value: 100 },
-      { name: "  RECEITA   mensal  ", kind: "valor", value: 999 },
+      { name: "Receita Mensal", kind: "valor", value: 100, evidence: EVIDENCE },
+      { name: "  RECEITA   mensal  ", kind: "valor", value: 999, evidence: EVIDENCE },
     ]);
     expect(result.length).toBe(1);
     expect(result[0]!.value).toBe(100);
@@ -197,8 +229,8 @@ describe("SCHEMA — parse funcional de indicators[]", () => {
 
   test("mesmo nome mas kind diferente NÃO é duplicado", () => {
     const result = indicatorsOf([
-      { name: "Receita", kind: "valor", value: 100 },
-      { name: "Receita", kind: "percentual", value: 23 },
+      { name: "Receita", kind: "valor", value: 100, evidence: EVIDENCE },
+      { name: "Receita", kind: "percentual", value: 23, evidence: EVIDENCE },
     ]);
     expect(result.length).toBe(2);
   });
@@ -210,18 +242,24 @@ describe("SCHEMA — parse funcional de indicators[]", () => {
   });
 
   test("baseline_value só é preenchido quando presente — ausente fica null", () => {
-    const [i] = indicatorsOf([{ name: "Receita", kind: "valor", value: 100 }]);
+    const [i] = indicatorsOf([{ name: "Receita", kind: "valor", value: 100, evidence: EVIDENCE }]);
     expect(i!.baseline_value).toBeNull();
   });
 
   test("baseline_value presente é convertido como value (pt-BR estrito)", () => {
     const [i] = indicatorsOf([
-      { name: "Receita", kind: "valor", value: 100, baseline_value: "1.234,5" },
+      {
+        name: "Receita",
+        kind: "valor",
+        value: 100,
+        baseline_value: "1.234,5",
+        evidence: EVIDENCE,
+      },
     ]);
     expect(i!.baseline_value).toBe(1234.5);
   });
 
-  test("evidência é preservada literalmente", () => {
+  test("evidência é preservada literalmente (até o limite de palavras — ver R31)", () => {
     const [i] = indicatorsOf([
       {
         name: "Receita",
@@ -237,46 +275,54 @@ describe("SCHEMA — parse funcional de indicators[]", () => {
 describe("SCHEMA — measured_at só sobrevive como data ISO real (nunca derruba a gravação em coluna date)", () => {
   test("'2026-10-16' (data real, válida) é mantida", () => {
     const [i] = indicatorsOf([
-      { name: "Receita", kind: "valor", value: 100, measured_at: "2026-10-16" },
+      { name: "Receita", kind: "valor", value: 100, measured_at: "2026-10-16", evidence: EVIDENCE },
     ]);
     expect(i!.measured_at).toBe("2026-10-16");
   });
 
   test("'2026-02-31' (formato certo, dia inexistente) vira ''", () => {
     const [i] = indicatorsOf([
-      { name: "Receita", kind: "valor", value: 100, measured_at: "2026-02-31" },
+      { name: "Receita", kind: "valor", value: 100, measured_at: "2026-02-31", evidence: EVIDENCE },
     ]);
     expect(i!.measured_at).toBe("");
   });
 
   test("'2026-13-01' (mês inexistente) vira ''", () => {
     const [i] = indicatorsOf([
-      { name: "Receita", kind: "valor", value: 100, measured_at: "2026-13-01" },
+      { name: "Receita", kind: "valor", value: 100, measured_at: "2026-13-01", evidence: EVIDENCE },
     ]);
     expect(i!.measured_at).toBe("");
   });
 
   test("'maio de 2026' (não é AAAA-MM-DD) vira ''", () => {
     const [i] = indicatorsOf([
-      { name: "Receita", kind: "valor", value: 100, measured_at: "maio de 2026" },
+      {
+        name: "Receita",
+        kind: "valor",
+        value: 100,
+        measured_at: "maio de 2026",
+        evidence: EVIDENCE,
+      },
     ]);
     expect(i!.measured_at).toBe("");
   });
 
   test("'0026-10-17' (ano fora de 1990-2100, provável erro de digitação) vira ''", () => {
     const [i] = indicatorsOf([
-      { name: "Receita", kind: "valor", value: 100, measured_at: "0026-10-17" },
+      { name: "Receita", kind: "valor", value: 100, measured_at: "0026-10-17", evidence: EVIDENCE },
     ]);
     expect(i!.measured_at).toBe("");
   });
 
   test("vazio continua ''", () => {
-    const [i] = indicatorsOf([{ name: "Receita", kind: "valor", value: 100, measured_at: "" }]);
+    const [i] = indicatorsOf([
+      { name: "Receita", kind: "valor", value: 100, measured_at: "", evidence: EVIDENCE },
+    ]);
     expect(i!.measured_at).toBe("");
   });
 
-  test("ausente (undefined) também continua '' — não descarta o item (só value/name/kind descartam)", () => {
-    const [i] = indicatorsOf([{ name: "Receita", kind: "valor", value: 100 }]);
+  test("ausente (undefined) também continua '' — não descarta o item (só value/name/kind/evidence descartam)", () => {
+    const [i] = indicatorsOf([{ name: "Receita", kind: "valor", value: 100, evidence: EVIDENCE }]);
     expect(i).toBeDefined();
     expect(i!.measured_at).toBe("");
   });

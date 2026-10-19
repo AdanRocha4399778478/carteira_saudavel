@@ -113,6 +113,19 @@ const freeNumber = z
     return parseNumberPtBr(v);
   });
 
+/**
+ * R31 (18/10/2026): limita uma evidência a `max` palavras, preservando as
+ * primeiras e acrescentando "…" quando cortar — nunca deixa passar um
+ * texto mais longo que o limite. Espaços duplicados nunca inflam a
+ * contagem (colapsados ao separar as palavras). `max` palavras ou menos:
+ * devolve o texto tal qual (só com as pontas aparadas), sem "…".
+ */
+export function limitEvidenceWords(text: string, max: number): string {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= max) return text.trim();
+  return `${words.slice(0, max).join(" ")}…`;
+}
+
 /** Flag booleana de nível-reunião: ausência de evidência vira false, nunca null. */
 const flag = z
   .union([z.boolean(), z.null()])
@@ -410,11 +423,18 @@ const analysisSchema = z.object({
         // Descarta o que não dá para gravar: sem nome, sem kind válido, ou
         // sem valor (valor ausente NUNCA vira zero — vira item descartado).
         if (!item.name || !item.kind || item.value === null) continue;
+        // R31 (18/10/2026): sem evidência (trecho literal que sustente o
+        // valor), o indicador também é descartado — nunca grava por inferência.
+        const evidence = item.evidence.trim();
+        if (!evidence) continue;
         const key = `${normalizeIndicatorName(item.name)}|${item.kind}`;
         if (seen.has(key)) continue;
         seen.add(key);
         out.push({
           ...item,
+          // R31: evidência longa é cortada em 15 palavras (nunca passa um
+          // trecho de 18+ palavras pra frente).
+          evidence: limitEvidenceWords(evidence, 15),
           // measured_at só sobrevive como "AAAA-MM-DD" REAL (isValidCalendarDate
           // já recusa data inexistente e ano fora de 1990-2100, sem new Date()) —
           // qualquer outro texto ("maio de 2026", data errada) vira "": a coluna
