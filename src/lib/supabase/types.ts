@@ -220,6 +220,56 @@ export type Database = {
           },
         ]
       }
+      client_people: {
+        Row: {
+          active: boolean;
+          aliases: string[];
+          client_id: string;
+          created_at: string;
+          created_by: string | null;
+          functions: string[];
+          id: string;
+          name: string;
+          role: string | null;
+          side: string;
+          updated_at: string;
+        };
+        Insert: {
+          active?: boolean;
+          aliases?: string[];
+          client_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          functions?: string[];
+          id?: string;
+          name: string;
+          role?: string | null;
+          side: string;
+          updated_at?: string;
+        };
+        Update: {
+          active?: boolean;
+          aliases?: string[];
+          client_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          functions?: string[];
+          id?: string;
+          name?: string;
+          role?: string | null;
+          side?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "client_people_client_id_fkey";
+            columns: ["client_id"];
+            isOneToOne: false;
+            referencedRelation: "clients";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       decisions: {
         Row: {
           client_id: string | null
