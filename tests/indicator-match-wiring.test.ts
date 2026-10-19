@@ -45,10 +45,13 @@ describe("MeetingAnalysisDialog — prop indicators e cálculo de indicatorPlans
     expect(block).toContain("analysis?.indicators");
   });
 
-  test("indicatorPlans não é usado em nenhum JSX deste gate (ainda não renderiza nada na tela)", () => {
+  test("indicatorPlans passou a ser usado na tela a partir do Gate C (ver tests/indicator-tela-wiring.test.ts)", () => {
+    // Neste Gate B, indicatorPlans só era calculado (declaração + .map que
+    // o calcula). O Gate C (18/10/2026) passou a consumi-lo de verdade —
+    // em indicatorDrafts e no render de IndicatorSuggestionsBlock — então
+    // esta invariante de "ainda não renderiza nada" não vale mais aqui.
     const uses = [...dialogSource.matchAll(/indicatorPlans/g)].length;
-    // 1 na declaração (const indicatorPlans) + 1 na linha do .map(...) que a calcula = 2.
-    expect(uses).toBe(2);
+    expect(uses).toBeGreaterThan(2);
   });
 });
 

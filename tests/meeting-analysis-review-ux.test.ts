@@ -47,10 +47,17 @@ describe("GATE 10A — nenhuma alteração em thresholds/dedupe/backend", () => 
   });
 
   test("submitApproval mantém a trava contra clique duplo (idempotência de UI preservada)", () => {
-    expect(dialogSource).toContain("const submitApproval = () => {");
-    expect(dialogSource).toContain(
-      "if (submitting.current || approve.isPending || approved || overallCounts.reviewCount > 0) return;",
-    );
+    const idx = dialogSource.indexOf("const submitApproval = () => {");
+    expect(idx).toBeGreaterThan(-1);
+    // Indicadores parte 4, Gate C (18/10/2026) acrescentou indicatorBlockingCount
+    // à mesma condição, quebrando-a em várias linhas — a trava original
+    // continua intacta dentro dela.
+    const body = dialogSource.slice(idx, idx + 300);
+    expect(body).toContain("submitting.current ||");
+    expect(body).toContain("approve.isPending ||");
+    expect(body).toContain("approved ||");
+    expect(body).toContain("overallCounts.reviewCount > 0 ||");
+    expect(body).toContain("return;");
   });
 
   test("closeOnApproved e REFRESH_KEYS continuam presentes e intocados", () => {
@@ -208,9 +215,8 @@ describe("PR 1 — item em revisão nasce sem modo escolhido; aprovar trava com 
     const submitApprovalStart = dialogSource.indexOf("const submitApproval = () => {");
     expect(submitApprovalStart).toBeGreaterThan(-1);
     const submitApprovalBody = dialogSource.slice(submitApprovalStart, submitApprovalStart + 400);
-    expect(submitApprovalBody).toContain(
-      "if (submitting.current || approve.isPending || approved || overallCounts.reviewCount > 0) return;",
-    );
+    expect(submitApprovalBody).toContain("submitting.current ||");
+    expect(submitApprovalBody).toContain("overallCounts.reviewCount > 0 ||");
     // A guarda vem ANTES de approve.mutate() — item em revisão nunca chega a disparar a mutation.
     expect(submitApprovalBody.indexOf("overallCounts.reviewCount > 0")).toBeLessThan(
       submitApprovalBody.indexOf("approve.mutate()"),
