@@ -1095,6 +1095,17 @@ export function defaultResolution(match: DedupeMatch<unknown>): ItemResolution {
   // (detectStatusSignal) é a mesma cautela: sem volume real validando a
   // precisão do regex, a mudança de estado nunca decide sozinha — fica em
   // revisão mesmo quando o resto do veredito (similaridade) seria seguro.
+  //
+  // R17 (18/10/2026, trava de segurança): UPDATE_EXISTING só vira "update"
+  // por padrão quando a confiança bate o limiar alto (DEDUPE_THRESHOLDS.high,
+  // 0,90) — matchAction/matchRisk/matchDecision têm caminhos (relação "same"
+  // entre entregáveis, mesmo responsável, sinal de conclusão) que já
+  // classificam o tipo como UPDATE_EXISTING com confiança BEM abaixo disso;
+  // achado real (R17): um par a 56% veio pré-marcado "Atualizar existente" e
+  // quase sobrescreveu o item de outra pessoa. Abaixo do limiar, cai pra
+  // "skip" (revisão manual) — nunca "create" sozinho, porque ainda é um
+  // candidato de atualização, só não confiável o bastante pra decidir sem o
+  // consultor.
   const mode: ResolutionMode =
     match.type === "EXISTING" ||
     match.type === "POSSIBLE_DUPLICATE" ||
@@ -1102,7 +1113,9 @@ export function defaultResolution(match: DedupeMatch<unknown>): ItemResolution {
     !!match.statusSignal
       ? "skip"
       : match.type === "UPDATE_EXISTING"
-        ? "update"
+        ? match.confidence >= DEDUPE_THRESHOLDS.high
+          ? "update"
+          : "skip"
         : "create";
   return {
     mode,
@@ -1178,10 +1191,31 @@ export function scopeToProject<T extends { meeting_id?: string | null }>(
 }
 
 /**
+ * R17 (18/10/2026, decisão do dono do produto): escopo real do pareamento
+ * de duplicidade — SÓ itens de reuniões do MESMO projeto da reunião atual
+ * entram como candidato. Diferente de `scopeToProject` (que existe para os
+ * CONTADORES do rodapé/pauta e, de propósito, nunca esvazia a lista: sem
+ * reuniões conhecidas ou lista resultante vazia, ele devolve tudo sem
+ * filtrar) — aqui o filtro é estrito: item sem `meeting_id` fica de fora
+ * (nunca é "do mesmo projeto" por definição), e projeto sem nenhuma
+ * reunião conhecida devolve lista vazia, nunca o universo inteiro do
+ * cliente. Função pura, sem I/O.
+ */
+export function scopeDedupeCandidates<T extends { meeting_id: string | null }>(
+  items: T[],
+  projectMeetingIds: Set<string>,
+): T[] {
+  return items.filter((item) => item.meeting_id !== null && projectMeetingIds.has(item.meeting_id));
+}
+
+/**
  * Anota o motivo de um match com a origem, quando o candidato encontrado
- * vier de um projeto diferente do projeto atual (comparação antiduplicidade
- * agora cruza todos os projetos do cliente, não só o projeto/reunião atual).
- * Não altera type/confidence/changes — só acrescenta contexto ao texto.
+ * vier de um projeto diferente do projeto atual. Desde R17 (18/10/2026) o
+ * pareamento em si é restrito ao projeto (ver scopeDedupeCandidates) —
+ * este aviso praticamente nunca mais dispara pra decisions/actions/risks/
+ * opportunities, mas a função continua aqui, sem custo, pra qualquer
+ * caminho futuro que volte a comparar entre projetos (ex.: R22). Não
+ * altera type/confidence/changes — só acrescenta contexto ao texto.
  */
 export function annotateOrigin<T>(
   match: DedupeMatch<T>,

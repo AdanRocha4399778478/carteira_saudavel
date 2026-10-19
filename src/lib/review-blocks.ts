@@ -1,4 +1,10 @@
-import type { DedupeVerdict, HistoryFlag, ResolutionMode, StatusSignal } from "@/lib/deduplication";
+import {
+  DEDUPE_THRESHOLDS,
+  type DedupeVerdict,
+  type HistoryFlag,
+  type ResolutionMode,
+  type StatusSignal,
+} from "@/lib/deduplication";
 
 /* ------------------------------------------------------------------ *
  * GATE 10A — helpers puros da revisão em blocos da Reunião Inteligente.
@@ -14,6 +20,15 @@ import type { DedupeVerdict, HistoryFlag, ResolutionMode, StatusSignal } from "@
 export type ReviewBlockItem<K extends string | number = string | number> = {
   key: K;
   verdict: DedupeVerdict;
+  /**
+   * Confiança do match (0-1) — mesma de `DedupeMatch.confidence`. R17
+   * (18/10/2026): usada por `needsReview` pra exigir escolha explícita
+   * quando UPDATE_EXISTING vier com confiança abaixo do limiar alto (ver
+   * defaultResolution em deduplication.ts, que já evita pré-marcar
+   * "Atualizar" nesse caso — aqui é a mesma cautela, pro item não ser
+   * descartado em silêncio como se fosse seguro).
+   */
+  confidence: number;
   /** Resolução atual (override do consultor, se houver, senão o default do dedupe). */
   mode: ResolutionMode;
   /** true quando o consultor já fez uma escolha explícita para este item. */
@@ -52,11 +67,19 @@ export type ReviewBlockCounts = {
  * vencedor do match está concluído ou cancelado/descartado) é tratado no
  * mesmo espírito — o ranking status-aware pode trazer um item fechado como
  * melhor match, e isso também precisa de decisão explícita, nunca silenciosa.
+ *
+ * R17 (18/10/2026): UPDATE_EXISTING com confiança abaixo do limiar alto
+ * (DEDUPE_THRESHOLDS.high) também exige escolha explícita — defaultResolution
+ * já evita pré-marcar "Atualizar" nesse caso (vira "skip"), mas sem esta
+ * checagem o item passaria batido como "ignorado" (mode "skip" sem
+ * necessidade de revisão), em vez de aparecer em "para revisar" e bloquear
+ * a aprovação como as possíveis duplicidades.
  */
 export function needsReview(
   item: Pick<
     ReviewBlockItem,
     | "verdict"
+    | "confidence"
     | "hasOverride"
     | "historyFlag"
     | "statusSignal"
@@ -66,6 +89,7 @@ export function needsReview(
 ): boolean {
   return (
     (item.verdict === "POSSIBLE_DUPLICATE" ||
+      (item.verdict === "UPDATE_EXISTING" && item.confidence < DEDUPE_THRESHOLDS.high) ||
       !!item.historyFlag ||
       !!item.statusSignal ||
       !!item.foreignClientFlag ||
@@ -124,6 +148,7 @@ export function countReviewBlock(
   items: Pick<
     ReviewBlockItem,
     | "verdict"
+    | "confidence"
     | "hasOverride"
     | "mode"
     | "historyFlag"
@@ -168,12 +193,12 @@ export function formatBlockSummary(counts: ReviewBlockCounts): string {
 /**
  * "Aplicar sugestões seguras" / "Aprovar bloco": aplica a resolução default a
  * todo item cujo verdict é inequívoco (NEW/UPDATE_EXISTING/EXISTING) e que o
- * consultor ainda não decidiu manualmente. Nunca toca em POSSIBLE_DUPLICATE,
- * em item com `historyFlag` (vencedor concluído/cancelado — ver `needsReview`),
- * em item com `statusSignal` (mudança de estado só por regex de linguagem
- * natural — ver `ReviewBlockItem.statusSignal`), em item com `foreignClientFlag`
- * (ver client-isolation-guard.ts) nem em item com override — devolve só o
- * patch para itens realmente afetados.
+ * consultor ainda não decidiu manualmente. Nunca toca em item com override
+ * (preserva a escolha manual) nem em nenhum item que `needsReview` marque
+ * como pendente (POSSIBLE_DUPLICATE, historyFlag, statusSignal,
+ * foreignClientFlag, conditionalActionFlag e, desde R17, UPDATE_EXISTING de
+ * baixa confiança) — mesma condição de `needsReview`, nunca duas listas que
+ * podem desalinhar.
  */
 export function applySafeResolutions<K extends string | number>(
   items: ReviewBlockItem<K>[],
@@ -181,11 +206,7 @@ export function applySafeResolutions<K extends string | number>(
   const patch: Partial<Record<K, ResolutionMode>> = {};
   for (const item of items) {
     if (item.hasOverride) continue;
-    if (!isSafeVerdict(item.verdict)) continue;
-    if (item.historyFlag) continue;
-    if (item.statusSignal) continue;
-    if (item.foreignClientFlag) continue;
-    if (item.conditionalActionFlag) continue;
+    if (needsReview(item)) continue;
     patch[item.key] = defaultModeForVerdict(item.verdict);
   }
   return patch;

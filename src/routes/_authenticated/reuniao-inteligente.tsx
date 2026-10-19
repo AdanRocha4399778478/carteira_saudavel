@@ -1184,6 +1184,9 @@ function SmartMeetingPage() {
         decisions={decisions.data ?? []}
         allDecisions={allClientDecisions.data ?? []}
         clientMeetings={clientMeetings.data ?? []}
+        projectMeetingIds={(clientMeetings.data ?? [])
+          .filter((m) => m.project_id === project?.id)
+          .map((m) => m.id)}
         clientProjects={(projects.data ?? [])
           .filter((pr) => pr.client_id === meeting?.client_id)
           .map((pr) => ({ id: pr.id, name: pr.name }))}
