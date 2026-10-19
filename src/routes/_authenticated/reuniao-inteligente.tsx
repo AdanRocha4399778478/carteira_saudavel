@@ -1269,6 +1269,7 @@ function SmartMeetingPage() {
           .map((c) => c.company_name)}
         opportunities={(opportunities.data ?? []).filter((o) => o.client_id === meeting?.client_id)}
         indicators={indicators.data ?? []}
+        people={clientPeopleResult.data ?? []}
         initialAnalysis={analysis}
         rawAiResponse={rawAiResponse}
         initialTranscript={`${sourceLabel(effectiveSource)}\n\n${transcript}`}
