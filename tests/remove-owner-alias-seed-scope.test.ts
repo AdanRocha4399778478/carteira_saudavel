@@ -66,9 +66,10 @@ describe("Escopo do gate — nada fora do combinado foi tocado", () => {
     expect(changed).not.toMatch(/src\/lib\/[a-z-]+-data\.ts/);
   });
 
-  test("a IA (intelligent-meeting.server.ts) não foi tocada neste gate", () => {
-    expect(changedOrNewPaths()).not.toContain("intelligent-meeting.server.ts");
-  });
+  // intelligent-meeting.server.ts (prompt da IA) era fora do escopo deste gate —
+  // passou a ser tocado de propósito pelo gate "valores ditos e conferência de
+  // extrato" (22/10/2026, substitui o PR #115), que tem sua própria checagem em
+  // intelligent-meeting-values-and-reconciliation.test.ts.
 
   // MeetingAnalysisDialog.tsx era fora do escopo original deste gate —
   // passou a ser tocado de propósito pela VERIFICAÇÃO (19/10/2026, mesmo
