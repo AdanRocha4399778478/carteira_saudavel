@@ -30,6 +30,18 @@ describe("SYSTEM_PROMPT (intelligent-meeting.server.ts) — oferta comercial do 
     expect(source).toContain("Sem aceite explícito, a oferta fica de fora (no máximo uma oportunidade).");
   });
 
+  test("promessa explícita do consultor de enviar proposta/orçamento vira ação do consultor, com o prazo dito e sem preço no texto", () => {
+    expect(source).toContain(
+      'Ressalva de promessa: quando o CONSULTOR promete de forma explícita enviar a proposta ou o orçamento ("vou te mandar a proposta até sexta"), isso é uma AÇÃO do consultor',
+    );
+    expect(source).toContain("com o prazo dito na conversa; sem prazo dito, fica sem prazo.");
+    expect(source).toContain('NUNCA traz preço, valor, plano ou escopo da oferta.');
+  });
+
+  test("o trecho antigo 'nem \"enviar a proposta\"' foi removido", () => {
+    expect(source).not.toContain('nem "enviar a proposta"');
+  });
+
   test("não se aplica a preço, plano ou proposta do próprio negócio do cliente", () => {
     expect(source).toContain(
       "Esta regra NÃO se aplica a preço, plano ou proposta do próprio negócio do CLIENTE",
