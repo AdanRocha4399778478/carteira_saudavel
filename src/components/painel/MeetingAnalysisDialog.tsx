@@ -101,6 +101,7 @@ import {
   type ItemResolution,
   type ResolutionMode,
 } from "@/lib/deduplication";
+import { excludeLaterMeetings } from "@/lib/deduplication";
 import {
   applyIgnoreBlock,
   applySafeResolutions,
@@ -595,16 +596,40 @@ export function MeetingAnalysisDialog({
     [opportunities, projectMeetingIdSet],
   );
 
-  /** meeting_id → project_id, pra descobrir de qual projeto veio uma ação/risco/oportunidade comparado. */
-  const projectIdByMeetingId = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const m of clientMeetings) if (m.project_id) map.set(m.id, m.project_id);
-    return map;
-  }, [clientMeetings]);
   /** meeting_id → meeting_date, pra travar "Atualizar existente" quando o candidato vem de reunião posterior. */
   const meetingDateByMeetingId = useMemo(() => {
     const map = new Map<string, string>();
     for (const m of clientMeetings) if (m.meeting_date) map.set(m.id, m.meeting_date);
+    return map;
+  }, [clientMeetings]);
+  /**
+   * R2 (22/10/2026): a comparação só considera itens de reuniões com data igual ou
+   * anterior à da reunião processada — reunião antiga nunca altera item de reunião
+   * posterior. Aplicado sobre as listas já restritas ao projeto (R17).
+   */
+  const upToCurrentMeeting = <T extends { meeting_id: string | null }>(items: T[]): T[] =>
+    excludeLaterMeetings(items, meeting?.meeting_date, meetingDateByMeetingId);
+  const dedupeActionsUpToMeeting = useMemo(
+    () => upToCurrentMeeting(dedupeActions),
+    [dedupeActions, meeting?.meeting_date, meetingDateByMeetingId],
+  );
+  const dedupeRisksUpToMeeting = useMemo(
+    () => upToCurrentMeeting(dedupeRisks),
+    [dedupeRisks, meeting?.meeting_date, meetingDateByMeetingId],
+  );
+  const dedupeDecisionsUpToMeeting = useMemo(
+    () => upToCurrentMeeting(dedupeDecisions),
+    [dedupeDecisions, meeting?.meeting_date, meetingDateByMeetingId],
+  );
+  const dedupeOpportunitiesUpToMeeting = useMemo(
+    () => upToCurrentMeeting(dedupeOpportunities),
+    [dedupeOpportunities, meeting?.meeting_date, meetingDateByMeetingId],
+  );
+
+  /** meeting_id → project_id, pra descobrir de qual projeto veio uma ação/risco/oportunidade comparado. */
+  const projectIdByMeetingId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of clientMeetings) if (m.project_id) map.set(m.id, m.project_id);
     return map;
   }, [clientMeetings]);
   const projectNameById = useMemo(() => {
@@ -679,7 +704,7 @@ export function MeetingAnalysisDialog({
             status: item.status,
             embedding: item.embedding ?? null,
           },
-          dedupeDecisions,
+          dedupeDecisionsUpToMeeting,
         );
         return buildRow(
           i,
@@ -689,7 +714,7 @@ export function MeetingAnalysisDialog({
           chronologyFor(match.existing?.meeting_id),
         );
       }),
-    [analysis, dedupeDecisions, decisionSel, project?.id, projectNameById, meeting?.meeting_date, meetingDateByMeetingId],
+    [analysis, dedupeDecisionsUpToMeeting, decisionSel, project?.id, projectNameById, meeting?.meeting_date, meetingDateByMeetingId],
   );
 
   const actionRows: DedupeRow<MeetingAnalysis["actions"][number], number>[] = useMemo(
@@ -704,7 +729,7 @@ export function MeetingAnalysisDialog({
             evidence: item.evidence,
             embedding: item.embedding ?? null,
           },
-          dedupeActions,
+          dedupeActionsUpToMeeting,
         );
         return buildRow(
           i,
@@ -716,7 +741,7 @@ export function MeetingAnalysisDialog({
       }),
     [
       analysis,
-      dedupeActions,
+      dedupeActionsUpToMeeting,
       actionSel,
       project?.id,
       projectIdByMeetingId,
@@ -731,7 +756,7 @@ export function MeetingAnalysisDialog({
       (analysis?.risks ?? []).map((item, i) => {
         const match = matchRisk(
           { description: item.description, level: item.level, embedding: item.embedding ?? null },
-          dedupeRisks,
+          dedupeRisksUpToMeeting,
         );
         return buildRow(
           i,
@@ -743,7 +768,7 @@ export function MeetingAnalysisDialog({
       }),
     [
       analysis,
-      dedupeRisks,
+      dedupeRisksUpToMeeting,
       riskSel,
       project?.id,
       projectIdByMeetingId,
@@ -758,7 +783,7 @@ export function MeetingAnalysisDialog({
       (analysis?.opportunities ?? []).map((item, i) => {
         const match = matchOpportunity(
           { description: item.description, expected_benefit: item.expected_benefit, embedding: item.embedding ?? null },
-          dedupeOpportunities,
+          dedupeOpportunitiesUpToMeeting,
         );
         return buildRow(
           i,
@@ -770,7 +795,7 @@ export function MeetingAnalysisDialog({
       }),
     [
       analysis,
-      dedupeOpportunities,
+      dedupeOpportunitiesUpToMeeting,
       oppSel,
       project?.id,
       projectIdByMeetingId,
@@ -1073,7 +1098,7 @@ export function MeetingAnalysisDialog({
         confidence: decisionRows[i]!.resolution.confidence,
         posterior: decisionRows[i]!.resolution.chronology === "posterior",
         candidates: decisionCandidates(
-          rankCandidates(dedupeDecisions, item.title, (d) => d.title, item.embedding ?? null, (d) => d.embedding),
+          rankCandidates(dedupeDecisionsUpToMeeting, item.title, (d) => d.title, item.embedding ?? null, (d) => d.embedding),
         ),
       })),
       ...(analysis.actions ?? []).map((item, i) => ({
@@ -1087,7 +1112,7 @@ export function MeetingAnalysisDialog({
         posterior: actionRows[i]!.resolution.chronology === "posterior",
         candidates: actionCandidates(
           rankCandidates(
-            dedupeActions,
+            dedupeActionsUpToMeeting,
             item.description,
             (a) => a.description,
             item.embedding ?? null,
@@ -1106,7 +1131,7 @@ export function MeetingAnalysisDialog({
         posterior: riskRows[i]!.resolution.chronology === "posterior",
         candidates: riskCandidates(
           rankCandidates(
-            dedupeRisks,
+            dedupeRisksUpToMeeting,
             item.description,
             (r) => r.description,
             item.embedding ?? null,
@@ -1125,7 +1150,7 @@ export function MeetingAnalysisDialog({
         posterior: oppRows[i]!.resolution.chronology === "posterior",
         candidates: oppCandidates(
           rankCandidates(
-            dedupeOpportunities,
+            dedupeOpportunitiesUpToMeeting,
             item.description,
             (o) => o.description,
             item.embedding ?? null,
@@ -1164,10 +1189,10 @@ export function MeetingAnalysisDialog({
     actionRows,
     riskRows,
     oppRows,
-    dedupeDecisions,
-    dedupeActions,
-    dedupeRisks,
-    dedupeOpportunities,
+    dedupeDecisionsUpToMeeting,
+    dedupeActionsUpToMeeting,
+    dedupeRisksUpToMeeting,
+    dedupeOpportunitiesUpToMeeting,
     overallCounts,
     projectNameById,
     projectIdByMeetingId,
