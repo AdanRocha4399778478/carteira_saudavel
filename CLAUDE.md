@@ -11,3 +11,11 @@
 - Esta sessão precisa estar ligada ao computador do usuário. Se o repositório local não existir, parar.
 - Relatório final CURTO, em português simples: o que muda para o usuário, totais de tsc e testes, hashes e links. Não colar diff, salvo se o prompt pedir expressamente.
 - Todo PR registra limitações conhecidas e como reverter.
+
+## Ciclo de vida do worktree
+
+1. Toda sessão que criar um worktree é responsável por removê-lo.
+2. Depois que o PR for mergeado e a main local for atualizada: `git worktree remove <pasta do próprio worktree>`, SEM `--force`, e depois `git worktree prune`.
+3. Se o remove recusar (arquivo sujo ou commit não enviado), NÃO forçar: parar e reportar o que está sujo.
+4. Nunca remover um worktree que não foi criado pela própria sessão.
+5. PR abandonado ou fechado sem merge: avisar o usuário, não remover sozinho.
