@@ -687,8 +687,12 @@ export function matchAction(item: IncomingAction, candidates: ActionItem[]): Ded
   const sameOwner =
     !!normalizeOwner(item.owner_name) &&
     normalizeOwner(item.owner_name) === normalizeOwner(best.item.owner_name);
+  // R3 (22/10/2026): mesmo responsável SÓ reforça quando o texto já é parecido
+  // (similaridade antes do bônus >= DEDUPE_THRESHOLDS.review). Responsável
+  // sozinho nunca vira duplicidade, nem empurra um par para a faixa cinzenta.
+  const ownerCounts = sameOwner && best.score >= DEDUPE_THRESHOLDS.review;
   // Mesmo responsável reforça a evidência de que é o mesmo compromisso.
-  const score = Math.min(1, sameOwner ? best.score + 0.06 : best.score);
+  const score = Math.min(1, ownerCounts ? best.score + 0.06 : best.score);
 
   const changes: FieldChange[] = [];
   const newDeadline = normalizeDate(item.deadline);
@@ -727,7 +731,7 @@ export function matchAction(item: IncomingAction, candidates: ActionItem[]): Ded
   let type = verdictFromScore(score);
   // Item praticamente idêntico mas com dado novo → atualizar, não recriar.
   if (type === "EXISTING" && changes.length > 0) type = "UPDATE_EXISTING";
-  if (type === "POSSIBLE_DUPLICATE" && sameOwner && score >= DEDUPE_THRESHOLDS.review + 0.05)
+  if (type === "POSSIBLE_DUPLICATE" && ownerCounts && score >= DEDUPE_THRESHOLDS.review + 0.05)
     type = "UPDATE_EXISTING";
   if (best.relation === "same" && normalizeText(item.description) !== normalizeText(best.item.description))
     type = "UPDATE_EXISTING";
@@ -770,7 +774,7 @@ export function matchAction(item: IncomingAction, candidates: ActionItem[]): Ded
             ? `Mesmo núcleo de entrega identificado (${pct(score)}); a nova formulação detalha o item histórico.`
             : best.relation === "related"
               ? `Mesmo núcleo temático (${pct(score)}), mas a intenção ou etapa pode ser diferente; requer revisão.`
-              : `Ação aberta semelhante (${pct(score)})${sameOwner ? ", mesmo responsável" : ""}${
+              : `Ação aberta semelhante (${pct(score)})${ownerCounts ? ", mesmo responsável" : ""}${
                   changes.length ? `, com ${changes.map((c) => c.label.toLowerCase()).join(" e ")} diferente` : ""
                 }.`,
     changes,
@@ -1132,6 +1136,24 @@ export function chronologyOf(
 ): ChronologyStatus {
   if (!currentMeetingDate || !candidateMeetingDate) return "unknown";
   return candidateMeetingDate > currentMeetingDate ? "posterior" : "current_or_earlier";
+}
+
+/**
+ * R2 (22/10/2026): a detecção de duplicidade/atualização só compara com itens
+ * de reuniões com data IGUAL OU ANTERIOR à da reunião processada — reunião
+ * antiga nunca altera item de reunião posterior. Só sai o comprovadamente
+ * posterior: item sem data conhecida (de reunião ou da atual) continua
+ * candidato, como em `chronologyOf` ("unknown" nunca bloqueia sozinho).
+ */
+export function excludeLaterMeetings<T extends { meeting_id: string | null }>(
+  items: T[],
+  currentMeetingDate: string | null | undefined,
+  dateByMeetingId: Map<string, string>,
+): T[] {
+  return items.filter((item) => {
+    const candidateDate = item.meeting_id ? dateByMeetingId.get(item.meeting_id) : null;
+    return chronologyOf(currentMeetingDate, candidateDate) !== "posterior";
+  });
 }
 
 /**
