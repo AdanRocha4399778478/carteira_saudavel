@@ -30,7 +30,7 @@ describe("GATE 10A — nenhuma alteração em thresholds/dedupe/backend", () => 
     expect(dialogSource).not.toMatch(/THRESHOLD/i);
   });
 
-  test("defaultResolution: mudança deliberada (Frente 1 + R17) — historyFlag nunca decide create/update sozinho, e UPDATE_EXISTING só vira 'update' com confiança >= limiar alto", () => {
+  test("defaultResolution: mudança deliberada (Frente 1 + R17) — historyFlag nunca decide create/update sozinho, e (R1) UPDATE_EXISTING nunca vira 'update' sozinho", () => {
     // Atualizado conscientemente nesta Frente: um vencedor concluído/cancelado
     // (historyFlag) entrou na mesma regra do POSSIBLE_DUPLICATE — nunca
     // silenciosamente "update" num item fechado, nem "skip" escondendo uma
@@ -41,7 +41,7 @@ describe("GATE 10A — nenhuma alteração em thresholds/dedupe/backend", () => 
     // (relação "same" entre entregáveis / sinal de conclusão). Ver
     // defaultResolution em src/lib/deduplication.ts.
     expect(dedupeSource).toContain(
-      '  const mode: ResolutionMode =\n    match.type === "EXISTING" ||\n    match.type === "POSSIBLE_DUPLICATE" ||\n    !!match.historyFlag ||\n    !!match.statusSignal\n      ? "skip"\n      : match.type === "UPDATE_EXISTING"\n        ? match.confidence >= DEDUPE_THRESHOLDS.high\n          ? "update"\n          : "skip"\n        : "create";',
+      '  const mode: ResolutionMode =\n    match.type === "EXISTING" ||\n    match.type === "POSSIBLE_DUPLICATE" ||\n    !!match.historyFlag ||\n    !!match.statusSignal ||\n    // R1 (22/10/2026): atualizar item já gravado (prazo, responsável, status ou\n    // texto) nunca é "seguro" — qualquer confiança, só com clique do consultor.\n    match.type === "UPDATE_EXISTING"\n      ? "skip"\n      : "create";',
     );
   });
 
@@ -254,7 +254,7 @@ describe("PR 1 — item em revisão nasce sem modo escolhido; aprovar trava com 
     // do PR 1: a UI é que não pode MOSTRAR esse default como se fosse uma escolha,
     // a regra pura de detecção continua a mesma.
     expect(dedupeSource).toContain(
-      '  const mode: ResolutionMode =\n    match.type === "EXISTING" ||\n    match.type === "POSSIBLE_DUPLICATE" ||\n    !!match.historyFlag ||\n    !!match.statusSignal\n      ? "skip"',
+      '  const mode: ResolutionMode =\n    match.type === "EXISTING" ||\n    match.type === "POSSIBLE_DUPLICATE" ||\n    !!match.historyFlag ||\n    !!match.statusSignal ||\n    // R1 (22/10/2026): atualizar item já gravado (prazo, responsável, status ou\n    // texto) nunca é "seguro" — qualquer confiança, só com clique do consultor.\n    match.type === "UPDATE_EXISTING"\n      ? "skip"',
     );
   });
 });

@@ -89,7 +89,9 @@ export function needsReview(
 ): boolean {
   return (
     (item.verdict === "POSSIBLE_DUPLICATE" ||
-      (item.verdict === "UPDATE_EXISTING" && item.confidence < DEDUPE_THRESHOLDS.high) ||
+      // R1 (22/10/2026): atualizar item já gravado exige clique do consultor,
+      // em qualquer confiança — nunca é "sugestão segura".
+      item.verdict === "UPDATE_EXISTING" ||
       !!item.historyFlag ||
       !!item.statusSignal ||
       !!item.foreignClientFlag ||
@@ -116,9 +118,13 @@ export function firstItemNeedingReview<K extends string | number>(
   return null;
 }
 
-/** Verdicts cuja resolução default é inequívoca — nunca inclui POSSIBLE_DUPLICATE. */
+/**
+ * Verdicts cuja resolução default é inequívoca (R1): NEW só cria e EXISTING é
+ * idêntico ao já gravado (ignora). POSSIBLE_DUPLICATE e UPDATE_EXISTING mudariam
+ * ou dependem de decisão — exigem clique do consultor.
+ */
 export function isSafeVerdict(verdict: DedupeVerdict): boolean {
-  return verdict !== "POSSIBLE_DUPLICATE";
+  return verdict === "NEW" || verdict === "EXISTING";
 }
 
 /** Mesma regra de `defaultResolution` (src/lib/deduplication.ts), só o modo. */

@@ -74,7 +74,7 @@ describe("scopeDedupeCandidates — escopo estrito ao projeto (nunca ao cliente 
   });
 });
 
-describe("defaultResolution — trava de segurança: UPDATE_EXISTING só vira 'update' com confiança >= limiar alto", () => {
+describe("defaultResolution — R1 (22/10/2026): UPDATE_EXISTING nunca vira 'update' sozinho, em nenhuma confiança", () => {
   function match(patch: Partial<DedupeMatch<unknown>> = {}): DedupeMatch<unknown> {
     return {
       type: "UPDATE_EXISTING",
@@ -88,11 +88,11 @@ describe("defaultResolution — trava de segurança: UPDATE_EXISTING só vira 'u
     };
   }
 
-  test("ação: UPDATE_EXISTING com 0,95 e sem statusSignal → 'update'", () => {
+  test("ação: UPDATE_EXISTING com 0,95 e sem statusSignal → 'skip' (exige clique)", () => {
     const resolution = defaultResolution(
       match({ existing_label: "Enviar relatório mensal", confidence: 0.95 }),
     );
-    expect(resolution.mode).toBe("update");
+    expect(resolution.mode).toBe("skip");
   });
 
   test("ação: UPDATE_EXISTING com 0,56 (abaixo do limiar) → 'skip', nunca 'update' nem 'create'", () => {
@@ -102,21 +102,21 @@ describe("defaultResolution — trava de segurança: UPDATE_EXISTING só vira 'u
     expect(resolution.mode).toBe("skip");
   });
 
-  test("decisão: UPDATE_EXISTING com 0,95 e sem statusSignal → 'update'", () => {
+  test("decisão: UPDATE_EXISTING com 0,95 e sem statusSignal → 'skip' (exige clique)", () => {
     const resolution = defaultResolution(
       match({ existing_label: "Revisar contrato com fornecedor", confidence: 0.95 }),
     );
-    expect(resolution.mode).toBe("update");
+    expect(resolution.mode).toBe("skip");
   });
 
-  test("decisão: UPDATE_EXISTING com confiança exatamente no limiar (0,90) → 'update'", () => {
+  test("decisão: UPDATE_EXISTING com confiança exatamente no limiar (0,90) → 'skip' (exige clique)", () => {
     const resolution = defaultResolution(
       match({
         existing_label: "Revisar contrato com fornecedor",
         confidence: DEDUPE_THRESHOLDS.high,
       }),
     );
-    expect(resolution.mode).toBe("update");
+    expect(resolution.mode).toBe("skip");
   });
 
   test("decisão: UPDATE_EXISTING logo abaixo do limiar (0,8999) → 'skip'", () => {
@@ -129,11 +129,11 @@ describe("defaultResolution — trava de segurança: UPDATE_EXISTING só vira 'u
     expect(resolution.mode).toBe("skip");
   });
 
-  test("risco: UPDATE_EXISTING com 0,95 e sem statusSignal → 'update'", () => {
+  test("risco: UPDATE_EXISTING com 0,95 e sem statusSignal → 'skip' (exige clique)", () => {
     const resolution = defaultResolution(
       match({ existing_label: "Processo judicial trabalhista", confidence: 0.95 }),
     );
-    expect(resolution.mode).toBe("update");
+    expect(resolution.mode).toBe("skip");
   });
 
   test("risco: UPDATE_EXISTING com 0,56 → 'skip'", () => {
@@ -259,18 +259,18 @@ describe("CORREÇÃO 2 — needsReview exige escolha explícita pra UPDATE_EXIST
     expect(counts.updateCount).toBe(1);
   });
 
-  test("UPDATE_EXISTING com 0,95 continua com 'Atualizar' padrão e NÃO exige revisão", () => {
-    const it = reviewItem({ confidence: 0.95, mode: "update" });
-    expect(needsReview(it)).toBe(false);
+  test("R1: UPDATE_EXISTING com 0,95 sem escolha também exige revisão (nunca 'Atualizar' padrão)", () => {
+    const it = reviewItem({ confidence: 0.95, mode: "skip" });
+    expect(needsReview(it)).toBe(true);
     const counts = countReviewBlock([it]);
-    expect(counts.reviewCount).toBe(0);
-    expect(counts.updateCount).toBe(1);
+    expect(counts.reviewCount).toBe(1);
+    expect(counts.updateCount).toBe(0);
   });
 
   test("a soma novo + atualização + ignorado + para revisar continua igual ao total (mistura de casos)", () => {
     const items: ReviewBlockItem<string>[] = [
       reviewItem({ key: "a", verdict: "NEW", confidence: 0, mode: "create" }),
-      reviewItem({ key: "b", verdict: "UPDATE_EXISTING", confidence: 0.95, mode: "update" }),
+      reviewItem({ key: "b", verdict: "UPDATE_EXISTING", confidence: 0.95, mode: "update", hasOverride: true }),
       reviewItem({ key: "c", verdict: "UPDATE_EXISTING", confidence: 0.56, mode: "skip" }),
       reviewItem({
         key: "d",
@@ -287,7 +287,7 @@ describe("CORREÇÃO 2 — needsReview exige escolha explícita pra UPDATE_EXIST
     );
     expect(counts.total).toBe(5);
     expect(counts.reviewCount).toBe(2); // c (sem override) e e (POSSIBLE_DUPLICATE)
-    expect(counts.updateCount).toBe(2); // b (confiança alta) e d (override manual)
+    expect(counts.updateCount).toBe(2); // b e d (os dois com clique do consultor)
     expect(counts.newCount).toBe(1); // a
   });
 
@@ -297,10 +297,10 @@ describe("CORREÇÃO 2 — needsReview exige escolha explícita pra UPDATE_EXIST
     expect(patch["item-1"]).toBeUndefined();
   });
 
-  test("applySafeResolutions continua aplicando 'update' a UPDATE_EXISTING de confiança alta sem override", () => {
+  test("R1: applySafeResolutions nunca aplica 'update' a UPDATE_EXISTING, mesmo de confiança alta", () => {
     const it = reviewItem({ confidence: 0.95, mode: "update" });
     const patch = applySafeResolutions([it]);
-    expect(patch["item-1"]).toBe("update");
+    expect(patch["item-1"]).toBeUndefined();
   });
 
   test("applySafeResolutions nunca sobrescreve item com override, mesmo com verdict seguro", () => {

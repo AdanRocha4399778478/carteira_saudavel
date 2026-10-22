@@ -26,10 +26,10 @@ function item(
 }
 
 describe("GATE 10A — review-blocks: classificação de verdict", () => {
-  test("isSafeVerdict é true para NEW/UPDATE_EXISTING/EXISTING e false só para POSSIBLE_DUPLICATE", () => {
+  test("R1: isSafeVerdict é true só para NEW (cria) e EXISTING (idêntico); UPDATE_EXISTING e POSSIBLE_DUPLICATE exigem clique", () => {
     expect(isSafeVerdict("NEW")).toBe(true);
-    expect(isSafeVerdict("UPDATE_EXISTING")).toBe(true);
     expect(isSafeVerdict("EXISTING")).toBe(true);
+    expect(isSafeVerdict("UPDATE_EXISTING")).toBe(false);
     expect(isSafeVerdict("POSSIBLE_DUPLICATE")).toBe(false);
   });
 
@@ -46,7 +46,9 @@ describe("GATE 10A — review-blocks: classificação de verdict", () => {
     // Uma vez que o consultor escolheu manualmente (override), não é mais "pendente".
     expect(needsReview(item(0, "POSSIBLE_DUPLICATE", "create", true))).toBe(false);
     expect(needsReview(item(0, "NEW", "create", false))).toBe(false);
-    expect(needsReview(item(0, "UPDATE_EXISTING", "update", false))).toBe(false);
+    // R1: atualizar item já gravado exige clique, em qualquer confiança.
+    expect(needsReview(item(0, "UPDATE_EXISTING", "update", false))).toBe(true);
+    expect(needsReview(item(0, "UPDATE_EXISTING", "update", true))).toBe(false);
     expect(needsReview(item(0, "EXISTING", "skip", false))).toBe(false);
   });
 
@@ -69,7 +71,7 @@ describe("GATE 10A — contagem por bloco", () => {
     const items: ReviewBlockItem<number>[] = [
       item(0, "NEW", "create"),
       item(1, "NEW", "create"),
-      item(2, "UPDATE_EXISTING", "update"),
+      item(2, "UPDATE_EXISTING", "update", true), // consultor clicou em Atualizar (R1)
       item(3, "POSSIBLE_DUPLICATE", "skip"), // pendente — conta como "para revisar"
       item(4, "EXISTING", "skip"), // já existe — conta como ignorada
       item(5, "NEW", "skip", true), // consultor decidiu ignorar manualmente — ignorada, não "nova"
@@ -131,7 +133,7 @@ describe("GATE 10A — contagem por bloco", () => {
   test("exemplo do GATE: 8 sugestões · 6 novas · 1 atualização · 1 para revisar", () => {
     const items: ReviewBlockItem<number>[] = [
       ...Array.from({ length: 6 }, (_, i) => item(i, "NEW", "create")),
-      item(6, "UPDATE_EXISTING", "update"),
+      item(6, "UPDATE_EXISTING", "update", true),
       item(7, "POSSIBLE_DUPLICATE", "skip"),
     ];
     const counts = countReviewBlock(items);
@@ -145,13 +147,13 @@ describe("GATE 10A — contagem por bloco", () => {
 });
 
 describe("GATE 10A — Aplicar sugestões seguras / Aprovar bloco (applySafeResolutions)", () => {
-  test("aplica o modo default a itens seguros sem override", () => {
+  test("aplica o modo default a itens seguros sem override (NEW e EXISTING idêntico); R1: nunca UPDATE_EXISTING", () => {
     const items: ReviewBlockItem<number>[] = [
       item(0, "NEW", "create"),
       item(1, "UPDATE_EXISTING", "update"),
       item(2, "EXISTING", "skip"),
     ];
-    expect(applySafeResolutions(items)).toEqual({ 0: "create", 1: "update", 2: "skip" });
+    expect(applySafeResolutions(items)).toEqual({ 0: "create", 2: "skip" });
   });
 
   test("não sobrescreve override manual já feito pelo consultor", () => {
@@ -210,9 +212,9 @@ describe("GATE 10A — Aplicar sugestões seguras / Aprovar bloco (applySafeReso
   test("bloco inteiro seguro: patch cobre todos os itens", () => {
     const items: ReviewBlockItem<string>[] = [
       { key: "a", verdict: "NEW", mode: "create", hasOverride: false },
-      { key: "b", verdict: "UPDATE_EXISTING", mode: "update", hasOverride: false },
+      { key: "b", verdict: "EXISTING", mode: "skip", hasOverride: false },
     ];
-    expect(applySafeResolutions(items)).toEqual({ a: "create", b: "update" });
+    expect(applySafeResolutions(items)).toEqual({ a: "create", b: "skip" });
   });
 });
 
@@ -257,7 +259,8 @@ describe("GATE 10D — snapshot e status visual do bloco", () => {
       item(1, "UPDATE_EXISTING", "update", false),
     ];
     const patch = applySafeResolutions(items);
-    expect(patch).toEqual({ 0: "create", 1: "update" });
+    // R1: o UPDATE_EXISTING não entra no patch — exige clique do consultor.
+    expect(patch).toEqual({ 0: "create" });
   });
 
   test("2. estado visual passa para 'approved' logo após Aprovar bloco", () => {
@@ -361,7 +364,7 @@ describe("firstItemNeedingReview — botão final navega até o primeiro item a 
   test("sem nenhum item em revisão, devolve null", () => {
     const blocks = [
       { blockId: "decisions", items: [item(0, "NEW", "create", false)] },
-      { blockId: "actions", items: [item(0, "UPDATE_EXISTING", "update", false)] },
+      { blockId: "actions", items: [item(0, "UPDATE_EXISTING", "update", true)] },
     ];
     expect(firstItemNeedingReview(blocks)).toBeNull();
   });

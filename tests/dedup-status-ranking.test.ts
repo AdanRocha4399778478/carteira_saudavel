@@ -151,13 +151,13 @@ describe("Frente 1 — ranking status-aware (ações/riscos/oportunidades)", () 
     expect(defaultResolution(match).mode).toBe("skip");
   });
 
-  test("sem historyFlag (item aberto), UPDATE_EXISTING continua com default 'update' — sem regressão", () => {
+  test("sem historyFlag (item aberto), UPDATE_EXISTING nasce 'skip' (R1: exige clique do consultor)", () => {
     const match = matchOpportunity(
       { description: "Expandir contrato para novo módulo financeiro", embedding: REF_VEC },
       [opportunity("Assunto sem relação nenhuma", { id: "open-1", status: "aberta", embedding: vecWithCosine(0.92) })],
     );
     expect(match.historyFlag).toBeNull();
-    expect(defaultResolution(match).mode).toBe("update");
+    expect(defaultResolution(match).mode).toBe("skip");
   });
 
   test("item em outro projeto do mesmo cliente: matchedProjectId aponta para a origem", () => {
