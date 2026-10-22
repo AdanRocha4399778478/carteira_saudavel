@@ -166,9 +166,10 @@ describe("Sem cor nova e sem migration", () => {
     expect(changedOrNewPaths()).not.toMatch(/supabase\/migrations\//);
   });
 
-  test("intelligent-meeting.server.ts (IA/prompt) não foi tocado neste gate", () => {
-    expect(changedOrNewPaths()).not.toContain("intelligent-meeting.server.ts");
-  });
+  // intelligent-meeting.server.ts (IA/prompt) era fora do escopo deste gate —
+  // passou a ser tocado de propósito pelo gate "valores ditos e conferência de
+  // extrato" (22/10/2026, substitui o PR #115), que tem sua própria checagem em
+  // intelligent-meeting-values-and-reconciliation.test.ts.
 
   // deduplication.ts era fora do escopo deste gate (Gate F) — passou a ser
   // tocado de propósito pelo gate "remove OWNER_ALIAS_SEED" (19/10/2026),
