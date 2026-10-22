@@ -1092,13 +1092,12 @@ export function defaultResolution(match: DedupeMatch<unknown>): ItemResolution {
     match.type === "EXISTING" ||
     match.type === "POSSIBLE_DUPLICATE" ||
     !!match.historyFlag ||
-    !!match.statusSignal
+    !!match.statusSignal ||
+    // R1 (22/10/2026): atualizar item já gravado (prazo, responsável, status ou
+    // texto) nunca é "seguro" — qualquer confiança, só com clique do consultor.
+    match.type === "UPDATE_EXISTING"
       ? "skip"
-      : match.type === "UPDATE_EXISTING"
-        ? match.confidence >= DEDUPE_THRESHOLDS.high
-          ? "update"
-          : "skip"
-        : "create";
+      : "create";
   return {
     mode,
     targetId: match.type === "NEW" ? null : match.existing_id,
