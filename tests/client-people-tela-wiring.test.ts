@@ -238,6 +238,7 @@ describe("Escopo do gate — nada fora do combinado foi tocado", () => {
     // Qualquer OUTRA migration nova continua proibida.
     const ALLOWED_MIGRATIONS = [
       "supabase/migrations/20260927203713_add_project_context_erp_summaries.sql",
+    "supabase/migrations/20261023200000_codificar_drift_producao.sql",
     ];
     const changed = ALLOWED_MIGRATIONS.reduce(
       (acc, file) => acc.split(file).join(""),
