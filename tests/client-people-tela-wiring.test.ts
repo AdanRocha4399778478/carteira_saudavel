@@ -234,7 +234,16 @@ function changedOrNewPaths(): string {
 
 describe("Escopo do gate — nada fora do combinado foi tocado", () => {
   test("nenhuma migration nova nesta branch (comparado com origin/main)", () => {
-    expect(changedOrNewPaths()).not.toMatch(/supabase\/migrations\//);
+    // Exceção explícita: migration reconciliada com a produção (já aplicada lá).
+    // Qualquer OUTRA migration nova continua proibida.
+    const ALLOWED_MIGRATIONS = [
+      "supabase/migrations/20260927203713_add_project_context_erp_summaries.sql",
+    ];
+    const changed = ALLOWED_MIGRATIONS.reduce(
+      (acc, file) => acc.split(file).join(""),
+      changedOrNewPaths(),
+    );
+    expect(changed).not.toMatch(/supabase\/migrations\//);
   });
 
   // intelligent-meeting.server.ts e reuniao-inteligente.tsx eram fora do

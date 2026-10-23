@@ -38,6 +38,10 @@ em `supabase/migrations/20260928000000_add_erp_columns_actions_projects.sql`)
 e RLS (auditoria de 2026-09-28 encontrou policies de produção divergentes das
 migrations — ver histórico do projeto para o resultado da triagem).
 
+Produção só é alterada por migration registrada. Script local
+(apply-migration.local.ts) e SQL direto não registram histórico e não devem ser
+usados em produção.
+
 ## Ambiente de desenvolvimento (Supabase isolado da produção)
 
 Existe um projeto Supabase de **dev** (`carteira_saudavel-dev`), separado da

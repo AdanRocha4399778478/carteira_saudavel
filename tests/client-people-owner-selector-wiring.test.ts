@@ -163,7 +163,16 @@ describe("Sem cor nova e sem migration", () => {
   }
 
   test("nenhuma migration nova nesta branch", () => {
-    expect(changedOrNewPaths()).not.toMatch(/supabase\/migrations\//);
+    // Exceção explícita: migration reconciliada com a produção (já aplicada lá).
+    // Qualquer OUTRA migration nova continua proibida.
+    const ALLOWED_MIGRATIONS = [
+      "supabase/migrations/20260927203713_add_project_context_erp_summaries.sql",
+    ];
+    const changed = ALLOWED_MIGRATIONS.reduce(
+      (acc, file) => acc.split(file).join(""),
+      changedOrNewPaths(),
+    );
+    expect(changed).not.toMatch(/supabase\/migrations\//);
   });
 
   // intelligent-meeting.server.ts (IA/prompt) era fora do escopo deste gate —
