@@ -180,6 +180,9 @@ END $$;
 ROLLBACK TO SAVEPOINT antes_admin;
 
 -- ---------- anon: não enxerga nada (sem claims válidos) ----------
+-- "Sem acesso" vale nas duas formas: 0 linhas (o role tem SELECT, mas nenhuma
+-- policy libera) ou permission denied / insufficient_privilege (o role nem tem
+-- SELECT — estado de produção desde 20261023200000_codificar_drift_producao).
 SAVEPOINT antes_anon;
 SET LOCAL ROLE anon;
 
@@ -187,7 +190,13 @@ DO $$
 DECLARE
   v_count integer;
 BEGIN
-  SELECT count(*) INTO v_count FROM public.clients;
+  BEGIN
+    SELECT count(*) INTO v_count FROM public.clients;
+  EXCEPTION
+    WHEN insufficient_privilege THEN
+      RAISE NOTICE 'OK: role anon sem privilégio de SELECT em clients (permission denied).';
+      RETURN;
+  END;
   IF v_count <> 0 THEN
     RAISE EXCEPTION 'FALHOU (anon / clients): esperado 0, veio % — nenhuma policy deveria expor dado a anon', v_count;
   END IF;
