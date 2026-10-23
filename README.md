@@ -64,7 +64,10 @@ produção, para rodar localmente e testar mudanças sem tocar em dado real.
    3 papéis (admin, dois consultores fictícios) e confirma que cada um só
    lê/escreve o que devia. Rode contra o projeto de dev sempre que mexer em
    policy de RLS — ele falha alto (`RAISE EXCEPTION`) se alguma policy voltar
-   a ficar `USING (true)` sem escopo.
+   a ficar `USING (true)` sem escopo. Ele precisa de dados fictícios (3
+   usuários, 2 clientes etc.): o passo a passo para recriar o dev, montar esse
+   seed (`supabase/tests/seed_rls_dev.sql`) e rodar o teste está em
+   [`docs/dev-environment.md`](docs/dev-environment.md).
 
 ## Scripts
 
