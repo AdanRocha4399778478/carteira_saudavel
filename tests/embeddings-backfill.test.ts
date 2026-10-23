@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { commitEmbeddingsBackfill } from "../src/lib/embeddings-backfill.server";
 import {
   BACKFILL_TABLES,
+  ABORT_REASON_EMBEDDING_UNAVAILABLE,
+  MAX_COMMIT,
+  computePending,
   buildDryRunReport,
   buildEligibleCandidates,
   chunkCandidates,
@@ -288,5 +293,99 @@ describe("GATE 8B — nenhuma alteração em dedupe/thresholds/matchers (16)", (
 
   test("embeddings.server.ts continua com a mesma assinatura pública getEmbeddings(texts) — não foi tocado para o backfill", () => {
     expect(embeddingsServer).toContain("export async function getEmbeddings(texts: string[])");
+  });
+});
+
+describe("Commit controlado — limite por execução e paginação", () => {
+  test("MAX_COMMIT é 200 e a ordem das tabelas é actions, decisions, risks, opportunities", () => {
+    expect(MAX_COMMIT).toBe(200);
+    expect([...BACKFILL_TABLES]).toEqual(["actions", "decisions", "risks", "opportunities"]);
+  });
+
+  test("computePending = elegíveis que continuam sem embedding (não gravados nem preenchidos por outra execução)", () => {
+    expect(
+      computePending({ eligible: 500, processed: 200, updated: 190, skipped: 5, errors: 5 }),
+    ).toBe(305);
+    expect(computePending(emptyCommitResult())).toBe(0);
+  });
+
+  test("o commit repassa o orçamento restante a cada tabela e usa MAX_COMMIT", () => {
+    expect(backfillServer).toMatch(/let remaining = MAX_COMMIT;/);
+    expect(backfillServer).toMatch(/backfillTable\(supabase, table, remaining, abort\)/);
+    expect(backfillServer).toMatch(/remaining -= tables\[table\]\.processed;/);
+    expect(backfillServer).toMatch(/candidates\.slice\(0, Math\.max\(0, budget\)\)/);
+  });
+
+  test("a leitura é paginada em páginas de 500, com ordem estável, mantendo o filtro embedding IS NULL", () => {
+    expect(backfillServer).toContain("const FETCH_PAGE_SIZE = 500;");
+    expect(backfillServer).toMatch(
+      /\.is\("embedding", null\)\s*\.order\("id"\)\s*\.range\(from, from \+ FETCH_PAGE_SIZE - 1\)/,
+    );
+  });
+
+  test("a server function continua aceitando só mode (sem limite vindo do cliente)", () => {
+    expect(backfillFunctions).not.toMatch(/limit|max/i);
+  });
+});
+
+describe("Commit controlado — aborto quando o serviço de embedding está indisponível", () => {
+  type FakeQuery = {
+    select: () => FakeQuery;
+    is: () => FakeQuery;
+    order: () => FakeQuery;
+    range: () => Promise<{ data: Record<string, unknown>[]; error: null }>;
+    update: () => FakeQuery;
+  };
+
+  test("sem OPENAI_API_KEY o commit para no primeiro lote: nada gravado, sem erros, tudo pendente, status abortado", async () => {
+    const previousKey = process.env["OPENAI_API_KEY"];
+    delete process.env["OPENAI_API_KEY"];
+    try {
+      const rows: Record<string, Record<string, unknown>[]> = {
+        actions: [
+          { id: "a1", description: "Ação 1" },
+          { id: "a2", description: "Ação 2" },
+          { id: "a3", description: "Ação 3" },
+        ],
+        decisions: [
+          { id: "d1", title: "Decisão 1" },
+          { id: "d2", title: "Decisão 2" },
+        ],
+        risks: [{ id: "r1", description: "Risco 1" }],
+        opportunities: [],
+      };
+      const updatedTables: string[] = [];
+      const fake = {
+        rpc: async () => ({ data: true, error: null }),
+        from: (table: string): FakeQuery => {
+          const query: FakeQuery = {
+            select: () => query,
+            is: () => query,
+            order: () => query,
+            range: async () => ({ data: rows[table] ?? [], error: null }),
+            update: () => {
+              updatedTables.push(table);
+              return query;
+            },
+          };
+          return query;
+        },
+      };
+
+      const report = await commitEmbeddingsBackfill(fake as unknown as SupabaseClient);
+
+      expect(report.status).toBe("abortado");
+      expect(report.abort_reason).toBe(ABORT_REASON_EMBEDDING_UNAVAILABLE);
+      expect(report.abort_reason).toBe(
+        "serviço de embedding indisponível (chave ausente/inválida ou API fora)",
+      );
+      expect(report.totals.updated).toBe(0);
+      expect(report.totals.errors).toBe(0);
+      expect(report.totals.processed).toBe(0);
+      expect(report.pending).toBe(6);
+      expect(updatedTables).toEqual([]);
+    } finally {
+      if (previousKey !== undefined) process.env["OPENAI_API_KEY"] = previousKey;
+    }
   });
 });

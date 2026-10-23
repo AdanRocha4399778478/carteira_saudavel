@@ -8,7 +8,7 @@
  * `review-blocks.ts` e `meeting-undo.shared.ts`.
  * ------------------------------------------------------------------ */
 
-export const BACKFILL_TABLES = ["actions", "risks", "decisions", "opportunities"] as const;
+export const BACKFILL_TABLES = ["actions", "decisions", "risks", "opportunities"] as const;
 export type BackfillTable = (typeof BACKFILL_TABLES)[number];
 
 export function isBackfillTable(value: string): value is BackfillTable {
@@ -106,8 +106,26 @@ export function sumCommitResults(results: CommitTableResult[]): CommitTableResul
   }), emptyCommitResult());
 }
 
+/** Máximo de registros processados por execução de commit (somando as 4 tabelas). */
+export const MAX_COMMIT = 200;
+
+/** Motivo exibido quando um lote inteiro volta sem embedding e a execução é interrompida. */
+export const ABORT_REASON_EMBEDDING_UNAVAILABLE =
+  "serviço de embedding indisponível (chave ausente/inválida ou API fora)";
+
 export type CommitReport = {
   mode: "commit";
+  /** "abortado" = a execução parou no meio; o que não foi tentado conta como pendente, não como erro. */
+  status: "concluido" | "abortado";
+  abort_reason: string | null;
   tables: Record<BackfillTable, CommitTableResult>;
   totals: CommitTableResult;
+  /** Registros ainda sem embedding após esta execução (não tentados + com erro). */
+  pending: number;
+  max_commit: number;
 };
+
+/** Pendentes = elegíveis que continuam com embedding nulo (não gravados nem preenchidos por outra execução). */
+export function computePending(totals: CommitTableResult): number {
+  return Math.max(0, totals.eligible - totals.updated - totals.skipped);
+}
