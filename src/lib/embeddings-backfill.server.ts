@@ -2,6 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getEmbeddings } from "@/lib/embeddings.server";
 import {
   BACKFILL_TABLES,
+  ABORT_REASON_EMBEDDING_UNAVAILABLE,
+  MAX_COMMIT,
+  computePending,
   buildDryRunReport,
   buildEligibleCandidates,
   chunkCandidates,
@@ -35,6 +38,7 @@ import {
  * ------------------------------------------------------------------ */
 
 const COMMIT_BATCH = 96; // mesmo MAX_BATCH prático de embeddings.server.ts.
+const FETCH_PAGE_SIZE = 500; // tamanho da página de leitura dos registros com embedding nulo.
 
 async function requireAdmin(supabase: SupabaseClient): Promise<void> {
   const { data, error } = await supabase.rpc("is_admin");
@@ -42,11 +46,23 @@ async function requireAdmin(supabase: SupabaseClient): Promise<void> {
   if (data !== true) throw new Error("Apenas administradores podem executar o backfill de embeddings.");
 }
 
+/** Leitura paginada (ordem estável por id); o filtro continua sendo embedding IS NULL. */
 async function fetchEligible(supabase: SupabaseClient, table: BackfillTable) {
   const field = textFieldFor(table);
-  const { data, error } = await supabase.from(table).select(`id, ${field}`).is("embedding", null);
-  if (error) throw new Error(error.message);
-  return buildEligibleCandidates(table, (data ?? []) as Record<string, unknown>[]);
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += FETCH_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(`id, ${field}`)
+      .is("embedding", null)
+      .order("id")
+      .range(from, from + FETCH_PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as Record<string, unknown>[];
+    rows.push(...page);
+    if (page.length < FETCH_PAGE_SIZE) break;
+  }
+  return buildEligibleCandidates(table, rows);
 }
 
 /** DRY-RUN: só leitura. Nunca faz UPDATE. */
@@ -60,13 +76,27 @@ export async function dryRunEmbeddingsBackfill(supabase: SupabaseClient): Promis
   return buildDryRunReport(perTable);
 }
 
-async function backfillTable(supabase: SupabaseClient, table: BackfillTable): Promise<CommitTableResult> {
+/**
+ * `budget` = quantos registros ainda podem ser processados nesta execução (0 = só contar).
+ * `abort` é marcado quando um lote inteiro volta sem embedding (chave ausente/inválida ou API fora).
+ */
+async function backfillTable(
+  supabase: SupabaseClient,
+  table: BackfillTable,
+  budget: number,
+  abort: { aborted: boolean },
+): Promise<CommitTableResult> {
   const { candidates } = await fetchEligible(supabase, table);
   const result = emptyCommitResult();
   result.eligible = candidates.length;
 
-  for (const batch of chunkCandidates(candidates, COMMIT_BATCH)) {
+  for (const batch of chunkCandidates(candidates.slice(0, Math.max(0, budget)), COMMIT_BATCH)) {
     const vectors = await getEmbeddings(batch.map((c) => c.text));
+    if (vectors.every((v) => !v)) {
+      // Lote inteiro sem embedding: interrompe. O lote não conta como processado nem como erro.
+      abort.aborted = true;
+      break;
+    }
     for (let i = 0; i < batch.length; i++) {
       const candidate = batch[i];
       if (!candidate) continue;
@@ -103,12 +133,29 @@ async function backfillTable(supabase: SupabaseClient, table: BackfillTable): Pr
   return result;
 }
 
-/** COMMIT: processa somente embedding IS NULL, idempotente, nunca sobrescreve. */
+/**
+ * COMMIT: processa somente embedding IS NULL, idempotente, nunca sobrescreve.
+ * No máximo MAX_COMMIT registros por execução (somando as tabelas, na ordem de BACKFILL_TABLES).
+ */
 export async function commitEmbeddingsBackfill(supabase: SupabaseClient): Promise<CommitReport> {
   await requireAdmin(supabase);
   const tables = {} as Record<BackfillTable, CommitTableResult>;
+  const abort = { aborted: false };
+  let remaining = MAX_COMMIT;
   for (const table of BACKFILL_TABLES) {
-    tables[table] = await backfillTable(supabase, table);
+    tables[table] = await backfillTable(supabase, table, remaining, abort);
+    remaining -= tables[table].processed;
+    // Após o aborto as tabelas seguintes só são contadas (orçamento 0), para os pendentes saírem certos.
+    if (abort.aborted) remaining = 0;
   }
-  return { mode: "commit", tables, totals: sumCommitResults(Object.values(tables)) };
+  const totals = sumCommitResults(Object.values(tables));
+  return {
+    mode: "commit",
+    status: abort.aborted ? "abortado" : "concluido",
+    abort_reason: abort.aborted ? ABORT_REASON_EMBEDDING_UNAVAILABLE : null,
+    tables,
+    totals,
+    pending: computePending(totals),
+    max_commit: MAX_COMMIT,
+  };
 }

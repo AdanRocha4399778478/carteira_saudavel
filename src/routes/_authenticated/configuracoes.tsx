@@ -17,7 +17,16 @@ import { Switch } from "@/components/ui/switch";
 import { InviteConsultantDialog } from "@/components/painel/InviteConsultantDialog";
 import { consultantDisplayName } from "@/lib/consultants";
 import { runEmbeddingsBackfill } from "@/lib/embeddings-backfill.functions";
-import type { BackfillTable, DryRunReport } from "@/lib/embeddings-backfill";
+import { MAX_COMMIT } from "@/lib/embeddings-backfill";
+import type { BackfillTable, CommitReport, DryRunReport } from "@/lib/embeddings-backfill";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/_authenticated/configuracoes")({
   head: () => ({
@@ -95,10 +104,43 @@ function SettingsPage() {
   const dryRunFn = useServerFn(runEmbeddingsBackfill);
   const embeddingsDryRun = useMutation({
     mutationFn: async (): Promise<DryRunReport> => {
-      // Esta UI só oferece dry-run — nunca envia mode: "commit".
+      // Este botão só roda dry-run; o commit passa por "Gravar embeddings" (com confirmação).
       const result = await dryRunFn({ data: { mode: "dry-run" } });
       if (result.mode !== "dry-run") throw new Error("Resposta inesperada: esperava dry-run.");
       return result;
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // "Gravar embeddings": dry-run primeiro, confirmação com as contagens, só então commit.
+  const [commitPreview, setCommitPreview] = useState<DryRunReport | null>(null);
+  const [commitReport, setCommitReport] = useState<CommitReport | null>(null);
+  const prepareCommit = useMutation({
+    mutationFn: async (): Promise<DryRunReport> => {
+      const result = await dryRunFn({ data: { mode: "dry-run" } });
+      if (result.mode !== "dry-run") throw new Error("Resposta inesperada: esperava dry-run.");
+      return result;
+    },
+    onSuccess: (report) => {
+      setCommitReport(null);
+      setCommitPreview(report);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const commitEmbeddings = useMutation({
+    mutationFn: async (): Promise<CommitReport> => {
+      const result = await dryRunFn({ data: { mode: "commit" } });
+      if (result.mode !== "commit") throw new Error("Resposta inesperada: esperava commit.");
+      return result;
+    },
+    onSuccess: (report) => {
+      setCommitPreview(null);
+      setCommitReport(report);
+      if (report.status === "abortado") {
+        toast.error(`Gravação interrompida: ${report.abort_reason ?? "motivo desconhecido"}.`);
+      } else {
+        toast.success(`Embeddings gravados: ${report.totals.updated}.`);
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -235,8 +277,9 @@ function SettingsPage() {
             <h2 className="text-base font-semibold">Diagnóstico — backfill de embeddings (GATE 8B.1)</h2>
             <p className="text-xs text-muted-foreground">
               Ferramenta administrativa temporária para validar, em modo somente leitura, quantos
-              registros de actions/risks/decisions/opportunities ainda não têm embedding. Só
-              executa DRY-RUN — nunca grava nada no banco.
+              registros de actions/risks/decisions/opportunities ainda não têm embedding. O dry-run
+              nunca grava; "Gravar embeddings" pede confirmação e grava no banco (até {MAX_COMMIT}{" "}
+              por execução).
             </p>
             <Button
               type="button"
@@ -247,6 +290,28 @@ function SettingsPage() {
             >
               {embeddingsDryRun.isPending ? "Executando dry-run…" : "Rodar dry-run de embeddings"}
             </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="ml-2 mt-3 rounded-full"
+              onClick={() => prepareCommit.mutate()}
+              disabled={prepareCommit.isPending || commitEmbeddings.isPending}
+            >
+              {prepareCommit.isPending ? "Verificando…" : "Gravar embeddings"}
+            </Button>
+            {commitReport ? (
+              <div className="mt-4 rounded-xl border border-border p-3">
+                <p className="text-sm font-semibold">Resultado da gravação</p>
+                {commitReport.status === "abortado" ? (
+                  <p className="text-sm font-semibold text-destructive">
+                    Execução interrompida: {commitReport.abort_reason ?? "motivo desconhecido"}.
+                  </p>
+                ) : null}
+                <p className="text-sm">gravados: {commitReport.totals.updated}</p>
+                <p className="text-sm">erros: {commitReport.totals.errors}</p>
+                <p className="text-sm">pendentes: {commitReport.pending}</p>
+              </div>
+            ) : null}
             {embeddingsDryRun.data ? (
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {(Object.keys(embeddingsDryRun.data.tables) as BackfillTable[]).map((table) => {
@@ -313,6 +378,52 @@ function SettingsPage() {
           </ul>
         </section>
       </div>
+      <Dialog
+        open={isAdmin && commitPreview !== null}
+        onOpenChange={(open) => {
+          if (!open && !commitEmbeddings.isPending) setCommitPreview(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Gravar embeddings</DialogTitle>
+            <DialogDescription>
+              Grava no banco (até {MAX_COMMIT} por execução). Só preenche registros que ainda não
+              têm embedding.
+            </DialogDescription>
+          </DialogHeader>
+          {commitPreview ? (
+            <div className="space-y-1 text-sm">
+              {(Object.keys(commitPreview.tables) as BackfillTable[]).map((table) => (
+                <p key={table}>
+                  {table}: {commitPreview.tables[table].eligible} elegíveis
+                </p>
+              ))}
+              <p className="font-semibold">Total elegível: {commitPreview.total_eligible}</p>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setCommitPreview(null)}
+              disabled={commitEmbeddings.isPending}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={() => commitEmbeddings.mutate()}
+              disabled={
+                commitEmbeddings.isPending || !commitPreview || commitPreview.total_eligible === 0
+              }
+            >
+              {commitEmbeddings.isPending ? "Gravando…" : "Confirmar e gravar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <InviteConsultantDialog open={inviteOpen} onOpenChange={setInviteOpen} />
     </>
   );
